@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { expect, test } from 'vitest'
 import { composeContext, type RunState } from './context.js'
 import type { LoopDef, NodeDef, NodeOutcome } from './types.js'
 

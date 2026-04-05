@@ -1,4 +1,4 @@
-import type { LoopDef, NodeDef, NodeOutcome } from './types.js'
+import type { LoopDef, NodeDef, NodeOutcome, Role } from './types.js'
 
 export interface RunState {
   plan: string | null
@@ -13,7 +13,7 @@ const VERDICT_FORMAT = [
   'EVIDENCE: <one line citing the concrete reason>',
 ].join('\n')
 
-const ROLE_INSTRUCTIONS: Record<string, string> = {
+const ROLE_INSTRUCTIONS: Record<Role, string> = {
   planner:
     'You are the PLANNER. Decompose the goal into a concrete plan. ' +
     'Every task must have testable success criteria. Output only the plan.',
@@ -23,9 +23,13 @@ const ROLE_INSTRUCTIONS: Record<string, string> = {
   executor:
     'You are the EXECUTOR. Do the work described by the goal and plan. ' +
     'Address every item in the feedback if any is given.',
+  tester:
+    'You are the TESTER. Run the configured checks against the work.',
   judge:
     'You are the JUDGE. Score the work against the rubric from 0 to 1. ' +
     'Also verify the work still serves the stated goal (drift check).',
+  gate:
+    'A human reviewer must approve or reject the work above before the loop can finish.',
   synthesizer:
     'You are the SYNTHESIZER. Merge the branch outputs below into one ' +
     'coherent result, resolving conflicts and removing duplicates.',
@@ -56,7 +60,7 @@ export function composeContext(
     parts.push(`Pass threshold: SCORE must be >= ${node.threshold}.`)
   }
 
-  parts.push(`# Your role\n${ROLE_INSTRUCTIONS[node.role] ?? ''}`)
+  parts.push(`# Your role\n${ROLE_INSTRUCTIONS[node.role]}`)
   if (node.prompt) parts.push(`# Additional instructions\n${node.prompt}`)
   if (node.role === 'critic' || node.role === 'judge') parts.push(VERDICT_FORMAT)
   return parts.join('\n\n')
