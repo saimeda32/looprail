@@ -1,0 +1,76 @@
+import { describe, expect, test } from 'vitest'
+import { executeNode, type EngineDeps } from './nodes.js'
+import { MockAdapter } from '../adapters/mock.js'
+import { createRegistry } from '../adapters/registry.js'
+import type { LoopDef, NodeDef, NodeOutcome } from '../core/types.js'
+import type { RunState } from '../core/context.js'
+
+const def: LoopDef = {
+  name: 't', goal: 'g',
+  agents: { a: { adapter: 'mock' } },
+  nodes: [],
+  rails: { maxIterations: 3, maxCostUsd: 1 },
+  verdictPolicy: { kind: 'all-pass' },
+}
+const state: RunState = { plan: null, iteration: 1, feedback: null }
+const none = new Map<string, NodeOutcome>()
+
+const depsWith = (mock: MockAdapter): EngineDeps => {
+  const registry = createRegistry()
+  registry.register(mock)
+  return { registry }
+}
+
+test('executor returns output with no verdict', async () => {
+  const deps = depsWith(new MockAdapter([{ output: 'did the work', costUsd: 0.02 }]))
+  const out = await executeNode(def, { id: 'do', role: 'executor', agent: 'a' }, state, none, deps)
+  expect(out).toMatchObject({ nodeId: 'do', output: 'did the work', verdict: null, costUsd: 0.02 })
+})
+
+test('critic parses verdict from output', async () => {
+  const deps = depsWith(new MockAdapter([{ output: 'VERDICT: fail\nEVIDENCE: broken' }]))
+  const out = await executeNode(def, { id: 'c', role: 'critic', agent: 'a', of: 'do' }, state, none, deps)
+  expect(out.verdict).toMatchObject({ status: 'fail', evidence: 'broken' })
+})
+
+test('unparseable verdict re-asks once, then fails', async () => {
+  const mock = new MockAdapter([{ output: 'looks fine to me' }, { output: 'still chatting' }])
+  const out = await executeNode(def, { id: 'c', role: 'critic', agent: 'a' }, state, none, depsWith(mock))
+  expect(mock.calls.length).toBe(2)
+  expect(mock.calls[1].prompt).toContain('VERDICT:')
+  expect(out.verdict).toMatchObject({ status: 'fail', evidence: 'verdict unparseable' })
+})
+
+test('judge below threshold fails even when it says pass', async () => {
+  const deps = depsWith(new MockAdapter([{ output: 'VERDICT: pass\nSCORE: 0.6\nEVIDENCE: ok' }]))
+  const node: NodeDef = { id: 'j', role: 'judge', agent: 'a', threshold: 0.85 }
+  const out = await executeNode(def, node, state, none, deps)
+  expect(out.verdict!.status).toBe('fail')
+  expect(out.verdict!.evidence).toContain('threshold')
+})
+
+test('tester passes on exit 0 and fails with output evidence otherwise', async () => {
+  const deps: EngineDeps = { registry: createRegistry() }
+  const pass = await executeNode(def, { id: 't1', role: 'tester', run: 'true' }, state, none, deps)
+  expect(pass.verdict!.status).toBe('pass')
+  const fail = await executeNode(
+    def, { id: 't2', role: 'tester', run: 'echo boom >&2; exit 1' }, state, none, deps)
+  expect(fail.verdict!.status).toBe('fail')
+  expect(fail.verdict!.evidence).toContain('boom')
+})
+
+test('gate consults the handler; missing handler is an error verdict', async () => {
+  const registry = createRegistry()
+  const ok = await executeNode(
+    def, { id: 'g', role: 'gate' }, state, none, { registry, gate: async () => true })
+  expect(ok.verdict!.status).toBe('pass')
+  const missing = await executeNode(def, { id: 'g', role: 'gate' }, state, none, { registry })
+  expect(missing.verdict!.status).toBe('error')
+})
+
+test('adapter throw becomes an error verdict', async () => {
+  const out = await executeNode(
+    def, { id: 'c', role: 'critic', agent: 'a' }, state, none, depsWith(new MockAdapter([])))
+  expect(out.verdict!.status).toBe('error')
+  expect(out.verdict!.evidence).toContain('exhausted')
+})
