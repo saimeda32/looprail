@@ -74,3 +74,35 @@ test('adapter throw becomes an error verdict', async () => {
   expect(out.verdict!.status).toBe('error')
   expect(out.verdict!.evidence).toContain('exhausted')
 })
+
+test('executor with unknown agent key resolves with error verdict, not a rejection', async () => {
+  const deps = depsWith(new MockAdapter([{ output: 'unused' }]))
+  const out = await executeNode(
+    def, { id: 'do', role: 'executor', agent: 'nope' }, state, none, deps)
+  expect(out.verdict!.status).toBe('error')
+})
+
+test('critic whose adapter is not registered resolves with error verdict', async () => {
+  const registry = createRegistry()
+  const out = await executeNode(
+    def, { id: 'c', role: 'critic', agent: 'a' }, state, none, { registry })
+  expect(out.verdict!.status).toBe('error')
+})
+
+test('gate handler that throws resolves with error verdict', async () => {
+  const registry = createRegistry()
+  const out = await executeNode(
+    def, { id: 'g', role: 'gate' }, state, none, {
+      registry,
+      gate: async () => { throw new Error('boom') },
+    })
+  expect(out.verdict!.status).toBe('error')
+})
+
+test('judge with threshold but no SCORE line fails with explicit evidence', async () => {
+  const deps = depsWith(new MockAdapter([{ output: 'VERDICT: pass\nEVIDENCE: ok' }]))
+  const node: NodeDef = { id: 'j', role: 'judge', agent: 'a', threshold: 0.85 }
+  const out = await executeNode(def, node, state, none, deps)
+  expect(out.verdict!.status).toBe('fail')
+  expect(out.verdict!.evidence).toContain('no SCORE')
+})

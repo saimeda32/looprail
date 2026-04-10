@@ -22,41 +22,57 @@ export async function executeNode(
   const base = { nodeId: node.id, role: node.role, costUsd: 0, tokens: 0, durationMs: 0 }
 
   if (node.role === 'tester') {
-    const started = Date.now()
-    const res = await execa(node.run!, {
-      shell: true, cwd: deps.cwd, reject: false, timeout: node.timeoutMs,
-      all: true,
-    })
-    const passed = res.exitCode === 0
-    return {
-      ...base,
-      output: res.all ?? '',
-      durationMs: Date.now() - started,
-      verdict: {
-        node: node.id,
-        status: passed ? 'pass' : 'fail',
-        evidence: passed ? `exit 0` : (res.all ?? '').slice(-500) || `exit ${res.exitCode}`,
-      },
+    try {
+      const started = Date.now()
+      const res = await execa(node.run!, {
+        shell: true, cwd: deps.cwd, reject: false, timeout: node.timeoutMs,
+        all: true,
+      })
+      const passed = res.exitCode === 0
+      return {
+        ...base,
+        output: res.all ?? '',
+        durationMs: Date.now() - started,
+        verdict: {
+          node: node.id,
+          status: passed ? 'pass' : 'fail',
+          evidence: passed ? `exit 0` : (res.all ?? '').slice(-500) || `exit ${res.exitCode}`,
+        },
+      }
+    } catch (err) {
+      return {
+        ...base,
+        output: '',
+        verdict: { node: node.id, status: 'error', evidence: err instanceof Error ? err.message : String(err) },
+      }
     }
   }
 
   if (node.role === 'gate') {
-    if (!deps.gate) {
-      return { ...base, output: '', verdict: { node: node.id, status: 'error', evidence: 'no gate handler configured' } }
-    }
-    const context = composeContext(def, node, state, outcomes)
-    const approved = await deps.gate(node, context)
-    return {
-      ...base,
-      output: approved ? 'approved' : 'rejected',
-      verdict: { node: node.id, status: approved ? 'pass' : 'fail', evidence: approved ? 'human approved' : 'human rejected' },
+    try {
+      if (!deps.gate) {
+        return { ...base, output: '', verdict: { node: node.id, status: 'error', evidence: 'no gate handler configured' } }
+      }
+      const context = composeContext(def, node, state, outcomes)
+      const approved = await deps.gate(node, context)
+      return {
+        ...base,
+        output: approved ? 'approved' : 'rejected',
+        verdict: { node: node.id, status: approved ? 'pass' : 'fail', evidence: approved ? 'human approved' : 'human rejected' },
+      }
+    } catch (err) {
+      return {
+        ...base,
+        output: '',
+        verdict: { node: node.id, status: 'error', evidence: err instanceof Error ? err.message : String(err) },
+      }
     }
   }
 
-  const agentDef = def.agents[node.agent!]
-  const adapter = deps.registry.get(agentDef.adapter)
-  const prompt = composeContext(def, node, state, outcomes)
   try {
+    const agentDef = def.agents[node.agent!]
+    const adapter = deps.registry.get(agentDef.adapter)
+    const prompt = composeContext(def, node, state, outcomes)
     let res = await adapter.invoke({ prompt, timeoutMs: node.timeoutMs })
     let verdict = VERIFYING.has(node.role) ? parseVerdict(node.id, res.output) : null
     let cost = res.costUsd
@@ -74,9 +90,11 @@ export async function executeNode(
       res = retry
     }
 
-    if (node.role === 'judge' && verdict && node.threshold !== undefined) {
-      if ((verdict.score ?? 0) < node.threshold && verdict.status === 'pass') {
-        verdict = { ...verdict, status: 'fail', evidence: `score ${verdict.score ?? 0} below threshold ${node.threshold}` }
+    if (node.role === 'judge' && verdict && node.threshold !== undefined && verdict.status === 'pass') {
+      if (verdict.score === undefined) {
+        verdict = { ...verdict, status: 'fail', evidence: `judge reported no SCORE; threshold ${node.threshold} requires one` }
+      } else if (verdict.score < node.threshold) {
+        verdict = { ...verdict, status: 'fail', evidence: `score ${verdict.score} below threshold ${node.threshold}` }
       }
     }
 
