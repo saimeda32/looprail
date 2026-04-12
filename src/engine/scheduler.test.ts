@@ -74,3 +74,18 @@ test('onNode callback fires per completed node', async () => {
     (o) => seen.push(o.nodeId))
   expect(seen).toEqual(['do'])
 })
+
+test('concurrency 0 or negative is clamped to sequential execution, not a crash', async () => {
+  const log: string[] = []
+  const active = { now: 0, max: 0 }
+  const registry = createRegistry()
+  registry.register(probeAdapter(log, active))
+  const nodes: NodeDef[] = [
+    { id: 'e1', role: 'executor', agent: 'a' },
+    { id: 'e2', role: 'executor', agent: 'a' },
+  ]
+  const outcomes = await runIteration(
+    makeDef(0), nodes, { plan: null, iteration: 0, feedback: null }, { registry })
+  expect(outcomes.map((o) => o.nodeId)).toEqual(['e1', 'e2'])
+  expect(active.max).toBe(1)
+})

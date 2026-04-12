@@ -34,7 +34,7 @@ export async function runIteration(
         onNode?.(outcome)
         return outcome
       }),
-      def.concurrency ?? 4,
+      Math.max(1, Math.floor(def.concurrency ?? 4)),
     )
     for (const o of layerResults) {
       outcomes.set(o.nodeId, o)
