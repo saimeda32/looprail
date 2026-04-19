@@ -1,0 +1,62 @@
+import { expect, test } from 'vitest'
+import { composeFeedback, routeIteration } from './router.js'
+import { verdictFingerprint } from './fingerprint.js'
+import type { NodeOutcome, Rails } from './types.js'
+
+const rails: Rails = { maxIterations: 8, maxCostUsd: 10, stallAfter: 3, replanLimit: 2 }
+const outcome = (nodeId: string, status: 'pass' | 'fail' | 'error', evidence = 'e'): NodeOutcome => ({
+  nodeId, role: 'judge', output: '', costUsd: 0, tokens: 0, durationMs: 0,
+  verdict: { node: nodeId, status, evidence },
+})
+const fp = (outs: NodeOutcome[]) => verdictFingerprint(outs.map((o) => o.verdict!))
+
+test('all pass → verified', () => {
+  const d = routeIteration({
+    outcomes: [outcome('j', 'pass')], policy: { kind: 'all-pass' },
+    fingerprints: [], rails, replansUsed: 0, breach: null,
+  })
+  expect(d).toEqual({ action: 'verified' })
+})
+
+test('breach → halt with rail detail', () => {
+  const d = routeIteration({
+    outcomes: [outcome('j', 'pass')], policy: { kind: 'all-pass' },
+    fingerprints: [], rails, replansUsed: 0,
+    breach: { rail: 'cost', detail: 'over budget' },
+  })
+  expect(d).toMatchObject({ action: 'halt', reason: expect.stringContaining('over budget') })
+})
+
+test('failure → iterate with feedback from failing verdicts', () => {
+  const outs = [outcome('test', 'fail', 'boom'), outcome('crit', 'pass')]
+  const d = routeIteration({
+    outcomes: outs, policy: { kind: 'all-pass' },
+    fingerprints: [fp(outs)], rails, replansUsed: 0, breach: null,
+  })
+  expect(d).toMatchObject({ action: 'iterate' })
+  expect((d as { feedback: string }).feedback).toContain('[test] boom')
+  expect((d as { feedback: string }).feedback).not.toContain('crit')
+})
+
+test('stall → replan while budget remains, halt after replanLimit', () => {
+  const outs = [outcome('test', 'fail', 'boom')]
+  const stalled = [fp(outs), fp(outs), fp(outs)]
+  const replan = routeIteration({
+    outcomes: outs, policy: { kind: 'all-pass' },
+    fingerprints: stalled, rails, replansUsed: 1, breach: null,
+  })
+  expect(replan.action).toBe('replan')
+  const halt = routeIteration({
+    outcomes: outs, policy: { kind: 'all-pass' },
+    fingerprints: stalled, rails, replansUsed: 2, breach: null,
+  })
+  expect(halt).toMatchObject({ action: 'halt', reason: expect.stringContaining('stall') })
+})
+
+test('error verdict → halt', () => {
+  const d = routeIteration({
+    outcomes: [outcome('j', 'error', 'adapter died')], policy: { kind: 'all-pass' },
+    fingerprints: [], rails, replansUsed: 0, breach: null,
+  })
+  expect(d).toMatchObject({ action: 'halt', reason: expect.stringContaining('adapter died') })
+})
