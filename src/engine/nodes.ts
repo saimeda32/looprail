@@ -8,6 +8,8 @@ export interface EngineDeps {
   registry: AdapterRegistry
   gate?: GateHandler
   cwd?: string
+  cache?: Map<string, NodeOutcome>
+  hash?: (nodeId: string, prompt: string) => string
 }
 
 const VERIFYING = new Set(['critic', 'judge'])
@@ -73,6 +75,10 @@ export async function executeNode(
     const agentDef = def.agents[node.agent!]
     const adapter = deps.registry.get(agentDef.adapter)
     const prompt = composeContext(def, node, state, outcomes)
+    const key = deps.hash?.(node.id, prompt)
+    if (key && deps.cache?.has(key)) {
+      return { ...deps.cache.get(key)!, costUsd: 0 }
+    }
     let res = await adapter.invoke({ prompt, timeoutMs: node.timeoutMs })
     let verdict = VERIFYING.has(node.role) ? parseVerdict(node.id, res.output) : null
     let cost = res.costUsd
