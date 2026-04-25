@@ -77,7 +77,7 @@ export async function executeNode(
     const prompt = composeContext(def, node, state, outcomes)
     const key = deps.hash?.(node.id, prompt)
     if (key && deps.cache?.has(key)) {
-      return { ...deps.cache.get(key)!, costUsd: 0 }
+      return { ...deps.cache.get(key)!, costUsd: 0, contextHash: key }
     }
     let res = await adapter.invoke({ prompt, timeoutMs: node.timeoutMs })
     let verdict = VERIFYING.has(node.role) ? parseVerdict(node.id, res.output) : null
@@ -104,7 +104,7 @@ export async function executeNode(
       }
     }
 
-    return { ...base, output: res.output, verdict, costUsd: cost, tokens, durationMs: res.durationMs }
+    return { ...base, output: res.output, verdict, costUsd: cost, tokens, durationMs: res.durationMs, contextHash: key }
   } catch (err) {
     return {
       ...base,

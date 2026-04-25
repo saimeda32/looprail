@@ -57,7 +57,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     journal?.write('node_end', {
       nodeId: o.nodeId, role: o.role, verdict: o.verdict,
       costUsd: o.costUsd, tokens: o.tokens, durationMs: o.durationMs,
-      output: o.output,
+      output: o.output, contextHash: o.contextHash,
     })
   }
 

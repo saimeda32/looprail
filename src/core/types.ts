@@ -71,6 +71,7 @@ export interface NodeOutcome {
   costUsd: number
   tokens: number
   durationMs: number
+  contextHash?: string
 }
 
 export type RouterDecision =
