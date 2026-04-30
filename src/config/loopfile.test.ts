@@ -49,3 +49,34 @@ test('lists all missing required fields in one error', () => {
 test('rejects unsupported expect values', () => {
   expect(() => parseLoopfile(SAMPLE.replace('exit 0', 'contains ok'))).toThrow(/expect/)
 })
+
+test('lists all nested problems (empty rails, missing role) in one error', () => {
+  const bad = `
+name: research-report
+goal: Produce a cited report
+agents:
+  worker:  { adapter: claude-code, model: sonnet }
+graph:
+  plan: { agent: worker }
+rails: {}
+`
+  try {
+    parseLoopfile(bad)
+    throw new Error('expected parseLoopfile to throw')
+  } catch (err) {
+    const message = (err as Error).message
+    expect(message).toMatch(/max_iterations/)
+    expect(message).toMatch(/max_cost_usd/)
+    expect(message).toMatch(/invalid role/)
+  }
+})
+
+test('rejects unrecognized verdict.policy values', () => {
+  expect(() => parseLoopfile(SAMPLE.replace('policy: all-pass', 'policy: al-pass')))
+    .toThrow(/verdict\.policy/)
+})
+
+test('rejects non-positive quorum values', () => {
+  expect(() => parseLoopfile(SAMPLE.replace('policy: all-pass', 'policy: { quorum: 0 }')))
+    .toThrow(/verdict\.policy/)
+})

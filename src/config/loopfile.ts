@@ -1,5 +1,13 @@
 import { parse } from 'yaml'
-import type { LoopDef, NodeDef, VerdictPolicy } from '../core/types.js'
+import type { LoopDef, NodeDef, Role, VerdictPolicy } from '../core/types.js'
+
+const VALID_ROLES: readonly Role[] = [
+  'planner', 'critic', 'executor', 'tester', 'judge', 'gate', 'synthesizer',
+]
+
+function isPositiveNumber(value: unknown): value is number {
+  return typeof value === 'number' && value > 0
+}
 
 export function parseLoopfile(text: string): LoopDef {
   const raw = parse(text) as Record<string, unknown>
@@ -10,6 +18,35 @@ export function parseLoopfile(text: string): LoopDef {
   if (problems.length > 0) throw new Error(`invalid loopfile:\n${problems.join('\n')}`)
 
   const graph = raw.graph as Record<string, Record<string, unknown>>
+  const rawRails = raw.rails as Record<string, number>
+
+  if (!isPositiveNumber(rawRails.max_iterations)) {
+    problems.push('rails.max_iterations must be a positive number')
+  }
+  if (!isPositiveNumber(rawRails.max_cost_usd)) {
+    problems.push('rails.max_cost_usd must be a positive number')
+  }
+  for (const [id, n] of Object.entries(graph)) {
+    if (!VALID_ROLES.includes(n.role as Role)) {
+      problems.push(`node "${id}": missing or invalid role "${n.role}"`)
+    }
+  }
+
+  const rawVerdict = (raw.verdict as { policy?: unknown } | undefined)?.policy
+  let verdictPolicy: VerdictPolicy = { kind: 'all-pass' }
+  if (rawVerdict === undefined || rawVerdict === 'all-pass') {
+    verdictPolicy = { kind: 'all-pass' }
+  } else if (
+    rawVerdict && typeof rawVerdict === 'object' && 'quorum' in rawVerdict
+    && isPositiveNumber((rawVerdict as { quorum: unknown }).quorum)
+  ) {
+    verdictPolicy = { kind: 'quorum', atLeast: (rawVerdict as { quorum: number }).quorum }
+  } else {
+    problems.push('verdict.policy must be "all-pass" or { quorum: N }')
+  }
+
+  if (problems.length > 0) throw new Error(`invalid loopfile:\n${problems.join('\n')}`)
+
   const nodes: NodeDef[] = Object.entries(graph).map(([id, n]) => {
     const after = n.after === undefined
       ? undefined
@@ -33,13 +70,6 @@ export function parseLoopfile(text: string): LoopDef {
       timeoutMs: n.timeout_ms as number | undefined,
     }
   })
-
-  const rawRails = raw.rails as Record<string, number>
-  const rawVerdict = (raw.verdict as { policy?: unknown } | undefined)?.policy
-  let verdictPolicy: VerdictPolicy = { kind: 'all-pass' }
-  if (rawVerdict && typeof rawVerdict === 'object' && 'quorum' in rawVerdict) {
-    verdictPolicy = { kind: 'quorum', atLeast: (rawVerdict as { quorum: number }).quorum }
-  }
 
   return {
     name: raw.name as string,
