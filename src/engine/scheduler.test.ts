@@ -61,6 +61,26 @@ test('later layers see earlier outcomes (critic gets target output)', async () =
   expect(prompts[1]).toContain('WORK-MARKER')
 })
 
+test('critic with "of" but no "after" still runs after its target and sees its output', async () => {
+  const registry = createRegistry()
+  const prompts: string[] = []
+  registry.register({
+    name: 'probe',
+    async invoke(req) {
+      prompts.push(req.prompt)
+      return { output: 'DRAFT-MARKER', costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  })
+  const nodes: NodeDef[] = [
+    { id: 'crit', role: 'critic', agent: 'a', of: 'draft' }, // no after edge
+    { id: 'draft', role: 'executor', agent: 'a' },
+  ]
+  const outcomes = await runIteration(
+    makeDef(), nodes, { plan: null, iteration: 1, feedback: null }, { registry })
+  expect(outcomes.map((o) => o.nodeId)).toEqual(['draft', 'crit'])
+  expect(prompts[1]).toContain('DRAFT-MARKER')
+})
+
 test('onNode callback fires per completed node', async () => {
   const registry = createRegistry()
   registry.register({

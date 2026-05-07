@@ -131,6 +131,26 @@ test('journals run lifecycle when runDir is set', async () => {
   expect(report.runId).toBe('r1')
 })
 
+test('critic-of-critic targeting a planning critic halts with an error verdict', async () => {
+  const mock = new MockAdapter([
+    { match: /PLANNER/, output: 'plan' },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok' },
+    { match: /EXECUTOR/, output: 'DONE' },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: unused' },
+  ])
+  const def = loop({
+    nodes: [
+      { id: 'plan', role: 'planner', agent: 'a' },
+      { id: 'pcrit', role: 'critic', agent: 'a', of: 'plan', after: ['plan'] },
+      { id: 'do', role: 'executor', agent: 'a' },
+      { id: 'metacrit', role: 'critic', agent: 'a', of: 'pcrit' },
+    ],
+  })
+  const report = await runLoop(def, { registry: reg(mock) })
+  expect(report.status).toBe('halted')
+  expect(report.reason).toContain('pcrit')
+})
+
 test('throws on invalid graph', async () => {
   const bad = loop({ nodes: [{ id: 'x', role: 'executor', agent: 'ghost' }] })
   await expect(runLoop(bad, { registry: reg(new MockAdapter([])) })).rejects.toThrow(/ghost/)

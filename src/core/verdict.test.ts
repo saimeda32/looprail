@@ -21,6 +21,12 @@ describe('parseVerdict', () => {
   test('returns null when no verdict block exists', () => {
     expect(parseVerdict('crit', 'I looked at it and it seems fine')).toBeNull()
   })
+
+  test('malformed SCORE that parses to NaN is omitted, not carried as NaN', () => {
+    const verdict = parseVerdict('judge', 'VERDICT: pass\nSCORE: 0..7\nEVIDENCE: great')
+    expect(verdict).toMatchObject({ status: 'pass', evidence: 'great' })
+    expect(verdict).not.toHaveProperty('score')
+  })
 })
 
 describe('aggregateVerdicts', () => {

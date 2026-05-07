@@ -71,6 +71,18 @@ export async function executeNode(
     }
   }
 
+  if (VERIFYING.has(node.role) && node.of && !outcomes.has(node.of)) {
+    return {
+      ...base,
+      output: '',
+      verdict: {
+        node: node.id,
+        status: 'error',
+        evidence: `target output for "${node.of}" unavailable — check graph ordering`,
+      },
+    }
+  }
+
   try {
     const agentDef = def.agents[node.agent!]
     const adapter = deps.registry.get(agentDef.adapter)
@@ -97,8 +109,8 @@ export async function executeNode(
     }
 
     if (node.role === 'judge' && verdict && node.threshold !== undefined && verdict.status === 'pass') {
-      if (verdict.score === undefined) {
-        verdict = { ...verdict, status: 'fail', evidence: `judge reported no SCORE; threshold ${node.threshold} requires one` }
+      if (verdict.score === undefined || !Number.isFinite(verdict.score)) {
+        verdict = { ...verdict, status: 'fail', evidence: `judge reported no usable SCORE; threshold ${node.threshold} requires one` }
       } else if (verdict.score < node.threshold) {
         verdict = { ...verdict, status: 'fail', evidence: `score ${verdict.score} below threshold ${node.threshold}` }
       }

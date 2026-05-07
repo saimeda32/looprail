@@ -39,6 +39,10 @@ function splitRegions(nodes: NodeDef[]): { planning: NodeDef[]; execution: NodeD
 }
 
 export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport> {
+  // validate BEFORE expansion: panel-count and of-targets-panel errors must
+  // surface with their real messages, not vanish or dangle post-expansion
+  const preErrors = validateGraph(def)
+  if (preErrors.length > 0) throw new Error(`invalid loop:\n${preErrors.join('\n')}`)
   const expanded = expandPanels(def)
   const errors = validateGraph(expanded)
   if (errors.length > 0) throw new Error(`invalid loop:\n${errors.join('\n')}`)

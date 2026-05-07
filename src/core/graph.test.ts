@@ -35,6 +35,31 @@ describe('validateGraph', () => {
     const def = base([{ id: 'x', role: 'executor' }])
     expect(validateGraph(def).some((e) => e.includes('agent'))).toBe(true)
   })
+
+  test('rejects a cycle formed through "of" edges', () => {
+    const def = base([
+      { id: 'x', role: 'critic', agent: 'a', of: 'y' },
+      { id: 'y', role: 'critic', agent: 'a', of: 'x' },
+    ])
+    expect(validateGraph(def).some((e) => e.includes('cycle'))).toBe(true)
+  })
+
+  test('rejects "of" targeting a panel node', () => {
+    const def = base([
+      { id: 'do', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'do', panel: 3, after: ['do'] },
+      { id: 'meta', role: 'critic', agent: 'a', of: 'crit' },
+    ])
+    const errors = validateGraph(def)
+    expect(errors.some((e) => e.includes('panel node "crit"'))).toBe(true)
+  })
+
+  test('rejects panel counts below 1 or non-integer', () => {
+    for (const panel of [0, -2, 2.5]) {
+      const def = base([{ id: 'do', role: 'executor', agent: 'a', panel }])
+      expect(validateGraph(def)).toContain('node "do": panel must be >= 1')
+    }
+  })
 })
 
 describe('topoLayers', () => {
@@ -46,6 +71,21 @@ describe('topoLayers', () => {
       { id: 'd', role: 'judge', agent: 'a', after: ['b', 'c'] },
     ])
     expect(layers).toEqual([['a'], ['b', 'c'], ['d']])
+  })
+
+  test('"of" creates a scheduling edge even without "after"', () => {
+    const layers = topoLayers([
+      { id: 'crit', role: 'critic', agent: 'a', of: 'draft' },
+      { id: 'draft', role: 'executor', agent: 'a' },
+    ])
+    expect(layers).toEqual([['draft'], ['crit']])
+  })
+
+  test('"of" pointing outside the scheduled set is ignored', () => {
+    const layers = topoLayers([
+      { id: 'crit', role: 'critic', agent: 'a', of: 'elsewhere' },
+    ])
+    expect(layers).toEqual([['crit']])
   })
 })
 

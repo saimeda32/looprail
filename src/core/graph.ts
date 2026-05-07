@@ -7,11 +7,21 @@ export function validateGraph(def: LoopDef): string[] {
   const ids = new Set(def.nodes.map((n) => n.id))
   if (ids.size !== def.nodes.length) errors.push('duplicate node ids')
 
+  const byId = new Map(def.nodes.map((n) => [n.id, n]))
   for (const n of def.nodes) {
     for (const dep of n.after ?? []) {
       if (!ids.has(dep)) errors.push(`node "${n.id}" depends on unknown node "${dep}"`)
     }
     if (n.of && !ids.has(n.of)) errors.push(`critic "${n.id}" targets unknown node "${n.of}"`)
+    if (n.of && byId.get(n.of)?.panel !== undefined) {
+      errors.push(
+        `node "${n.id}": of targets panel node "${n.of}" — reviewing a fan-out is ambiguous; ` +
+        'insert a synthesizer between them',
+      )
+    }
+    if (typeof n.panel === 'number' && (!Number.isInteger(n.panel) || n.panel < 1)) {
+      errors.push(`node "${n.id}": panel must be >= 1`)
+    }
     const needsAgent = AGENT_ROLES.has(n.role) && !Array.isArray(n.panel)
     if (needsAgent && !n.agent) errors.push(`node "${n.id}" (${n.role}) has no agent`)
     if (n.agent && !def.agents[n.agent]) {
@@ -34,7 +44,14 @@ export function validateGraph(def: LoopDef): string[] {
 }
 
 export function topoLayers(nodes: NodeDef[]): string[][] {
-  const remaining = new Map(nodes.map((n) => [n.id, new Set(n.after ?? [])]))
+  const ids = new Set(nodes.map((n) => n.id))
+  const remaining = new Map(nodes.map((n) => {
+    const deps = new Set(n.after ?? [])
+    // `of` is a data dependency: the review target must run first. Only add the
+    // edge when the target is in the set being scheduled (regions strip the rest).
+    if (n.of && ids.has(n.of)) deps.add(n.of)
+    return [n.id, deps] as const
+  }))
   const layers: string[][] = []
   while (remaining.size > 0) {
     const ready = [...remaining.entries()]

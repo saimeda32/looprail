@@ -29,7 +29,11 @@ test('executor returns output with no verdict', async () => {
 
 test('critic parses verdict from output', async () => {
   const deps = depsWith(new MockAdapter([{ output: 'VERDICT: fail\nEVIDENCE: broken' }]))
-  const out = await executeNode(def, { id: 'c', role: 'critic', agent: 'a', of: 'do' }, state, none, deps)
+  const outcomes = new Map<string, NodeOutcome>([['do', {
+    nodeId: 'do', role: 'executor', output: 'the work', verdict: null,
+    costUsd: 0, tokens: 0, durationMs: 0,
+  }]])
+  const out = await executeNode(def, { id: 'c', role: 'critic', agent: 'a', of: 'do' }, state, outcomes, deps)
   expect(out.verdict).toMatchObject({ status: 'fail', evidence: 'broken' })
 })
 
@@ -104,5 +108,22 @@ test('judge with threshold but no SCORE line fails with explicit evidence', asyn
   const node: NodeDef = { id: 'j', role: 'judge', agent: 'a', threshold: 0.85 }
   const out = await executeNode(def, node, state, none, deps)
   expect(out.verdict!.status).toBe('fail')
-  expect(out.verdict!.evidence).toContain('no SCORE')
+  expect(out.verdict!.evidence).toContain('no usable SCORE')
+})
+
+test('judge with threshold and malformed SCORE fails, does not verify on NaN', async () => {
+  const deps = depsWith(new MockAdapter([{ output: 'VERDICT: pass\nSCORE: 0..7\nEVIDENCE: great' }]))
+  const node: NodeDef = { id: 'j', role: 'judge', agent: 'a', threshold: 0.85 }
+  const out = await executeNode(def, node, state, none, deps)
+  expect(out.verdict!.status).toBe('fail')
+  expect(out.verdict!.evidence).toContain('no usable SCORE')
+})
+
+test('critic whose "of" target has no outcome errors instead of reviewing nothing', async () => {
+  const mock = new MockAdapter([{ output: 'VERDICT: pass\nEVIDENCE: unused' }])
+  const node: NodeDef = { id: 'c', role: 'critic', agent: 'a', of: 'ghost' }
+  const out = await executeNode(def, node, state, none, depsWith(mock))
+  expect(out.verdict!.status).toBe('error')
+  expect(out.verdict!.evidence).toContain('"ghost"')
+  expect(mock.calls).toHaveLength(0) // never composed an empty review context
 })
