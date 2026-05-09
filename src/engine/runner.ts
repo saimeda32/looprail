@@ -28,10 +28,14 @@ export function contextHash(nodeId: string, prompt: string): string {
 
 function splitRegions(nodes: NodeDef[]): { planning: NodeDef[]; execution: NodeDef[] } {
   const plannerIds = new Set(nodes.filter((n) => n.role === 'planner').map((n) => n.id))
-  const planning = nodes.filter(
+  const planningMembers = nodes.filter(
     (n) => n.role === 'planner' || (n.role === 'critic' && n.of !== undefined && plannerIds.has(n.of)),
   )
-  const planningIds = new Set(planning.map((n) => n.id))
+  const planningIds = new Set(planningMembers.map((n) => n.id))
+  // strip out-of-region deps symmetrically: a planner pointing at an execution
+  // node must not carry an unsatisfiable edge into topoLayers (cycle crash)
+  const planning = planningMembers
+    .map((n) => ({ ...n, after: n.after?.filter((d) => planningIds.has(d)) }))
   const execution = nodes
     .filter((n) => !planningIds.has(n.id))
     .map((n) => ({ ...n, after: n.after?.filter((d) => !planningIds.has(d)) }))

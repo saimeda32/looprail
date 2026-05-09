@@ -131,6 +131,40 @@ test('journals run lifecycle when runDir is set', async () => {
   expect(report.runId).toBe('r1')
 })
 
+test('planner with "after" pointing at an execution node runs without crashing', async () => {
+  const mock = new MockAdapter([
+    { match: /PLANNER/, output: 'the plan' },
+    { match: /EXECUTOR/, output: 'DONE' },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok' },
+  ])
+  const def = loop({
+    nodes: [
+      { id: 'plan', role: 'planner', agent: 'a', after: ['research'] },
+      { id: 'research', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'research', after: ['research'] },
+    ],
+  })
+  const report = await runLoop(def, { registry: reg(mock) })
+  expect(report.status).toBe('verified')
+})
+
+test('verifies when the cost rail breaches during the same iteration the loop passes', async () => {
+  const mock = new MockAdapter([
+    { match: /EXECUTOR/, output: 'DONE', costUsd: 0.5 },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok', costUsd: 0.6 },
+  ])
+  const def = loop({
+    nodes: [
+      { id: 'do', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'do', after: ['do'] },
+    ],
+    rails: { maxIterations: 4, maxCostUsd: 1.0 },
+  })
+  const report = await runLoop(def, { registry: reg(mock) })
+  expect(report.status).toBe('verified')
+  expect(report.costUsd).toBeCloseTo(1.1)
+})
+
 test('critic-of-critic targeting a planning critic halts with an error verdict', async () => {
   const mock = new MockAdapter([
     { match: /PLANNER/, output: 'plan' },

@@ -49,7 +49,7 @@ export function composeContext(
     const target = outcomes.get(node.of)
     if (target) parts.push(`# Work under review (from "${node.of}")\n${target.output}`)
   }
-  if (node.role === 'judge' || node.role === 'synthesizer') {
+  if (node.role === 'judge' || node.role === 'synthesizer' || node.role === 'gate') {
     for (const dep of node.after ?? []) {
       const o = outcomes.get(dep)
       if (o) parts.push(`# Output of "${dep}"\n${o.output}`)

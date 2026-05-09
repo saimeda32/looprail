@@ -20,12 +20,14 @@ export interface RouteInput {
 }
 
 export function routeIteration(input: RouteInput): RouterDecision {
-  if (input.breach) {
-    return { action: 'halt', reason: `rail breached (${input.breach.rail}): ${input.breach.detail}` }
-  }
+  // verdicts first: a run that verifies in the same iteration it breaches a
+  // rail is still verified — the work is done and checked
   const verdicts = input.outcomes.flatMap((o) => (o.verdict ? [o.verdict] : []))
   const status = aggregateVerdicts(verdicts, input.policy)
   if (status === 'pass') return { action: 'verified' }
+  if (input.breach) {
+    return { action: 'halt', reason: `rail breached (${input.breach.rail}): ${input.breach.detail}` }
+  }
   if (status === 'error') {
     const evidence = verdicts.filter((v) => v.status === 'error').map((v) => v.evidence).join('; ')
     return { action: 'halt', reason: `node error: ${evidence}` }

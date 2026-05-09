@@ -18,9 +18,18 @@ test('all pass → verified', () => {
   expect(d).toEqual({ action: 'verified' })
 })
 
-test('breach → halt with rail detail', () => {
+test('verified wins over breach when verifiers passed', () => {
   const d = routeIteration({
     outcomes: [outcome('j', 'pass')], policy: { kind: 'all-pass' },
+    fingerprints: [], rails, replansUsed: 0,
+    breach: { rail: 'cost', detail: 'over budget' },
+  })
+  expect(d).toEqual({ action: 'verified' })
+})
+
+test('breach → halt with rail detail when verifiers did not pass', () => {
+  const d = routeIteration({
+    outcomes: [outcome('j', 'fail')], policy: { kind: 'all-pass' },
     fingerprints: [], rails, replansUsed: 0,
     breach: { rail: 'cost', detail: 'over budget' },
   })

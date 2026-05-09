@@ -41,6 +41,12 @@ test('judge context includes dependency outputs and threshold', () => {
   expect(ctx).toContain('SCORE:')
 })
 
+test('gate context includes the work being approved', () => {
+  const node: NodeDef = { id: 'g', role: 'gate', after: ['do'] }
+  const ctx = composeContext(def, node, state, new Map([['do', outcome('do', 'THE WORK')]]))
+  expect(ctx).toContain('THE WORK')
+})
+
 test('planner context asks for a plan with success criteria', () => {
   const node: NodeDef = { id: 'plan', role: 'planner', agent: 'a' }
   const ctx = composeContext(def, node, { plan: null, iteration: 0, feedback: null }, new Map())
