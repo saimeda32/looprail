@@ -3,11 +3,18 @@ import { topoLayers } from '../core/graph.js'
 import type { RunState } from '../core/context.js'
 import { executeNode, type EngineDeps } from './nodes.js'
 
-async function pool<T>(items: (() => Promise<T>)[], limit: number): Promise<T[]> {
-  const results: T[] = new Array(items.length)
+async function pool<T>(
+  items: (() => Promise<T>)[],
+  limit: number,
+  shouldContinue?: () => boolean,
+): Promise<(T | undefined)[]> {
+  const results: (T | undefined)[] = new Array(items.length)
   let next = 0
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (next < items.length) {
+      // pre-start rail check (spec §6): never START a node once a rail is
+      // breached — in-flight nodes finish, unstarted ones are skipped
+      if (shouldContinue && !shouldContinue()) return
       const i = next++
       results[i] = await items[i]()
     }
@@ -22,6 +29,8 @@ export async function runIteration(
   state: RunState,
   deps: EngineDeps,
   onNode?: (o: NodeOutcome) => void,
+  shouldContinue?: () => boolean,
+  onNodeStart?: (node: NodeDef) => void,
 ): Promise<NodeOutcome[]> {
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const outcomes = new Map<string, NodeOutcome>()
@@ -30,13 +39,17 @@ export async function runIteration(
   for (const layer of topoLayers(nodes)) {
     const layerResults = await pool(
       layer.map((id) => async () => {
-        const outcome = await executeNode(def, byId.get(id)!, state, outcomes, deps)
+        const node = byId.get(id)!
+        onNodeStart?.(node)
+        const outcome = await executeNode(def, node, state, outcomes, deps)
         onNode?.(outcome)
         return outcome
       }),
       Math.max(1, Math.floor(def.concurrency ?? 4)),
+      shouldContinue,
     )
     for (const o of layerResults) {
+      if (!o) continue // skipped by shouldContinue — no outcome exists
       outcomes.set(o.nodeId, o)
       ordered.push(o)
     }

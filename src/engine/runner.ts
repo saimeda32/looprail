@@ -63,11 +63,16 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   const onNode = (o: NodeOutcome) => {
     guard.addCost(o.costUsd)
     journal?.write('node_end', {
-      nodeId: o.nodeId, role: o.role, verdict: o.verdict,
+      nodeId: o.nodeId, role: o.role, verdict: o.verdict, iteration: state.iteration,
       costUsd: o.costUsd, tokens: o.tokens, durationMs: o.durationMs,
       output: o.output, contextHash: o.contextHash,
     })
   }
+  const onNodeStart = (n: NodeDef) => {
+    journal?.write('node_start', { nodeId: n.id, role: n.role, iteration: state.iteration })
+  }
+  // pre-start rail enforcement: halt BEFORE starting a node that would breach
+  const shouldContinue = () => guard.check(state.iteration) === null
 
   const { planning, execution } = splitRegions(expanded.nodes)
   const state: RunState = { plan: null, iteration: 0, feedback: null }
@@ -88,9 +93,10 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     if (planning.length === 0) return
     const maxRounds = Math.max(1, ...planning.map((n) => n.rounds ?? 1))
     for (let round = 1; round <= maxRounds; round++) {
-      const outs = await runIteration(expanded, planning, state, deps, onNode)
+      const outs = await runIteration(expanded, planning, state, deps, onNode, shouldContinue, onNodeStart)
       const planner = outs.find((o) => o.role === 'planner')
       if (planner) state.plan = planner.output
+      if (guard.check(state.iteration)) return // breached mid-planning; loop halts on entry
       const critiques = outs.filter((o) => o.verdict && o.verdict.status !== 'pass')
       if (critiques.length === 0) return
       state.feedback = critiques.map((o) => `[${o.nodeId}] ${o.verdict!.evidence}`).join('\n')
@@ -105,7 +111,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     const breachBefore = guard.check(state.iteration)
     if (breachBefore) return finish('halted', `rail breached (${breachBefore.rail}): ${breachBefore.detail}`)
 
-    outcomes = await runIteration(expanded, execution, state, deps, onNode)
+    outcomes = await runIteration(expanded, execution, state, deps, onNode, shouldContinue, onNodeStart)
     const verdicts = outcomes.flatMap((o) => (o.verdict ? [o.verdict] : []))
     fingerprints.push(verdictFingerprint(verdicts))
     journal?.write('iteration_end', { iteration: state.iteration, costUsd: guard.spentUsd })

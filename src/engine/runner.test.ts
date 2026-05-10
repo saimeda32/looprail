@@ -185,6 +185,51 @@ test('critic-of-critic targeting a planning critic halts with an error verdict',
   expect(report.reason).toContain('pcrit')
 })
 
+test('halts before starting a node that would run past the cost rail', async () => {
+  const mock = new MockAdapter([
+    { match: /step1/, output: 'one', costUsd: 0.5 },
+    { match: /step2/, output: 'two', costUsd: 0.5 },
+    { match: /step3/, output: 'three', costUsd: 0.5 },
+  ])
+  const def = loop({
+    nodes: [
+      { id: 's1', role: 'executor', agent: 'a', prompt: 'step1' },
+      { id: 's2', role: 'executor', agent: 'a', prompt: 'step2', after: ['s1'] },
+      { id: 's3', role: 'executor', agent: 'a', prompt: 'step3', after: ['s2'] },
+    ],
+    rails: { maxIterations: 4, maxCostUsd: 1.0 },
+  })
+  const report = await runLoop(def, { registry: reg(mock) })
+  expect(report.status).toBe('halted')
+  expect(report.reason).toContain('cost')
+  expect(mock.calls).toHaveLength(2) // s3's adapter was never invoked
+  expect(mock.calls.some((c) => c.prompt.includes('step3'))).toBe(false)
+})
+
+test('journal emits node_start before node_end, both stamped with the iteration', async () => {
+  const mock = new MockAdapter([
+    { match: /EXECUTOR/, output: 'DONE' },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok' },
+  ])
+  const def = loop({
+    nodes: [
+      { id: 'do', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'do', after: ['do'] },
+    ],
+  })
+  const runDir = join(mkdtempSync(join(tmpdir(), 'lr-')), 'run')
+  await runLoop(def, { registry: reg(mock), runDir })
+  const events = readJournal(join(runDir, 'journal.jsonl'))
+  for (const id of ['do', 'crit']) {
+    const startIdx = events.findIndex((e) => e.type === 'node_start' && e.data.nodeId === id)
+    const endIdx = events.findIndex((e) => e.type === 'node_end' && e.data.nodeId === id)
+    expect(startIdx).toBeGreaterThanOrEqual(0)
+    expect(endIdx).toBeGreaterThan(startIdx)
+    expect(events[startIdx].data.iteration).toBe(1)
+    expect(events[endIdx].data.iteration).toBe(1)
+  }
+})
+
 test('throws on invalid graph', async () => {
   const bad = loop({ nodes: [{ id: 'x', role: 'executor', agent: 'ghost' }] })
   await expect(runLoop(bad, { registry: reg(new MockAdapter([])) })).rejects.toThrow(/ghost/)
