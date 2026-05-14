@@ -94,7 +94,7 @@ export type GateHandler = (node: NodeDef, context: string) => Promise<boolean>
 
 export interface JournalEvent {
   ts: number
-  type: 'run_start' | 'node_start' | 'node_end' | 'iteration_end'
+  type: 'run_start' | 'node_start' | 'node_end' | 'node_skipped' | 'iteration_end'
         | 'replan' | 'verified' | 'halt'
   data: Record<string, unknown>
 }

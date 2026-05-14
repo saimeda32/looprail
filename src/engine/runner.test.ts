@@ -165,6 +165,41 @@ test('verifies when the cost rail breaches during the same iteration the loop pa
   expect(report.costUsd).toBeCloseTo(1.1)
 })
 
+test('denies verified when a rail-skipped node leaves verification incomplete', async () => {
+  // repro: do($0.6) -> crit(pass, $0.5) -> judge(threshold, would fail if run)
+  // max_cost_usd 1.0 breaches after crit, so judge is skipped pre-start.
+  // aggregating only the outcomes present (do, crit) yields an all-pass
+  // verdict set, but the judge — a configured verifier — never ran.
+  const mock = new MockAdapter([
+    { match: /EXECUTOR/, output: 'DONE', costUsd: 0.6 },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok', costUsd: 0.5 },
+    // no JUDGE step: if the judge were ever invoked, the mock would throw
+    // "exhausted" instead of naturally reporting a fail-worthy low score
+  ])
+  const def = loop({
+    nodes: [
+      { id: 'do', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'do', after: ['do'] },
+      { id: 'judge', role: 'judge', agent: 'a', of: 'do', after: ['crit'], threshold: 0.9 },
+    ],
+    rails: { maxIterations: 4, maxCostUsd: 1.0 },
+  })
+  const runDir = join(mkdtempSync(join(tmpdir(), 'lr-')), 'run')
+  const report = await runLoop(def, { registry: reg(mock), runDir })
+
+  expect(report.status).toBe('halted')
+  expect(report.reason).toContain('rail breached (cost)')
+  expect(report.reason).toContain('skipped')
+  expect(mock.calls).toHaveLength(2) // judge's adapter was never invoked
+  expect(mock.calls.some((c) => c.prompt.includes('JUDGE'))).toBe(false)
+
+  const events = readJournal(join(runDir, 'journal.jsonl'))
+  const skip = events.find((e) => e.type === 'node_skipped' && e.data.nodeId === 'judge')
+  expect(skip).toBeTruthy()
+  expect(skip?.data.role).toBe('judge')
+  expect(skip?.data.iteration).toBe(1)
+})
+
 test('critic-of-critic targeting a planning critic halts with an error verdict', async () => {
   const mock = new MockAdapter([
     { match: /PLANNER/, output: 'plan' },

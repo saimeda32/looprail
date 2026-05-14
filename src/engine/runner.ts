@@ -116,11 +116,30 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     fingerprints.push(verdictFingerprint(verdicts))
     journal?.write('iteration_end', { iteration: state.iteration, costUsd: guard.spentUsd })
 
+    const breach = guard.check(state.iteration)
+    // a rail can preempt the pool between layers (scheduler.ts pre-node check),
+    // leaving execution-region nodes — including configured verifiers — that
+    // never ran. Their outcomes simply don't exist, so aggregating only the
+    // outcomes present can misreport a partial verdict set as "all passed".
+    const skipped = outcomes.length < execution.length
+      ? execution.filter((n) => !outcomes.some((o) => o.nodeId === n.id))
+      : []
+    for (const n of skipped) {
+      journal?.write('node_skipped', { nodeId: n.id, role: n.role, iteration: state.iteration })
+    }
+
     const decision = routeIteration({
       outcomes, policy: def.verdictPolicy, fingerprints,
-      rails: def.rails, replansUsed: replans, breach: guard.check(state.iteration),
+      rails: def.rails, replansUsed: replans, breach,
     })
 
+    if (decision.action === 'verified' && skipped.length > 0) {
+      const breachDetail = breach ? `rail breached (${breach.rail}): ${breach.detail}` : 'rail breached'
+      return finish(
+        'halted',
+        `${breachDetail} — ${skipped.length} node(s) skipped before verification completed`,
+      )
+    }
     if (decision.action === 'verified') return finish('verified', 'all verifiers passed')
     if (decision.action === 'halt') return finish('halted', decision.reason)
     state.feedback = decision.feedback
