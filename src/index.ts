@@ -14,3 +14,9 @@ export { JournalWriter, readJournal } from './journal/journal.js'
 export { loadCache } from './journal/cache.js'
 export { parseLoopfile } from './config/loopfile.js'
 export { lintLoop, type LintFinding } from './config/lint.js'
+export {
+  CliAdapter, defaultExec,
+  type CliAdapterOptions, type ExecFn, type ExecResult,
+  type ParsedResponse, type ResponseParser,
+} from './adapters/cli-adapter.js'
+export { detectAgents, type DetectedAgent } from './adapters/detect.js'
