@@ -20,3 +20,5 @@ export {
   type ParsedResponse, type ResponseParser,
 } from './adapters/cli-adapter.js'
 export { detectAgents, type DetectedAgent } from './adapters/detect.js'
+export { createClaudeCodeAdapter, parseClaudeJson } from './adapters/claude-code.js'
+export { createCodexAdapter, parseCodexJsonl } from './adapters/codex.js'

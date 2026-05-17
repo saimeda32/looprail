@@ -127,3 +127,14 @@ test('critic whose "of" target has no outcome errors instead of reviewing nothin
   expect(out.verdict!.evidence).toContain('"ghost"')
   expect(mock.calls).toHaveLength(0) // never composed an empty review context
 })
+
+test('adapter receives model and command from the AgentDef', async () => {
+  const mock = new MockAdapter([{ output: 'done' }])
+  const deps = depsWith(mock)
+  const withModel: LoopDef = {
+    ...def,
+    agents: { a: { adapter: 'mock', model: 'haiku', command: 'echo hi' } },
+  }
+  await executeNode(withModel, { id: 'do', role: 'executor', agent: 'a' }, state, none, deps)
+  expect(mock.calls[0]).toMatchObject({ model: 'haiku', command: 'echo hi' })
+})

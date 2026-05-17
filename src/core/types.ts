@@ -13,7 +13,12 @@ export interface Verdict {
 
 export type VerdictPolicy = { kind: 'all-pass' } | { kind: 'quorum'; atLeast: number }
 
-export interface AgentRequest { prompt: string; timeoutMs?: number }
+export interface AgentRequest {
+  prompt: string
+  timeoutMs?: number
+  model?: string    // AgentDef.model, plumbed per request (model-tiered adapters)
+  command?: string  // AgentDef.command, consumed by the shell adapter
+}
 
 export interface AgentResult {
   output: string

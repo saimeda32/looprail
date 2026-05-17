@@ -39,6 +39,7 @@ export interface CliAdapterOptions {
   parser?: ResponseParser
   exec?: ExecFn
   cwd?: string
+  extraArgs?: (req: AgentRequest) => string[]  // per-request args appended after the template
 }
 
 export class CliAdapter implements Adapter {
@@ -59,6 +60,7 @@ export class CliAdapter implements Adapter {
     const started = Date.now()
     const tokens = this.opts.command.split(/\s+/).filter(Boolean)
     const [file, ...args] = tokens.map((t) => (t === '{prompt}' ? req.prompt : t))
+    if (this.opts.extraArgs) args.push(...this.opts.extraArgs(req))
     const res = await this.exec(file, args, {
       input: this.opts.stdin ? req.prompt : undefined,
       timeoutMs: req.timeoutMs,

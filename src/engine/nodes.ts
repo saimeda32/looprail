@@ -91,7 +91,10 @@ export async function executeNode(
     if (key && deps.cache?.has(key)) {
       return { ...deps.cache.get(key)!, costUsd: 0, contextHash: key }
     }
-    let res = await adapter.invoke({ prompt, timeoutMs: node.timeoutMs })
+    let res = await adapter.invoke({
+      prompt, timeoutMs: node.timeoutMs,
+      model: agentDef.model, command: agentDef.command,
+    })
     let verdict = VERIFYING.has(node.role) ? parseVerdict(node.id, res.output) : null
     let cost = res.costUsd
     let tokens = res.tokens
@@ -100,6 +103,7 @@ export async function executeNode(
       const retry = await adapter.invoke({
         prompt: `${prompt}\n\nYour previous reply had no verdict block. Reply again ending with:\nVERDICT: pass|fail\nEVIDENCE: <reason>`,
         timeoutMs: node.timeoutMs,
+        model: agentDef.model, command: agentDef.command,
       })
       cost += retry.costUsd
       tokens += retry.tokens
