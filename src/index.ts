@@ -22,3 +22,9 @@ export {
 export { detectAgents, type DetectedAgent } from './adapters/detect.js'
 export { createClaudeCodeAdapter, parseClaudeJson } from './adapters/claude-code.js'
 export { createCodexAdapter, parseCodexJsonl } from './adapters/codex.js'
+export { createAiderAdapter } from './adapters/aider.js'
+export { createCopilotAdapter } from './adapters/copilot.js'
+export { createShellAdapter, shellQuote } from './adapters/shell.js'
+export {
+  createDefaultRegistry, createCliMockAdapter, type DefaultRegistryOptions,
+} from './adapters/default-registry.js'
