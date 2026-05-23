@@ -21,6 +21,13 @@ export function aggregateVerdicts(
 ): VerdictStatus {
   if (verdicts.some((v) => v.status === 'error')) return 'error'
   if (verdicts.length === 0) return 'fail'
+  if (policy.kind === 'weighted') {
+    const total = verdicts.reduce((s, v) => s + (v.weight ?? 1), 0)
+    const passed = verdicts
+      .filter((v) => v.status === 'pass')
+      .reduce((s, v) => s + (v.weight ?? 1), 0)
+    return total > 0 && passed / total >= policy.threshold ? 'pass' : 'fail'
+  }
   const passes = verdicts.filter((v) => v.status === 'pass').length
   if (policy.kind === 'quorum') return passes >= policy.atLeast ? 'pass' : 'fail'
   return passes === verdicts.length ? 'pass' : 'fail'

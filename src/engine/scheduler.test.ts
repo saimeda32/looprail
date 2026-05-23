@@ -109,3 +109,17 @@ test('concurrency 0 or negative is clamped to sequential execution, not a crash'
   expect(outcomes.map((o) => o.nodeId)).toEqual(['e1', 'e2'])
   expect(active.max).toBe(1)
 })
+
+test('node weight is stamped onto its verdict', async () => {
+  const registry = createRegistry()
+  registry.register({
+    name: 'probe',
+    invoke: async () => ({
+      output: 'VERDICT: fail\nEVIDENCE: nope', costUsd: 0, tokens: 0, durationMs: 1,
+    }),
+  })
+  const outs = await runIteration(
+    makeDef(), [{ id: 'c', role: 'critic', agent: 'a', weight: 2 }],
+    { plan: null, iteration: 1, feedback: null }, { registry })
+  expect(outs[0].verdict?.weight).toBe(2)
+})

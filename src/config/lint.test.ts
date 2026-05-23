@@ -63,3 +63,13 @@ test('L005: structural errors are forwarded', () => {
   const def = make([{ id: 'x', role: 'executor', agent: 'ghost' }])
   expect(rules(def)).toContain('L005')
 })
+
+test('L006: non-positive node weight is an error', () => {
+  const def = make([
+    { id: 'do', role: 'executor', agent: 'big' },
+    { id: 't', role: 'tester', run: 'true', after: ['do'], weight: 0 },
+  ])
+  const finding = lintLoop(def).find((f) => f.rule === 'L006')!
+  expect(finding.level).toBe('error')
+  expect(finding.node).toBe('t')
+})

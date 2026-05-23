@@ -64,5 +64,14 @@ export function lintLoop(def: LoopDef): LintFinding[] {
     }
   }
 
+  for (const n of def.nodes) {
+    if (n.weight !== undefined && !(n.weight > 0)) {
+      findings.push({
+        rule: 'L006', level: 'error', node: n.id,
+        message: `node "${n.id}" has non-positive weight ${n.weight} — weights must be > 0`,
+      })
+    }
+  }
+
   return findings
 }

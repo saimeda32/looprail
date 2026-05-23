@@ -4,6 +4,8 @@ import type { Verdict } from './types.js'
 
 const v = (status: Verdict['status'], score?: number): Verdict =>
   ({ node: 'n', status, evidence: 'e', score })
+const vw = (status: Verdict['status'], weight?: number): Verdict =>
+  ({ node: 'n', status, evidence: 'e', weight })
 
 describe('parseVerdict', () => {
   test('parses a full verdict block', () => {
@@ -47,5 +49,23 @@ describe('aggregateVerdicts', () => {
 
   test('empty verdict set fails (nothing verified anything)', () => {
     expect(aggregateVerdicts([], { kind: 'all-pass' })).toBe('fail')
+  })
+
+  test('weighted: pass-weight over total-weight against threshold', () => {
+    const set = [vw('pass', 2), vw('pass', 1), vw('fail', 1)] // 3/4 = 0.75
+    expect(aggregateVerdicts(set, { kind: 'weighted', threshold: 0.7 })).toBe('pass')
+    expect(aggregateVerdicts(set, { kind: 'weighted', threshold: 0.8 })).toBe('fail')
+  })
+
+  test('weighted: missing weights default to 1', () => {
+    const set = [vw('pass'), vw('pass'), vw('fail')] // 2/3 ≈ 0.67
+    expect(aggregateVerdicts(set, { kind: 'weighted', threshold: 0.6 })).toBe('pass')
+    expect(aggregateVerdicts(set, { kind: 'weighted', threshold: 0.7 })).toBe('fail')
+  })
+
+  test('weighted: error still dominates and empty set still fails', () => {
+    expect(aggregateVerdicts([vw('pass', 9), vw('error')], { kind: 'weighted', threshold: 0.1 }))
+      .toBe('error')
+    expect(aggregateVerdicts([], { kind: 'weighted', threshold: 0.1 })).toBe('fail')
   })
 })

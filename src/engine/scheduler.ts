@@ -41,7 +41,10 @@ export async function runIteration(
       layer.map((id) => async () => {
         const node = byId.get(id)!
         onNodeStart?.(node)
-        const outcome = await executeNode(def, node, state, outcomes, deps)
+        let outcome = await executeNode(def, node, state, outcomes, deps)
+        if (outcome.verdict && node.weight !== undefined) {
+          outcome = { ...outcome, verdict: { ...outcome.verdict, weight: node.weight } }
+        }
         onNode?.(outcome)
         return outcome
       }),

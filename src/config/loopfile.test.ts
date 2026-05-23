@@ -80,3 +80,20 @@ test('rejects non-positive quorum values', () => {
   expect(() => parseLoopfile(SAMPLE.replace('policy: all-pass', 'policy: { quorum: 0 }')))
     .toThrow(/verdict\.policy/)
 })
+
+test('weighted policy and node weights parse through', () => {
+  const withWeights = SAMPLE
+    .replace('policy: all-pass', 'policy: { weighted: 0.7 }')
+    .replace('{ role: judge, agent: checker, after: [cite-test], threshold: 0.85 }',
+      '{ role: judge, agent: checker, after: [cite-test], threshold: 0.85, weight: 3 }')
+  const def = parseLoopfile(withWeights)
+  expect(def.verdictPolicy).toEqual({ kind: 'weighted', threshold: 0.7 })
+  expect(def.nodes.find((n) => n.id === 'judge')!.weight).toBe(3)
+})
+
+test('rejects a weighted threshold outside (0, 1]', () => {
+  expect(() => parseLoopfile(SAMPLE.replace('policy: all-pass', 'policy: { weighted: 1.5 }')))
+    .toThrow(/weighted/)
+  expect(() => parseLoopfile(SAMPLE.replace('policy: all-pass', 'policy: { weighted: 0 }')))
+    .toThrow(/weighted/)
+})

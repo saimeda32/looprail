@@ -41,8 +41,15 @@ export function parseLoopfile(text: string): LoopDef {
     && isPositiveNumber((rawVerdict as { quorum: unknown }).quorum)
   ) {
     verdictPolicy = { kind: 'quorum', atLeast: (rawVerdict as { quorum: number }).quorum }
+  } else if (
+    rawVerdict && typeof rawVerdict === 'object' && 'weighted' in rawVerdict
+    && typeof (rawVerdict as { weighted: unknown }).weighted === 'number'
+    && (rawVerdict as { weighted: number }).weighted > 0
+    && (rawVerdict as { weighted: number }).weighted <= 1
+  ) {
+    verdictPolicy = { kind: 'weighted', threshold: (rawVerdict as { weighted: number }).weighted }
   } else {
-    problems.push('verdict.policy must be "all-pass" or { quorum: N }')
+    problems.push('verdict.policy must be "all-pass", { quorum: N }, or { weighted: 0..1 }')
   }
 
   if (problems.length > 0) throw new Error(`invalid loopfile:\n${problems.join('\n')}`)
@@ -67,6 +74,7 @@ export function parseLoopfile(text: string): LoopDef {
       expect: n.expect as string | undefined,
       rubric: n.rubric as string | undefined,
       threshold: n.threshold as number | undefined,
+      weight: n.weight as number | undefined,
       timeoutMs: n.timeout_ms as number | undefined,
     }
   })

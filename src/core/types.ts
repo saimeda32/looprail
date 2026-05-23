@@ -9,9 +9,13 @@ export interface Verdict {
   status: VerdictStatus
   evidence: string
   score?: number
+  weight?: number  // stamped from NodeDef.weight by the scheduler (default 1)
 }
 
-export type VerdictPolicy = { kind: 'all-pass' } | { kind: 'quorum'; atLeast: number }
+export type VerdictPolicy =
+  | { kind: 'all-pass' }
+  | { kind: 'quorum'; atLeast: number }
+  | { kind: 'weighted'; threshold: number }  // pass-weight / total-weight >= threshold
 
 export interface AgentRequest {
   prompt: string
@@ -47,6 +51,7 @@ export interface NodeDef {
   expect?: string           // tester expectation, e.g. "exit 0"
   rubric?: string           // judge rubric file path or inline text
   threshold?: number        // judge pass threshold 0..1
+  weight?: number           // verdict weight under the weighted policy (default 1)
   timeoutMs?: number
 }
 
