@@ -62,10 +62,22 @@ test('stall → replan while budget remains, halt after replanLimit', () => {
   expect(halt).toMatchObject({ action: 'halt', reason: expect.stringContaining('stall') })
 })
 
-test('error verdict → halt', () => {
+test('transient error verdict routes like a failure (iterate with feedback)', () => {
   const d = routeIteration({
     outcomes: [outcome('j', 'error', 'adapter died')], policy: { kind: 'all-pass' },
     fingerprints: [], rails, replansUsed: 0, breach: null,
   })
-  expect(d).toMatchObject({ action: 'halt', reason: expect.stringContaining('adapter died') })
+  expect(d).toMatchObject({ action: 'iterate' })
+  expect((d as { feedback: string }).feedback).toContain('adapter died')
+})
+
+test('infra-tagged error verdict halts with the evidence', () => {
+  const d = routeIteration({
+    outcomes: [outcome('j', 'error', 'infra: 401 unauthorized — run `looprail doctor`')],
+    policy: { kind: 'all-pass' },
+    fingerprints: [], rails, replansUsed: 0, breach: null,
+  })
+  expect(d).toMatchObject({
+    action: 'halt', reason: expect.stringContaining('infrastructure'),
+  })
 })

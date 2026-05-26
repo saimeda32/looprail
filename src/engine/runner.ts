@@ -20,6 +20,8 @@ export interface RunOptions {
   runId?: string
   now?: () => number
   cache?: Map<string, NodeOutcome>
+  sleep?: (ms: number) => Promise<void>
+  retries?: number
 }
 
 export function contextHash(nodeId: string, prompt: string): string {
@@ -59,6 +61,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   const deps: EngineDeps = {
     registry: opts.registry, gate: opts.gate, cwd: opts.cwd,
     cache: opts.cache, hash: contextHash,
+    sleep: opts.sleep, retries: opts.retries,
   }
   const onNode = (o: NodeOutcome) => {
     guard.addCost(o.costUsd)

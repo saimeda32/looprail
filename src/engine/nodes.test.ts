@@ -73,10 +73,28 @@ test('gate consults the handler; missing handler is an error verdict', async () 
 })
 
 test('adapter throw becomes an error verdict', async () => {
+  const registry = createRegistry()
+  const mock = new MockAdapter([])
+  registry.register(mock)
   const out = await executeNode(
-    def, { id: 'c', role: 'critic', agent: 'a' }, state, none, depsWith(new MockAdapter([])))
+    def, { id: 'c', role: 'critic', agent: 'a' }, state, none,
+    { registry, sleep: async () => {} })
   expect(out.verdict!.status).toBe('error')
   expect(out.verdict!.evidence).toContain('exhausted')
+})
+
+test('infra error becomes an infra-tagged error verdict', async () => {
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    invoke: async () => { throw new Error('401 unauthorized') },
+  })
+  const out = await executeNode(
+    def, { id: 'c', role: 'critic', agent: 'a' }, state, none,
+    { registry, sleep: async () => {} })
+  expect(out.verdict).toMatchObject({ status: 'error' })
+  expect(out.verdict!.evidence).toMatch(/^infra:/)
+  expect(out.verdict!.evidence).toContain('looprail doctor')
 })
 
 test('executor with unknown agent key resolves with error verdict, not a rejection', async () => {

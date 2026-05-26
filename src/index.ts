@@ -8,6 +8,7 @@ export { routeIteration, composeFeedback, type RouteInput } from './core/router.
 export { createRegistry, type AdapterRegistry } from './adapters/registry.js'
 export { MockAdapter, type MockStep } from './adapters/mock.js'
 export { executeNode, type EngineDeps } from './engine/nodes.js'
+export { invokeWithRetry, InfraError, isInfraError, type RetryDeps } from './engine/retry.js'
 export { runIteration } from './engine/scheduler.js'
 export { runLoop, contextHash, type RunOptions } from './engine/runner.js'
 export { JournalWriter, readJournal } from './journal/journal.js'

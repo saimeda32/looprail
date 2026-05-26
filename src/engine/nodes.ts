@@ -3,6 +3,7 @@ import type { GateHandler, LoopDef, NodeDef, NodeOutcome } from '../core/types.j
 import { composeContext, type RunState } from '../core/context.js'
 import { parseVerdict } from '../core/verdict.js'
 import type { AdapterRegistry } from '../adapters/registry.js'
+import { InfraError, invokeWithRetry } from './retry.js'
 
 export interface EngineDeps {
   registry: AdapterRegistry
@@ -10,6 +11,8 @@ export interface EngineDeps {
   cwd?: string
   cache?: Map<string, NodeOutcome>
   hash?: (nodeId: string, prompt: string) => string
+  sleep?: (ms: number) => Promise<void>  // retry backoff clock (tests inject instant)
+  retries?: number                       // adapter retry budget (default 2)
 }
 
 const VERIFYING = new Set(['critic', 'judge'])
@@ -91,20 +94,20 @@ export async function executeNode(
     if (key && deps.cache?.has(key)) {
       return { ...deps.cache.get(key)!, costUsd: 0, contextHash: key }
     }
-    let res = await adapter.invoke({
+    let res = await invokeWithRetry(adapter, {
       prompt, timeoutMs: node.timeoutMs,
       model: agentDef.model, command: agentDef.command,
-    })
+    }, deps)
     let verdict = VERIFYING.has(node.role) ? parseVerdict(node.id, res.output) : null
     let cost = res.costUsd
     let tokens = res.tokens
 
     if (VERIFYING.has(node.role) && !verdict) {
-      const retry = await adapter.invoke({
+      const retry = await invokeWithRetry(adapter, {
         prompt: `${prompt}\n\nYour previous reply had no verdict block. Reply again ending with:\nVERDICT: pass|fail\nEVIDENCE: <reason>`,
         timeoutMs: node.timeoutMs,
         model: agentDef.model, command: agentDef.command,
-      })
+      }, deps)
       cost += retry.costUsd
       tokens += retry.tokens
       verdict = parseVerdict(node.id, retry.output)
@@ -122,10 +125,15 @@ export async function executeNode(
 
     return { ...base, output: res.output, verdict, costUsd: cost, tokens, durationMs: res.durationMs, contextHash: key }
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
     return {
       ...base,
       output: '',
-      verdict: { node: node.id, status: 'error', evidence: err instanceof Error ? err.message : String(err) },
+      verdict: {
+        node: node.id,
+        status: 'error',
+        evidence: err instanceof InfraError ? `infra: ${msg}` : msg,
+      },
     }
   }
 }

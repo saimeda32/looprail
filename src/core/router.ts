@@ -20,17 +20,26 @@ export interface RouteInput {
 }
 
 export function routeIteration(input: RouteInput): RouterDecision {
-  // verdicts first: a run that verifies in the same iteration it breaches a
-  // rail is still verified — the work is done and checked
   const verdicts = input.outcomes.flatMap((o) => (o.verdict ? [o.verdict] : []))
-  const status = aggregateVerdicts(verdicts, input.policy)
+  // infrastructural errors (auth expiry) can never be fixed by iterating —
+  // halt with the doctor hint carried in the evidence (spec §10)
+  const infra = verdicts.filter((v) => v.status === 'error' && v.evidence.startsWith('infra:'))
+  if (infra.length > 0) {
+    return {
+      action: 'halt',
+      reason: `infrastructure error: ${infra.map((v) => v.evidence).join('; ')}`,
+    }
+  }
+  // transient errors that survived retries route like failures: their evidence
+  // feeds the next iteration instead of killing the run (spec §10)
+  const softened = verdicts.map((v) =>
+    v.status === 'error' ? { ...v, status: 'fail' as const } : v)
+  // verdicts before breach: a run that verifies in the same iteration it
+  // breaches a rail is still verified — the work is done and checked
+  const status = aggregateVerdicts(softened, input.policy)
   if (status === 'pass') return { action: 'verified' }
   if (input.breach) {
     return { action: 'halt', reason: `rail breached (${input.breach.rail}): ${input.breach.detail}` }
-  }
-  if (status === 'error') {
-    const evidence = verdicts.filter((v) => v.status === 'error').map((v) => v.evidence).join('; ')
-    return { action: 'halt', reason: `node error: ${evidence}` }
   }
   const feedback = composeFeedback(input.outcomes)
   if (input.rails.stallAfter && detectStall(input.fingerprints, input.rails.stallAfter)) {

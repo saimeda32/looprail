@@ -200,7 +200,11 @@ test('denies verified when a rail-skipped node leaves verification incomplete', 
   expect(skip?.data.iteration).toBe(1)
 })
 
-test('critic-of-critic targeting a planning critic halts with an error verdict', async () => {
+test('critic-of-critic targeting a planning critic errors but iterates like a failure, then halts on the iteration rail', async () => {
+  // pre-task-5 this "of" target unavailable error halted immediately. Under
+  // spec §10, non-infra error verdicts are transient — they route like
+  // failures (iterate) instead of killing the run, so this now rides out the
+  // iteration rail rather than halting on the first bad verdict.
   const mock = new MockAdapter([
     { match: /PLANNER/, output: 'plan' },
     { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok' },
@@ -215,9 +219,9 @@ test('critic-of-critic targeting a planning critic halts with an error verdict',
       { id: 'metacrit', role: 'critic', agent: 'a', of: 'pcrit' },
     ],
   })
-  const report = await runLoop(def, { registry: reg(mock) })
+  const report = await runLoop(def, { registry: reg(mock), sleep: async () => {} })
   expect(report.status).toBe('halted')
-  expect(report.reason).toContain('pcrit')
+  expect(report.reason).toContain('iterations')
 })
 
 test('halts before starting a node that would run past the cost rail', async () => {
@@ -268,4 +272,39 @@ test('journal emits node_start before node_end, both stamped with the iteration'
 test('throws on invalid graph', async () => {
   const bad = loop({ nodes: [{ id: 'x', role: 'executor', agent: 'ghost' }] })
   await expect(runLoop(bad, { registry: reg(new MockAdapter([])) })).rejects.toThrow(/ghost/)
+})
+
+test('auth failure halts the run with a doctor hint', async () => {
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    invoke: async () => { throw new Error('HTTP 401 unauthorized — please login') },
+  })
+  const report = await runLoop(loop(), { registry, sleep: async () => {} })
+  expect(report.status).toBe('halted')
+  expect(report.reason).toContain('doctor')
+})
+
+test('transient errors route like failures: the loop keeps iterating', async () => {
+  let execCalls = 0
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    async invoke(req) {
+      if (req.prompt.includes('EXECUTOR')) {
+        execCalls++
+        throw new Error('rate limit exceeded, retry later')
+      }
+      return {
+        output: req.prompt.includes('VERDICT:')
+          ? 'VERDICT: pass\nEVIDENCE: ok' : 'the plan',
+        costUsd: 0, tokens: 0, durationMs: 1,
+      }
+    },
+  })
+  const def = loop({ rails: { maxIterations: 2, maxCostUsd: 5 } })
+  const report = await runLoop(def, { registry, retries: 0, sleep: async () => {} })
+  expect(report.status).toBe('halted')
+  expect(report.reason).toContain('iterations')
+  expect(execCalls).toBe(2) // iterated after the first error instead of halting
 })
