@@ -81,6 +81,9 @@ test('adapter throw becomes an error verdict', async () => {
     { registry, sleep: async () => {} })
   expect(out.verdict!.status).toBe('error')
   expect(out.verdict!.evidence).toContain('exhausted')
+  // transient — must NOT be tagged infra: or config:, so the router keeps
+  // softening it to a failure and iterating rather than halting loudly
+  expect(out.verdict!.evidence).not.toMatch(/^(infra|config):/)
 })
 
 test('infra error becomes an infra-tagged error verdict', async () => {
@@ -97,21 +100,23 @@ test('infra error becomes an infra-tagged error verdict', async () => {
   expect(out.verdict!.evidence).toContain('looprail doctor')
 })
 
-test('executor with unknown agent key resolves with error verdict, not a rejection', async () => {
+test('executor with unknown agent key resolves with a config-tagged error verdict, not a rejection', async () => {
   const deps = depsWith(new MockAdapter([{ output: 'unused' }]))
   const out = await executeNode(
     def, { id: 'do', role: 'executor', agent: 'nope' }, state, none, deps)
   expect(out.verdict!.status).toBe('error')
+  expect(out.verdict!.evidence).toMatch(/^config:/)
 })
 
-test('critic whose adapter is not registered resolves with error verdict', async () => {
+test('critic whose adapter is not registered resolves with a config-tagged error verdict', async () => {
   const registry = createRegistry()
   const out = await executeNode(
     def, { id: 'c', role: 'critic', agent: 'a' }, state, none, { registry })
   expect(out.verdict!.status).toBe('error')
+  expect(out.verdict!.evidence).toMatch(/^config:/)
 })
 
-test('gate handler that throws resolves with error verdict', async () => {
+test('gate handler that throws resolves with a config-tagged error verdict', async () => {
   const registry = createRegistry()
   const out = await executeNode(
     def, { id: 'g', role: 'gate' }, state, none, {
@@ -119,6 +124,22 @@ test('gate handler that throws resolves with error verdict', async () => {
       gate: async () => { throw new Error('boom') },
     })
   expect(out.verdict!.status).toBe('error')
+  expect(out.verdict!.evidence).toMatch(/^config:/)
+})
+
+test('gate node with no gate handler configured resolves with a config-tagged error verdict', async () => {
+  const registry = createRegistry()
+  const out = await executeNode(def, { id: 'g', role: 'gate' }, state, none, { registry })
+  expect(out.verdict!.status).toBe('error')
+  expect(out.verdict!.evidence).toMatch(/^config:/)
+})
+
+test('tester whose shell command throws resolves with a config-tagged error verdict', async () => {
+  const registry = createRegistry()
+  const out = await executeNode(
+    def, { id: 't', role: 'tester' }, state, none, { registry })
+  expect(out.verdict!.status).toBe('error')
+  expect(out.verdict!.evidence).toMatch(/^config:/)
 })
 
 test('judge with threshold but no SCORE line fails with explicit evidence', async () => {
@@ -142,6 +163,7 @@ test('critic whose "of" target has no outcome errors instead of reviewing nothin
   const node: NodeDef = { id: 'c', role: 'critic', agent: 'a', of: 'ghost' }
   const out = await executeNode(def, node, state, none, depsWith(mock))
   expect(out.verdict!.status).toBe('error')
+  expect(out.verdict!.evidence).toMatch(/^config:/)
   expect(out.verdict!.evidence).toContain('"ghost"')
   expect(mock.calls).toHaveLength(0) // never composed an empty review context
 })

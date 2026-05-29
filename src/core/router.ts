@@ -30,8 +30,20 @@ export function routeIteration(input: RouteInput): RouterDecision {
       reason: `infrastructure error: ${infra.map((v) => v.evidence).join('; ')}`,
     }
   }
-  // transient errors that survived retries route like failures: their evidence
-  // feeds the next iteration instead of killing the run (spec §10)
+  // config/structural errors (bad graph wiring: an unresolved "of" target, a
+  // missing gate handler, an unregistered adapter, ...) reproduce identically
+  // every iteration — iterating can never fix them, so halt loudly instead of
+  // silently churning (C1/I4: reviewing nothing must never silently continue)
+  const config = verdicts.filter((v) => v.status === 'error' && v.evidence.startsWith('config:'))
+  if (config.length > 0) {
+    return {
+      action: 'halt',
+      reason: `config error — check your loop definition: ${config.map((v) => `[${v.node}] ${v.evidence}`).join('; ')}`,
+    }
+  }
+  // remaining errors are transient (an adapter that survived retries but
+  // still failed) and route like failures: their evidence feeds the next
+  // iteration instead of killing the run (spec §10)
   const softened = verdicts.map((v) =>
     v.status === 'error' ? { ...v, status: 'fail' as const } : v)
   // verdicts before breach: a run that verifies in the same iteration it

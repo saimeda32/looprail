@@ -200,16 +200,16 @@ test('denies verified when a rail-skipped node leaves verification incomplete', 
   expect(skip?.data.iteration).toBe(1)
 })
 
-test('critic-of-critic targeting a planning critic errors but iterates like a failure, then halts on the iteration rail', async () => {
-  // pre-task-5 this "of" target unavailable error halted immediately. Under
-  // spec §10, non-infra error verdicts are transient — they route like
-  // failures (iterate) instead of killing the run, so this now rides out the
-  // iteration rail rather than halting on the first bad verdict.
+test('critic-of-critic whose "of" target is unreachable halts loudly on the first iteration, not after riding out the iteration rail', async () => {
+  // C1/I4: an "of" target that can never resolve (here: metacrit lives in
+  // the execution region while pcrit only exists in the planning region's
+  // outcomes) is a structural graph bug — it reproduces identically on every
+  // iteration, so it must halt immediately with the target named rather than
+  // being softened into a failure that iterates until the iteration rail.
   const mock = new MockAdapter([
     { match: /PLANNER/, output: 'plan' },
     { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok' },
     { match: /EXECUTOR/, output: 'DONE' },
-    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: unused' },
   ])
   const def = loop({
     nodes: [
@@ -221,7 +221,45 @@ test('critic-of-critic targeting a planning critic errors but iterates like a fa
   })
   const report = await runLoop(def, { registry: reg(mock), sleep: async () => {} })
   expect(report.status).toBe('halted')
+  expect(report.iterations).toBe(1)
+  expect(report.reason).toContain('metacrit')
+  expect(report.reason).toContain('"pcrit"')
+})
+
+test('loop halts immediately when a node references an unregistered adapter, instead of iterating', async () => {
+  const mock = new MockAdapter([])
+  const def = loop({
+    agents: { a: { adapter: 'mock' }, b: { adapter: 'ghost-adapter' } },
+    nodes: [
+      { id: 'do', role: 'executor', agent: 'b' },
+    ],
+    rails: { maxIterations: 4, maxCostUsd: 5 },
+  })
+  const report = await runLoop(def, { registry: reg(mock), sleep: async () => {} })
+  expect(report.status).toBe('halted')
+  expect(report.iterations).toBe(1) // halted on the first iteration, did not ride out the rail
+  expect(report.reason).toContain('do')
+  expect(report.reason).toContain('ghost-adapter')
+})
+
+test('a genuinely transient adapter error survives retries and iterates like a failure, not halting immediately', async () => {
+  // proves the fix did not over-correct: with no config: or infra: tag, the
+  // error still routes like a failure and rides out the iteration rail.
+  const mock = new MockAdapter([
+    { match: /EXECUTOR/, output: 'DONE' },
+    { match: /EXECUTOR/, output: 'DONE' },
+  ])
+  const def = loop({
+    nodes: [
+      { id: 'do', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'do', after: ['do'] },
+    ],
+    rails: { maxIterations: 2, maxCostUsd: 5 },
+  })
+  const report = await runLoop(def, { registry: reg(mock), sleep: async () => {} })
+  expect(report.status).toBe('halted')
   expect(report.reason).toContain('iterations')
+  expect(mock.calls.filter((c) => c.prompt.includes('EXECUTOR'))).toHaveLength(2)
 })
 
 test('halts before starting a node that would run past the cost rail', async () => {

@@ -81,3 +81,15 @@ test('infra-tagged error verdict halts with the evidence', () => {
     action: 'halt', reason: expect.stringContaining('infrastructure'),
   })
 })
+
+test('config-tagged error verdict halts loudly instead of iterating', () => {
+  const d = routeIteration({
+    outcomes: [outcome('metacrit', 'error', 'config: target output for "pcrit" unavailable — check graph ordering')],
+    policy: { kind: 'all-pass' },
+    fingerprints: [], rails, replansUsed: 0, breach: null,
+  })
+  expect(d).toMatchObject({ action: 'halt' })
+  expect((d as { reason: string }).reason).not.toContain('infrastructure')
+  expect((d as { reason: string }).reason).toContain('metacrit')
+  expect((d as { reason: string }).reason).toContain('pcrit')
+})

@@ -1,5 +1,5 @@
 import { execa } from 'execa'
-import type { GateHandler, LoopDef, NodeDef, NodeOutcome } from '../core/types.js'
+import type { Adapter, AgentDef, GateHandler, LoopDef, NodeDef, NodeOutcome } from '../core/types.js'
 import { composeContext, type RunState } from '../core/context.js'
 import { parseVerdict } from '../core/verdict.js'
 import type { AdapterRegistry } from '../adapters/registry.js'
@@ -45,10 +45,13 @@ export async function executeNode(
         },
       }
     } catch (err) {
+      // execa itself throwing (not a non-zero exit, which is handled above)
+      // means the command/shell setup is broken — structural, not transient.
+      const msg = err instanceof Error ? err.message : String(err)
       return {
         ...base,
         output: '',
-        verdict: { node: node.id, status: 'error', evidence: err instanceof Error ? err.message : String(err) },
+        verdict: { node: node.id, status: 'error', evidence: `config: ${msg}` },
       }
     }
   }
@@ -56,7 +59,7 @@ export async function executeNode(
   if (node.role === 'gate') {
     try {
       if (!deps.gate) {
-        return { ...base, output: '', verdict: { node: node.id, status: 'error', evidence: 'no gate handler configured' } }
+        return { ...base, output: '', verdict: { node: node.id, status: 'error', evidence: 'config: no gate handler configured' } }
       }
       const context = composeContext(def, node, state, outcomes)
       const approved = await deps.gate(node, context)
@@ -66,10 +69,13 @@ export async function executeNode(
         verdict: { node: node.id, status: approved ? 'pass' : 'fail', evidence: approved ? 'human approved' : 'human rejected' },
       }
     } catch (err) {
+      // a gate handler that throws is a wiring bug, not a transient failure —
+      // it will throw identically on every iteration.
+      const msg = err instanceof Error ? err.message : String(err)
       return {
         ...base,
         output: '',
-        verdict: { node: node.id, status: 'error', evidence: err instanceof Error ? err.message : String(err) },
+        verdict: { node: node.id, status: 'error', evidence: `config: ${msg}` },
       }
     }
   }
@@ -81,19 +87,35 @@ export async function executeNode(
       verdict: {
         node: node.id,
         status: 'error',
-        evidence: `target output for "${node.of}" unavailable — check graph ordering`,
+        evidence: `config: target output for "${node.of}" unavailable — check graph ordering`,
       },
     }
   }
 
+  // resolving the agent/adapter/prompt for this node is structural: an
+  // unknown agent key or an unregistered adapter reproduces identically on
+  // every iteration and must halt loudly rather than iterate (see the
+  // invokeWithRetry call below, whose failures ARE transient).
+  let agentDef: AgentDef, adapter: Adapter, prompt: string, key: string | undefined
   try {
-    const agentDef = def.agents[node.agent!]
-    const adapter = deps.registry.get(agentDef.adapter)
-    const prompt = composeContext(def, node, state, outcomes)
-    const key = deps.hash?.(node.id, prompt)
+    agentDef = def.agents[node.agent!]
+    if (!agentDef) throw new Error(`unknown agent "${node.agent}" — check the loop's agents map`)
+    adapter = deps.registry.get(agentDef.adapter)
+    prompt = composeContext(def, node, state, outcomes)
+    key = deps.hash?.(node.id, prompt)
     if (key && deps.cache?.has(key)) {
       return { ...deps.cache.get(key)!, costUsd: 0, contextHash: key }
     }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return {
+      ...base,
+      output: '',
+      verdict: { node: node.id, status: 'error', evidence: `config: ${msg}` },
+    }
+  }
+
+  try {
     let res = await invokeWithRetry(adapter, {
       prompt, timeoutMs: node.timeoutMs,
       model: agentDef.model, command: agentDef.command,
