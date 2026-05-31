@@ -4,16 +4,21 @@
   "description": "Vendor-neutral orchestrator for agentic loops",
   "license": "MIT",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": { "looprail": "./dist/cli/index.js" },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
+    "commander": "^12.1.0",
     "execa": "^9.0.0",
+    "picocolors": "^1.1.1",
     "yaml": "^2.4.0"
   },
   "devDependencies": {
