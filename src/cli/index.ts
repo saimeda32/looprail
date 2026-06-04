@@ -2,6 +2,8 @@
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { Command } from 'commander'
+import { registerDoctor } from './doctor-cmd.js'
+import { registerLint } from './lint-cmd.js'
 
 const pkg = createRequire(import.meta.url)('../../package.json') as { version: string }
 
@@ -13,6 +15,8 @@ export function buildProgram(): Command {
     .version(pkg.version)
     .option('--cwd <dir>', 'working directory', process.cwd())
   // command modules register themselves here (Tasks 7-11)
+  registerDoctor(program)
+  registerLint(program)
   return program
 }
 
