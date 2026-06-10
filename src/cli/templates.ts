@@ -1,19 +1,25 @@
 export interface Template {
   description: string
-  yaml: (adapter: string) => string
+  // worker runs the executor/planner nodes; reviewer runs the
+  // critic/checker/judge/synthesizer nodes. Pass two different adapters to
+  // get genuine cross-model independent verification; pass the same
+  // adapter twice for a single-adapter environment (still lint-clean).
+  yaml: (worker: string, reviewer: string) => string
 }
+
+const REVIEWER_COMMENT = '# independent reviewer — a different model catches what the worker\'s own model misses'
 
 export const TEMPLATES: Record<string, Template> = {
   'fix-tests': {
     description: 'make a failing test suite pass, with an anti-gaming critic',
-    yaml: (adapter) => `name: fix-tests
+    yaml: (worker, reviewer) => `name: fix-tests
 goal: |
   Make the test suite pass. Done means: npm test exits 0 and a critic
   confirms no test was deleted, skipped, or weakened to force a pass.
 
 agents:
-  worker:  { adapter: ${adapter} }
-  checker: { adapter: ${adapter} }
+  worker:  { adapter: ${worker} }
+  checker: { adapter: ${reviewer} }  ${REVIEWER_COMMENT}
 
 graph:
   fix:   { role: executor, agent: worker }
@@ -33,14 +39,14 @@ verdict: { policy: all-pass }
 
   'research-report': {
     description: 'cited research report with plan critique and a critic panel',
-    yaml: (adapter) => `name: research-report
+    yaml: (worker, reviewer) => `name: research-report
 goal: |
   Produce a cited research report on TOPIC (edit me). Done means: every
   claim has a source and independent critics find no unsupported claims.
 
 agents:
-  worker:  { adapter: ${adapter} }
-  checker: { adapter: ${adapter} }
+  worker:  { adapter: ${worker} }
+  checker: { adapter: ${reviewer} }  ${REVIEWER_COMMENT}
 
 graph:
   plan:      { role: planner, agent: worker }
@@ -63,15 +69,15 @@ verdict: { policy: all-pass }
 
   refactor: {
     description: 'behavior-preserving refactor guarded by tests and a critic',
-    yaml: (adapter) => `name: refactor
+    yaml: (worker, reviewer) => `name: refactor
 goal: |
   Refactor TARGET (edit me) without changing behavior. Done means: the
   test suite still passes and a critic finds no behavior change or
   dropped edge case.
 
 agents:
-  worker:  { adapter: ${adapter} }
-  checker: { adapter: ${adapter} }
+  worker:  { adapter: ${worker} }
+  checker: { adapter: ${reviewer} }  ${REVIEWER_COMMENT}
 
 graph:
   refactor: { role: executor, agent: worker }
@@ -91,14 +97,14 @@ verdict: { policy: all-pass }
 
   'content-pipeline': {
     description: 'draft → weighted style/fact critique → human sign-off',
-    yaml: (adapter) => `name: content-pipeline
+    yaml: (worker, reviewer) => `name: content-pipeline
 goal: |
   Draft, edit, and fact-check a publishable article on TOPIC (edit me).
   Done means: the weighted critique passes and a human signs off.
 
 agents:
-  worker: { adapter: ${adapter} }
-  editor: { adapter: ${adapter} }
+  worker: { adapter: ${worker} }
+  editor: { adapter: ${reviewer} }  ${REVIEWER_COMMENT}
 
 graph:
   outline: { role: planner, agent: worker }
@@ -107,7 +113,7 @@ graph:
              prompt: Critique clarity, tone, and structure. }
   facts:   { role: critic, agent: editor, of: draft, after: draft, weight: 2,
              prompt: Fail on any claim you cannot verify. }
-  approve: { role: gate, after: [style, facts], weight: 2 }
+  approve: { role: gate, after: [style, facts], weight: 2 }  # gate = pauses for human approval (y/n) before the loop can finish
 
 rails:
   max_iterations: 5

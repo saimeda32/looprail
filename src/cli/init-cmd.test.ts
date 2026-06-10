@@ -83,3 +83,73 @@ test('unknown template exits 1 listing valid names', async () => {
   expect(lines.join('\n')).toContain('fix-tests')
   expect(existsSync(join(cwd, 'looprail.yaml'))).toBe(false)
 })
+
+test('unknown --agent exits 1 listing valid adapters and scaffolds nothing', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-init-'))
+  const { io, lines } = capture()
+  const code = await initAction(
+    { cwd, template: 'fix-tests', agent: 'gpt5' }, { detect: detected([]), io })
+  expect(code).toBe(1)
+  expect(lines.join('\n')).toContain('claude-code')
+  expect(existsSync(join(cwd, 'looprail.yaml'))).toBe(false)
+})
+
+test('unknown --reviewer exits 1 listing valid adapters and scaffolds nothing', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-init-'))
+  const { io, lines } = capture()
+  const code = await initAction(
+    { cwd, template: 'fix-tests', agent: 'mock', reviewer: 'gpt5' }, { detect: detected([]), io })
+  expect(code).toBe(1)
+  expect(lines.join('\n')).toContain('claude-code')
+  expect(existsSync(join(cwd, 'looprail.yaml'))).toBe(false)
+})
+
+test('more than one adapter detected: reviewer auto-defaults to a different detected adapter', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-init-'))
+  const { io, lines } = capture()
+  const code = await initAction(
+    { cwd, yes: true }, { detect: detected(['claude-code', 'codex']), io })
+  expect(code).toBe(0)
+  const yaml = readFileSync(join(cwd, 'looprail.yaml'), 'utf8')
+  expect(yaml).toContain('adapter: claude-code')
+  expect(yaml).toContain('adapter: codex')
+  expect(lines.join('\n')).toContain('worker: claude-code, reviewer: codex — independent verification')
+})
+
+test('only one adapter detected: reviewer falls back to the worker adapter', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-init-'))
+  const { io, lines } = capture()
+  const code = await initAction(
+    { cwd, yes: true }, { detect: detected(['claude-code']), io })
+  expect(code).toBe(0)
+  const yaml = readFileSync(join(cwd, 'looprail.yaml'), 'utf8')
+  expect(yaml.match(/adapter: claude-code/g)).toHaveLength(2)
+  expect(lines.join('\n')).not.toContain('independent verification')
+})
+
+test('--agent pins the worker: reviewer falls back to worker even with multiple adapters detected', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-init-'))
+  const { io, lines } = capture()
+  const code = await initAction(
+    { cwd, template: 'fix-tests', agent: 'claude-code' },
+    { detect: detected(['claude-code', 'codex']), io })
+  expect(code).toBe(0)
+  const yaml = readFileSync(join(cwd, 'looprail.yaml'), 'utf8')
+  expect(yaml.match(/adapter: claude-code/g)).toHaveLength(2)
+  expect(yaml).not.toContain('adapter: codex')
+  expect(lines.join('\n')).not.toContain('independent verification')
+})
+
+test('--reviewer pins a specific reviewer adapter, overriding auto-selection', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-init-'))
+  const { io, lines } = capture()
+  const code = await initAction(
+    { cwd, template: 'fix-tests', agent: 'claude-code', reviewer: 'aider' },
+    { detect: detected(['claude-code', 'codex']), io })
+  expect(code).toBe(0)
+  const yaml = readFileSync(join(cwd, 'looprail.yaml'), 'utf8')
+  expect(yaml).toContain('adapter: claude-code')
+  expect(yaml).toContain('adapter: aider')
+  expect(yaml).not.toContain('adapter: codex')
+  expect(lines.join('\n')).toContain('worker: claude-code, reviewer: aider — independent verification')
+})
