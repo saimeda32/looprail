@@ -5,6 +5,7 @@ import { Command } from 'commander'
 import { registerDoctor } from './doctor-cmd.js'
 import { registerInit } from './init-cmd.js'
 import { registerLint } from './lint-cmd.js'
+import { registerRun } from './run-cmd.js'
 
 const pkg = createRequire(import.meta.url)('../../package.json') as { version: string }
 
@@ -19,6 +20,7 @@ export function buildProgram(): Command {
   registerDoctor(program)
   registerInit(program)
   registerLint(program)
+  registerRun(program)
   return program
 }
 

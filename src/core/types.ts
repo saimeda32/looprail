@@ -61,6 +61,7 @@ export interface Rails {
   maxWallMinutes?: number
   stallAfter?: number
   replanLimit?: number
+  gateTimeoutSec?: number   // gate wait budget in seconds (absent = wait forever)
 }
 
 export interface LoopDef {

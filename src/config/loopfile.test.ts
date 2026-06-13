@@ -97,3 +97,9 @@ test('rejects a weighted threshold outside (0, 1]', () => {
   expect(() => parseLoopfile(SAMPLE.replace('policy: all-pass', 'policy: { weighted: 0 }')))
     .toThrow(/weighted/)
 })
+
+test('gate_timeout rail maps to gateTimeoutSec', () => {
+  const def = parseLoopfile(
+    SAMPLE.replace('max_iterations: 8', 'max_iterations: 8\n  gate_timeout: 300'))
+  expect(def.rails.gateTimeoutSec).toBe(300)
+})

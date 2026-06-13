@@ -323,6 +323,24 @@ test('auth failure halts the run with a doctor hint', async () => {
   expect(report.reason).toContain('doctor')
 })
 
+test('onEvent streams lifecycle events even without a runDir', async () => {
+  const mock = new MockAdapter([
+    { match: /PLANNER/, output: 'plan' },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok' },
+    { match: /EXECUTOR/, output: 'DONE' },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok' },
+  ])
+  const seen: string[] = []
+  const report = await runLoop(loop(), {
+    registry: reg(mock), onEvent: (e) => seen.push(e.type),
+  })
+  expect(report.status).toBe('verified')
+  expect(seen[0]).toBe('run_start')
+  expect(seen).toContain('node_start')
+  expect(seen).toContain('node_end')
+  expect(seen.at(-1)).toBe('verified')
+})
+
 test('transient errors route like failures: the loop keeps iterating', async () => {
   let execCalls = 0
   const registry = createRegistry()

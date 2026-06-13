@@ -1,0 +1,126 @@
+import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { expect, test } from 'vitest'
+import { agentCostBreakdown, makeGate, runAction } from './run-cmd.js'
+import { JournalWriter, parseLoopfile } from '../index.js'
+
+const FIXTURE = `
+name: cli-fixture
+goal: Say DONE.
+agents:
+  worker:  { adapter: mock }
+  checker: { adapter: mock }
+graph:
+  do:   { role: executor, agent: worker }
+  crit: { role: critic, agent: checker, of: do, after: do }
+rails:
+  max_iterations: 2
+  max_cost_usd: 1
+`
+
+const HALTING = `
+name: halting
+goal: Never passes.
+agents:
+  worker: { adapter: mock }
+graph:
+  do:  { role: executor, agent: worker }
+  bad: { role: tester, after: do, run: "false", expect: exit 0 }
+rails:
+  max_iterations: 1
+  max_cost_usd: 1
+`
+
+const GATED = `
+name: gated
+goal: Needs approval.
+agents:
+  worker: { adapter: mock }
+graph:
+  do:      { role: executor, agent: worker }
+  approve: { role: gate, after: do }
+rails:
+  max_iterations: 2
+  max_cost_usd: 1
+`
+
+function setup(content?: string) {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-run-'))
+  if (content) writeFileSync(join(cwd, 'looprail.yaml'), content)
+  const lines: string[] = []
+  return { cwd, io: { out: (l: string) => lines.push(l) }, lines }
+}
+
+test('verified run exits 0, renders progress and report, writes a journal', async () => {
+  const { cwd, io, lines } = setup(FIXTURE)
+  const code = await runAction(undefined, { cwd }, { io })
+  expect(code).toBe(0)
+  const text = lines.join('\n')
+  expect(text).toContain('cli-fixture')
+  expect(text).toContain('verified')
+  expect(text).toContain('do')            // node progress line
+  expect(text).toContain('budget')        // cost ticker vs max_cost_usd
+  const runs = readdirSync(join(cwd, '.looprail', 'runs'))
+  expect(runs).toHaveLength(1)
+  expect(readdirSync(join(cwd, '.looprail', 'runs', runs[0]))).toContain('journal.jsonl')
+})
+
+test('halted run exits 2 with the rail reason', async () => {
+  const { cwd, io, lines } = setup(HALTING)
+  const code = await runAction(undefined, { cwd }, { io })
+  expect(code).toBe(2)
+  expect(lines.join('\n')).toContain('halted')
+  expect(lines.join('\n')).toContain('iterations')
+})
+
+test('missing loopfile exits 1 pointing at init', async () => {
+  const { cwd, io, lines } = setup()
+  expect(await runAction(undefined, { cwd }, { io })).toBe(1)
+  expect(lines.join('\n')).toContain('looprail init')
+})
+
+test('lint errors block the run with exit 1', async () => {
+  const noVerifier = FIXTURE.replace('  crit: { role: critic, agent: checker, of: do, after: do }\n', '')
+  const { cwd, io, lines } = setup(noVerifier)
+  expect(await runAction(undefined, { cwd }, { io })).toBe(1)
+  expect(lines.join('\n')).toContain('L001')
+})
+
+test('--json emits a machine-readable summary as the only stdout line', async () => {
+  const { cwd, io, lines } = setup(FIXTURE)
+  const code = await runAction(undefined, { cwd, json: true }, { io })
+  expect(code).toBe(0)
+  expect(lines).toHaveLength(1)
+  const parsed = JSON.parse(lines[0]) as { status: string; runId: string; costUsd: number }
+  expect(parsed.status).toBe('verified')
+  expect(parsed.runId).toMatch(/^run-/)
+})
+
+test('gate handler is consulted and drives the verdict', async () => {
+  const { cwd, io } = setup(GATED)
+  const gated: string[] = []
+  const code = await runAction(undefined, { cwd }, {
+    io,
+    gate: async (node) => { gated.push(node.id); return true },
+  })
+  expect(code).toBe(0)
+  expect(gated).toEqual(['approve'])
+})
+
+test('makeGate --yes auto-approves without touching stdin', async () => {
+  const lines: string[] = []
+  const gate = makeGate({ maxIterations: 1, maxCostUsd: 1 }, { out: (l) => lines.push(l) }, true)
+  await expect(gate({ id: 'approve', role: 'gate' }, 'ctx')).resolves.toBe(true)
+  expect(lines.join('\n')).toContain('auto-approved')
+})
+
+test('agentCostBreakdown folds journal costs per agent (panel clones collapse)', async () => {
+  const def = parseLoopfile(FIXTURE)
+  const dir = join(mkdtempSync(join(tmpdir(), 'lr-bd-')), 'run')
+  const w = new JournalWriter(dir, () => 1)
+  w.write('node_end', { nodeId: 'do', costUsd: 0.3 })
+  w.write('node_end', { nodeId: 'crit@1', costUsd: 0.15 })
+  w.write('node_end', { nodeId: 'crit@2', costUsd: 0.05 })
+  expect(agentCostBreakdown(def, w.path)).toEqual([['worker', 0.3], ['checker', 0.2]])
+})

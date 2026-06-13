@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import type {
-  GateHandler, LoopDef, NodeDef, NodeOutcome, RunReport,
+  GateHandler, JournalEvent, LoopDef, NodeDef, NodeOutcome, RunReport,
 } from '../core/types.js'
 import { expandPanels, validateGraph } from '../core/graph.js'
 import type { RunState } from '../core/context.js'
@@ -22,6 +22,7 @@ export interface RunOptions {
   cache?: Map<string, NodeOutcome>
   sleep?: (ms: number) => Promise<void>
   retries?: number
+  onEvent?: (event: JournalEvent) => void  // live observer (CLI progress); mirrors the journal
 }
 
 export function contextHash(nodeId: string, prompt: string): string {
@@ -55,7 +56,11 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
 
   const runId = opts.runId ?? `run-${Date.now().toString(36)}`
   const journal = opts.runDir ? new JournalWriter(opts.runDir, opts.now) : null
-  journal?.write('run_start', { runId, name: def.name, goal: def.goal })
+  const emit = (type: JournalEvent['type'], data: Record<string, unknown>): void => {
+    journal?.write(type, data)
+    opts.onEvent?.({ ts: (opts.now ?? Date.now)(), type, data })
+  }
+  emit('run_start', { runId, name: def.name, goal: def.goal })
 
   const guard = new RailsGuard(def.rails, opts.now)
   const deps: EngineDeps = {
@@ -65,14 +70,14 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   }
   const onNode = (o: NodeOutcome) => {
     guard.addCost(o.costUsd)
-    journal?.write('node_end', {
+    emit('node_end', {
       nodeId: o.nodeId, role: o.role, verdict: o.verdict, iteration: state.iteration,
       costUsd: o.costUsd, tokens: o.tokens, durationMs: o.durationMs,
       output: o.output, contextHash: o.contextHash,
     })
   }
   const onNodeStart = (n: NodeDef) => {
-    journal?.write('node_start', { nodeId: n.id, role: n.role, iteration: state.iteration })
+    emit('node_start', { nodeId: n.id, role: n.role, iteration: state.iteration })
   }
   // pre-start rail enforcement: halt BEFORE starting a node that would breach
   const shouldContinue = () => guard.check(state.iteration) === null
@@ -84,7 +89,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   const fingerprints: string[] = []
 
   const finish = (status: RunReport['status'], reason: string): RunReport => {
-    journal?.write(status === 'verified' ? 'verified' : 'halt', { reason, costUsd: guard.spentUsd })
+    emit(status === 'verified' ? 'verified' : 'halt', { reason, costUsd: guard.spentUsd })
     return {
       runId, status, reason,
       iterations: state.iteration, replans,
@@ -117,7 +122,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     outcomes = await runIteration(expanded, execution, state, deps, onNode, shouldContinue, onNodeStart)
     const verdicts = outcomes.flatMap((o) => (o.verdict ? [o.verdict] : []))
     fingerprints.push(verdictFingerprint(verdicts))
-    journal?.write('iteration_end', { iteration: state.iteration, costUsd: guard.spentUsd })
+    emit('iteration_end', { iteration: state.iteration, costUsd: guard.spentUsd })
 
     const breach = guard.check(state.iteration)
     // a rail can preempt the pool between layers (scheduler.ts pre-node check),
@@ -128,7 +133,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
       ? execution.filter((n) => !outcomes.some((o) => o.nodeId === n.id))
       : []
     for (const n of skipped) {
-      journal?.write('node_skipped', { nodeId: n.id, role: n.role, iteration: state.iteration })
+      emit('node_skipped', { nodeId: n.id, role: n.role, iteration: state.iteration })
     }
 
     const decision = routeIteration({
@@ -149,7 +154,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     if (decision.action === 'replan') {
       replans += 1
       fingerprints.length = 0
-      journal?.write('replan', { replans, feedback: decision.feedback })
+      emit('replan', { replans, feedback: decision.feedback })
       await runPlanning()
     }
   }

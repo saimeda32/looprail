@@ -90,6 +90,7 @@ export function parseLoopfile(text: string): LoopDef {
       ...(rawRails.max_wall_minutes !== undefined ? { maxWallMinutes: rawRails.max_wall_minutes } : {}),
       ...(rawRails.stall_after !== undefined ? { stallAfter: rawRails.stall_after } : {}),
       ...(rawRails.replan_limit !== undefined ? { replanLimit: rawRails.replan_limit } : {}),
+      ...(rawRails.gate_timeout !== undefined ? { gateTimeoutSec: rawRails.gate_timeout } : {}),
     },
     verdictPolicy,
     ...(raw.concurrency !== undefined ? { concurrency: raw.concurrency as number } : {}),
