@@ -17,7 +17,28 @@ export function loadLoop(file: string | undefined, cwd: string): { def: LoopDef;
   return { def: parseLoopfile(readFileSync(path, 'utf8')), path }
 }
 
-export function makeGate(rails: Rails, io: CliIo, autoApprove: boolean): GateHandler {
+// Produces the promise half of the gate's timeout race: it rejects with an
+// infra:-tagged error once `ms` elapses. Pulled out as an injectable seam
+// (see GateTimerDeps) so tests can force the timeout branch without waiting
+// on a real timer.
+function defaultGateTimer(ms: number, message: string): Promise<never> {
+  return new Promise((_, reject) => {
+    const t = setTimeout(() => reject(new Error(message)), ms)
+    t.unref()
+  })
+}
+
+export interface GateTimerDeps {
+  // returns a promise that rejects with `message` after `ms` milliseconds.
+  // Defaults to a real (unref'd) setTimeout; tests inject a fake that
+  // rejects immediately to exercise the timeout path deterministically.
+  gateTimer?: (ms: number, message: string) => Promise<never>
+}
+
+export function makeGate(
+  rails: Rails, io: CliIo, autoApprove: boolean, timerDeps: GateTimerDeps = {},
+): GateHandler {
+  const gateTimer = timerDeps.gateTimer ?? defaultGateTimer
   return async (node) => {
     if (autoApprove) {
       io.out(warn(`gate "${node.id}" auto-approved (--yes)`))
@@ -27,17 +48,16 @@ export function makeGate(rails: Rails, io: CliIo, autoApprove: boolean): GateHan
     try {
       const question = rl.question(`gate "${node.id}" — approve? [y/N] `)
       const timeoutSec = rails.gateTimeoutSec
-      const answer = timeoutSec
+      // 0 and undefined both mean "wait forever" — only a positive timeout
+      // starts the race. (A gateTimeoutSec of exactly 0 is not treated as
+      // "time out immediately"; there was no product requirement for that,
+      // so it falls back to the same wait-forever behavior as unset.)
+      const answer = timeoutSec !== undefined && timeoutSec > 0
         ? await Promise.race([
             question,
-            new Promise<never>((_, reject) => {
-              // the infra: tag makes the router HALT (spec §10) instead of
-              // treating the timeout as an ordinary gate rejection
-              const t = setTimeout(
-                () => reject(new Error(`infra: gate "${node.id}" timed out after ${timeoutSec}s with no human response`)),
-                timeoutSec * 1000)
-              t.unref()
-            }),
+            // the infra: tag makes the router HALT (spec §10) instead of
+            // treating the timeout as an ordinary gate rejection
+            gateTimer(timeoutSec * 1000, `infra: gate "${node.id}" timed out after ${timeoutSec}s awaiting human approval`),
           ])
         : await question
       return /^y(es)?$/i.test(answer.trim())
@@ -95,6 +115,9 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
         break
       case 'replan':
         ctx.io.out(warn(`  ↻ replan #${String(d.replans)}`))
+        break
+      case 'node_skipped':
+        ctx.io.out(dim(`    skipped ${String(d.nodeId)} (rail)`))
         break
       default:
         break

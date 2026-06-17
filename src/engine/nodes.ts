@@ -69,13 +69,19 @@ export async function executeNode(
         verdict: { node: node.id, status: approved ? 'pass' : 'fail', evidence: approved ? 'human approved' : 'human rejected' },
       }
     } catch (err) {
-      // a gate handler that throws is a wiring bug, not a transient failure —
-      // it will throw identically on every iteration.
+      // a gate handler that throws is usually a wiring bug (no handler,
+      // handler misconfigured) and gets a config: verdict — but a gate that
+      // times out waiting for a human (makeGate's setTimeout race) already
+      // throws an infra:-tagged error, since a human not answering in time
+      // is an operational condition, not a broken loopfile. Preserve any
+      // existing infra:/config: prefix instead of blindly re-labeling it, or
+      // the router's infra branch (spec §10) never sees it.
       const msg = err instanceof Error ? err.message : String(err)
+      const evidence = /^(infra|config):/.test(msg) ? msg : `config: ${msg}`
       return {
         ...base,
         output: '',
-        verdict: { node: node.id, status: 'error', evidence: `config: ${msg}` },
+        verdict: { node: node.id, status: 'error', evidence },
       }
     }
   }

@@ -45,6 +45,20 @@ rails:
   max_cost_usd: 1
 `
 
+const GATED_TIMEOUT = `
+name: gated-timeout
+goal: Needs approval, human never responds.
+agents:
+  worker: { adapter: mock }
+graph:
+  do:      { role: executor, agent: worker }
+  approve: { role: gate, after: do }
+rails:
+  max_iterations: 2
+  max_cost_usd: 1
+  gate_timeout: 5
+`
+
 function setup(content?: string) {
   const cwd = mkdtempSync(join(tmpdir(), 'lr-run-'))
   if (content) writeFileSync(join(cwd, 'looprail.yaml'), content)
@@ -113,6 +127,35 @@ test('makeGate --yes auto-approves without touching stdin', async () => {
   const gate = makeGate({ maxIterations: 1, maxCostUsd: 1 }, { out: (l) => lines.push(l) }, true)
   await expect(gate({ id: 'approve', role: 'gate' }, 'ctx')).resolves.toBe(true)
   expect(lines.join('\n')).toContain('auto-approved')
+})
+
+test('makeGate rejects with an infra-tagged message via the injected gate timer — no real timer used', async () => {
+  const lines: string[] = []
+  const gate = makeGate(
+    { maxIterations: 1, maxCostUsd: 1, gateTimeoutSec: 5 },
+    { out: (l) => lines.push(l) },
+    false,
+    // the injected timer rejects immediately instead of waiting 5 real
+    // seconds — this is the whole point of the seam
+    { gateTimer: async (_ms, message) => { throw new Error(message) } },
+  )
+  await expect(gate({ id: 'approve', role: 'gate' }, 'ctx'))
+    .rejects.toThrow('infra: gate "approve" timed out after 5s awaiting human approval')
+})
+
+test('gate timeout halts the run as an infrastructure error, not a config error (no real timers)', async () => {
+  const { cwd, io, lines } = setup(GATED_TIMEOUT)
+  const def = parseLoopfile(GATED_TIMEOUT)
+  const gate = makeGate(def.rails, io, false, {
+    gateTimer: async (_ms, message) => { throw new Error(message) },
+  })
+  const code = await runAction(undefined, { cwd }, { io, gate })
+  expect(code).toBe(2)
+  const text = lines.join('\n')
+  expect(text).toContain('halted')
+  expect(text).toContain('infrastructure error')
+  expect(text).toContain('gate "approve" timed out after 5s awaiting human approval')
+  expect(text).not.toContain('config error')
 })
 
 test('agentCostBreakdown folds journal costs per agent (panel clones collapse)', async () => {
