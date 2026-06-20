@@ -80,6 +80,8 @@ test('infra-tagged error verdict halts with the evidence', () => {
   expect(d).toMatchObject({
     action: 'halt', reason: expect.stringContaining('infrastructure'),
   })
+  // verify the prefix is stripped so it does not double-label
+  expect((d as { reason: string }).reason).toBe('infrastructure error: 401 unauthorized — run `looprail doctor`')
 })
 
 test('config-tagged error verdict halts loudly instead of iterating', () => {
@@ -92,4 +94,6 @@ test('config-tagged error verdict halts loudly instead of iterating', () => {
   expect((d as { reason: string }).reason).not.toContain('infrastructure')
   expect((d as { reason: string }).reason).toContain('metacrit')
   expect((d as { reason: string }).reason).toContain('pcrit')
+  // verify the prefix is stripped so it does not double-label
+  expect((d as { reason: string }).reason).toBe('config error — check your loop definition: [metacrit] target output for "pcrit" unavailable — check graph ordering')
 })

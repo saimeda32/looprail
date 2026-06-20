@@ -27,7 +27,7 @@ export function routeIteration(input: RouteInput): RouterDecision {
   if (infra.length > 0) {
     return {
       action: 'halt',
-      reason: `infrastructure error: ${infra.map((v) => v.evidence).join('; ')}`,
+      reason: `infrastructure error: ${infra.map((v) => v.evidence.replace(/^(infra|config):\s*/, '')).join('; ')}`,
     }
   }
   // config/structural errors (bad graph wiring: an unresolved "of" target, a
@@ -38,7 +38,7 @@ export function routeIteration(input: RouteInput): RouterDecision {
   if (config.length > 0) {
     return {
       action: 'halt',
-      reason: `config error — check your loop definition: ${config.map((v) => `[${v.node}] ${v.evidence}`).join('; ')}`,
+      reason: `config error — check your loop definition: ${config.map((v) => `[${v.node}] ${v.evidence.replace(/^(infra|config):\s*/, '')}`).join('; ')}`,
     }
   }
   // remaining errors are transient (an adapter that survived retries but
