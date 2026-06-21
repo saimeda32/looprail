@@ -3,9 +3,11 @@ import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { Command } from 'commander'
 import { registerDoctor } from './doctor-cmd.js'
+import { registerExplain } from './explain-cmd.js'
 import { registerInit } from './init-cmd.js'
 import { registerLint } from './lint-cmd.js'
 import { registerRun } from './run-cmd.js'
+import { registerLogs, registerStatus } from './status-cmd.js'
 
 const pkg = createRequire(import.meta.url)('../../package.json') as { version: string }
 
@@ -21,6 +23,9 @@ export function buildProgram(): Command {
   registerInit(program)
   registerLint(program)
   registerRun(program)
+  registerStatus(program)
+  registerLogs(program)
+  registerExplain(program)
   return program
 }
 
