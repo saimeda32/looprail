@@ -1,7 +1,7 @@
 {
   "name": "looprail",
-  "version": "0.0.0",
-  "description": "Vendor-neutral orchestrator for agentic loops",
+  "version": "0.1.0",
+  "description": "Vendor-neutral orchestrator for agentic loops — engineer the loop that decides when work is actually done",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -10,10 +10,15 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": { "looprail": "./dist/cli/index.js" },
+  "files": ["dist", "README.md", "CHANGELOG.md"],
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && chmod +x dist/cli/index.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "e2e": "bash scripts/e2e.sh"
   },
   "dependencies": {
     "commander": "^12.1.0",

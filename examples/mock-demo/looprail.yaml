@@ -1,0 +1,20 @@
+name: mock-demo
+goal: |
+  Demonstrate a full looprail loop end-to-end using the built-in mock
+  adapter. Done means the tester and critic both pass.
+
+agents:
+  worker:  { adapter: mock }
+  checker: { adapter: mock }
+
+graph:
+  plan:  { role: planner, agent: worker }
+  do:    { role: executor, agent: worker, after: plan }
+  check: { role: tester, after: do, run: "true", expect: exit 0 }
+  crit:  { role: critic, agent: checker, of: do, after: do }
+
+rails:
+  max_iterations: 3
+  max_cost_usd: 1
+
+verdict: { policy: all-pass }

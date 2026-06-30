@@ -4,7 +4,7 @@ import type { Command } from 'commander'
 import { createDefaultRegistry, loadCache, type LoopDef } from '../index.js'
 import { executeRun, loadLoop, makeGate, type RunDeps } from './run-cmd.js'
 import { latestRunId, runsRoot } from './status-cmd.js'
-import { defaultIo, dim, err, type CliIo } from './ui.js'
+import { defaultIo, dim, err } from './ui.js'
 
 export async function replayAction(
   runId: string | undefined,
@@ -35,7 +35,7 @@ export async function replayAction(
   // printed in --json mode too: the JSON contract is "last stdout line is the
   // summary object", so informational lines before it are allowed
   io.out(dim(`loaded ${cache.size} cached node result(s) from ${source}`))
-  const newRunId = `${source}-r${Date.now().toString(36)}`
+  const newRunId = `${source}-r${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
   return executeRun(loaded.def, {
     cwd: opts.cwd,
     runId: newRunId,
@@ -67,7 +67,7 @@ function register(program: Command, name: 'resume' | 'replay', description: stri
 
 export function registerReplay(program: Command): void {
   register(program, 'replay',
-    're-run a past run with cached node results — edit one prompt, re-execute only downstream (latest run by default)')
+    're-run a past run with cached node results — edit one prompt, re-execute only downstream (latest run by default; v1: replay semantics)')
   register(program, 'resume',
     'continue an interrupted run: completed nodes replay from cache for free, the remainder runs live (v1: replay semantics)')
 }
