@@ -9,6 +9,7 @@ import { registerLint } from './lint-cmd.js'
 import { registerReplay } from './replay-cmd.js'
 import { registerRun } from './run-cmd.js'
 import { registerLogs, registerStatus } from './status-cmd.js'
+import { registerUi } from './ui-cmd.js'
 
 const pkg = createRequire(import.meta.url)('../../package.json') as { version: string }
 
@@ -28,6 +29,7 @@ export function buildProgram(): Command {
   registerStatus(program)
   registerLogs(program)
   registerExplain(program)
+  registerUi(program)
   return program
 }
 
