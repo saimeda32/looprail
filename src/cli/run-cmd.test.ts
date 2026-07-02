@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import { agentCostBreakdown, makeGate, runAction } from './run-cmd.js'
 import { JournalWriter, parseLoopfile } from '../index.js'
+import { startDashboardServer } from '../dashboard/server.js'
 
 const FIXTURE = `
 name: cli-fixture
@@ -166,4 +167,33 @@ test('agentCostBreakdown folds journal costs per agent (panel clones collapse)',
   w.write('node_end', { nodeId: 'crit@1', costUsd: 0.15 })
   w.write('node_end', { nodeId: 'crit@2', costUsd: 0.05 })
   expect(agentCostBreakdown(def, w.path)).toEqual([['worker', 0.3], ['checker', 0.2]])
+})
+
+function capture() {
+  const lines: string[] = []
+  return { io: { out: (l: string) => lines.push(l) }, lines }
+}
+
+test('run --ui starts a dashboard before the run and closes it once the run finishes', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-run-ui-'))
+  writeFileSync(join(cwd, 'looprail.yaml'), FIXTURE) // reuse this file's existing FIXTURE constant
+  const { io, lines } = capture() // reuse this file's existing capture() helper
+  const code = await runAction(undefined, { cwd, json: true, ui: true }, { io })
+  expect(code).toBe(0)
+  expect(lines.some((l) => l.includes('http://127.0.0.1:'))).toBe(true)
+})
+
+test('run --ui dashboard reflects the finished run at /model once closed data is still on disk', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-run-ui-'))
+  writeFileSync(join(cwd, 'looprail.yaml'), FIXTURE)
+  const { io } = capture()
+  await runAction(undefined, { cwd, json: true, ui: true }, { io })
+  // the run's own journal is on disk and independently readable after the
+  // --ui server has closed — the dashboard never held anything the run needed
+  const { latestRunId, runsRoot } = await import('./status-cmd.js')
+  const id = latestRunId(cwd)!
+  const { readJournal } = await import('../journal/journal.js')
+  const { join: j } = await import('node:path')
+  const events = readJournal(j(runsRoot(cwd), id, 'journal.jsonl'))
+  expect(events.some((e) => e.type === 'verified')).toBe(true)
 })

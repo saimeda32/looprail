@@ -3,10 +3,11 @@ import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import type { Command } from 'commander'
 import {
-  createDefaultRegistry, lintLoop, parseLoopfile, readJournal, runLoop,
+  createDefaultRegistry, expandPanels, lintLoop, parseLoopfile, readJournal, runLoop,
   type AdapterRegistry, type GateHandler, type JournalEvent, type LoopDef,
   type NodeOutcome, type Rails, type RunReport,
 } from '../index.js'
+import { startDashboardServer, type DashboardServer } from '../dashboard/server.js'
 import { defaultIo, dim, err, heading, ok, renderTable, warn, type CliIo } from './ui.js'
 
 export function loadLoop(file: string | undefined, cwd: string): { def: LoopDef; path: string } {
@@ -169,7 +170,7 @@ export interface RunDeps {
 
 export async function runAction(
   file: string | undefined,
-  opts: { cwd: string; json?: boolean; yes?: boolean },
+  opts: { cwd: string; json?: boolean; yes?: boolean; ui?: boolean },
   deps: RunDeps = {},
 ): Promise<number> {
   const io = deps.io ?? defaultIo
@@ -191,15 +192,33 @@ export async function runAction(
     return 1
   }
   const runId = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
-  return executeRun(loaded.def, {
-    cwd: opts.cwd,
-    runId,
-    runDir: join(opts.cwd, '.looprail', 'runs', runId),
-    io,
-    json: !!opts.json,
-    registry: deps.registry ?? createDefaultRegistry({ cwd: opts.cwd }),
-    gate: deps.gate ?? makeGate(loaded.def.rails, io, !!opts.yes),
-  })
+  const runDir = join(opts.cwd, '.looprail', 'runs', runId)
+
+  let dashboard: DashboardServer | undefined
+  if (opts.ui) {
+    // panel-expand up front so node ids in the dashboard match the ids the
+    // engine will actually journal (runLoop does this same expansion
+    // internally — see splitRegions/expandPanels in engine/runner.ts)
+    dashboard = await startDashboardServer({
+      journalPath: join(runDir, 'journal.jsonl'),
+      def: expandPanels(loaded.def),
+    })
+    io.out(dim(`  dashboard: ${dashboard.url}`))
+  }
+
+  try {
+    return await executeRun(loaded.def, {
+      cwd: opts.cwd,
+      runId,
+      runDir,
+      io,
+      json: !!opts.json,
+      registry: deps.registry ?? createDefaultRegistry({ cwd: opts.cwd }),
+      gate: deps.gate ?? makeGate(loaded.def.rails, io, !!opts.yes),
+    })
+  } finally {
+    if (dashboard) await dashboard.close()
+  }
 }
 
 export function registerRun(program: Command): void {
@@ -208,7 +227,8 @@ export function registerRun(program: Command): void {
     .description('run a loopfile until verified or a rail halts it (exit 0 verified, 2 halted, 1 error)')
     .option('--json', 'machine-readable summary on stdout')
     .option('--yes', 'auto-approve human gates (CI)')
-    .action(async (file: string | undefined, opts: { json?: boolean; yes?: boolean }, cmd: Command) => {
+    .option('--ui', 'start the local dashboard before the run begins')
+    .action(async (file: string | undefined, opts: { json?: boolean; yes?: boolean; ui?: boolean }, cmd: Command) => {
       const { cwd } = cmd.optsWithGlobals<{ cwd: string }>()
       process.exitCode = await runAction(file, { cwd, ...opts })
     })
