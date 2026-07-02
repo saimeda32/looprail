@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
+import { dirname } from 'node:path'
 import type { LoopDef } from '../core/types.js'
 import { readJournal } from '../journal/journal.js'
 import { buildDashboardPayload } from './layout.js'
@@ -51,13 +52,33 @@ export function startDashboardServer(opts: DashboardServerOptions): Promise<Dash
         connection: 'keep-alive',
       })
       res.write(buildReplay(readEvents(opts.journalPath)))
+      res.on('error', () => {}) // client disconnects mid-write are not server errors
       let offset = existsSync(opts.journalPath) ? readFileSync(opts.journalPath, 'utf8').length : 0
-      const handle = watch(opts.journalPath, () => {
-        const { events, offset: next } = readNewEvents(opts.journalPath, offset)
-        offset = next
-        for (const event of events) res.write(encodeSseFrame(event))
-      })
-      req.on('close', () => handle.close())
+      // The journal file may not exist yet (run hasn't written its first
+      // line). Node's real fs.watch() throws synchronously with ENOENT for
+      // a nonexistent path, which would otherwise crash the whole process.
+      // Watch the parent directory instead — it exists, and fs.watch on a
+      // directory fires for changes to files created/modified inside it —
+      // so we still get notified once the journal appears, without ever
+      // handing a nonexistent path to watch().
+      const watchTarget = existsSync(opts.journalPath) ? opts.journalPath : dirname(opts.journalPath)
+      let handle: { close(): void } | undefined
+      try {
+        handle = watch(watchTarget, () => {
+          try {
+            const { events, offset: next } = readNewEvents(opts.journalPath, offset)
+            offset = next
+            for (const event of events) res.write(encodeSseFrame(event))
+          } catch (err) {
+            // Journal not readable this tick (not created yet, or deleted
+            // mid-stream) — log and skip; never let this take down the process.
+            console.error('dashboard /events: failed to read journal update', err)
+          }
+        })
+      } catch (err) {
+        console.error('dashboard /events: failed to start watcher', err)
+      }
+      req.on('close', () => handle?.close())
       return
     }
 
