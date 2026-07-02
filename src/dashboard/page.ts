@@ -22,6 +22,7 @@ export function buildPage(): string {
   .status-pill {
     padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
     text-transform: uppercase; letter-spacing: 0.04em;
+    background: #24272e; color: #9096a1;
   }
   .status-running { background: #3a3410; color: #e8c547; }
   .status-verified { background: #123a1e; color: #4fd07a; }
@@ -99,9 +100,8 @@ export function buildPage(): string {
     fail: 'node-fail', error: 'node-error', stall: 'node-stall', skipped: 'node-skipped',
   };
   var selected = null;
-  var lastModel = null;
 
-  var SVG_NS = 'http' + '://www.w3.org/2000/svg'; // split: not an external request, just the fixed XML namespace id required by createElementNS
+  var SVG_NS = 'http://www.w3.org/2000/svg'; // fixed XML namespace id required by createElementNS — never fetched over the network
   function el(tag, attrs, parent) {
     var e = document.createElementNS(SVG_NS, tag);
     for (var k in attrs) e.setAttribute(k, attrs[k]);
@@ -155,7 +155,6 @@ export function buildPage(): string {
   }
 
   function render(model) {
-    lastModel = model;
     document.getElementById('empty-state').style.display = model.nodes.length === 0 ? 'block' : 'none';
     document.getElementById('run-title').textContent = model.name ? (model.runId + ' — ' + model.name) : 'looprail dashboard';
     var pill = document.getElementById('status-pill');
@@ -206,7 +205,9 @@ export function buildPage(): string {
   }
 
   function refresh() {
-    fetch('/model').then(function (r) { return r.json(); }).then(render);
+    fetch('/model').then(function (r) { return r.json(); }).then(render).catch(function (err) {
+      console.error('failed to refresh dashboard model', err);
+    });
   }
 
   refresh();
