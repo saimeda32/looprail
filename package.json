@@ -1,16 +1,21 @@
 {
   "name": "looprail",
   "version": "0.1.0",
-  "description": "Vendor-neutral orchestrator for agentic loops — engineer the loop that decides when work is actually done",
+  "description": "Run your coding agent in a loop until the work is verified done, not until the model stops talking",
   "license": "MIT",
   "type": "module",
+  "author": "Sai Kiran Meda",
+  "repository": { "type": "git", "url": "git+https://github.com/saimeda32/looprail.git" },
+  "homepage": "https://github.com/saimeda32/looprail#readme",
+  "bugs": { "url": "https://github.com/saimeda32/looprail/issues" },
+  "keywords": ["ai", "agent", "agents", "llm", "orchestration", "claude", "codex", "aider", "loop", "cli"],
   "engines": {
     "node": ">=20"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": { "looprail": "./dist/cli/index.js" },
-  "files": ["dist", "README.md", "CHANGELOG.md"],
+  "files": ["dist", "README.md", "CHANGELOG.md", "LICENSE"],
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
   },
