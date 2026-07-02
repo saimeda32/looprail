@@ -203,7 +203,9 @@ export async function runAction(
       journalPath: join(runDir, 'journal.jsonl'),
       def: expandPanels(loaded.def),
     })
-    io.out(dim(`  dashboard: ${dashboard.url}`))
+    if (!opts.json) {
+      io.out(dim(`  dashboard: ${dashboard.url}`))
+    }
   }
 
   try {

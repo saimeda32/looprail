@@ -174,11 +174,24 @@ function capture() {
   return { io: { out: (l: string) => lines.push(l) }, lines }
 }
 
+test('run --ui --json keeps stdout to a single JSON line (dashboard URL not printed)', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-run-ui-'))
+  writeFileSync(join(cwd, 'looprail.yaml'), FIXTURE)
+  const { io, lines } = capture()
+  const code = await runAction(undefined, { cwd, json: true, ui: true }, { io })
+  expect(code).toBe(0)
+  expect(lines).toHaveLength(1)
+  const parsed = JSON.parse(lines[0]) as { status: string; runId: string; costUsd: number }
+  expect(parsed.status).toBe('verified')
+  // dashboard still ran (no error), but its URL was not printed to stdout
+  expect(lines.join('\n')).not.toContain('http://127.0.0.1:')
+})
+
 test('run --ui starts a dashboard before the run and closes it once the run finishes', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'lr-run-ui-'))
   writeFileSync(join(cwd, 'looprail.yaml'), FIXTURE) // reuse this file's existing FIXTURE constant
   const { io, lines } = capture() // reuse this file's existing capture() helper
-  const code = await runAction(undefined, { cwd, json: true, ui: true }, { io })
+  const code = await runAction(undefined, { cwd, ui: true }, { io })
   expect(code).toBe(0)
   expect(lines.some((l) => l.includes('http://127.0.0.1:'))).toBe(true)
 })
