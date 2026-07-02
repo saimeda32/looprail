@@ -1,0 +1,98 @@
+import { mkdtempSync, writeFileSync, appendFileSync } from 'node:fs'
+import http from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, expect, test } from 'vitest'
+import { startDashboardServer, type DashboardServer } from './server.js'
+
+let dashboard: DashboardServer | undefined
+
+afterEach(async () => {
+  if (dashboard) await dashboard.close()
+  dashboard = undefined
+})
+
+function get(url: string): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
+  return new Promise((resolve, reject) => {
+    http.get(url, (res) => {
+      let body = ''
+      res.on('data', (chunk) => { body += chunk })
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body }))
+    }).on('error', reject)
+  })
+}
+
+function journalWith(lines: string[]): string {
+  const dir = mkdtempSync(join(tmpdir(), 'lr-dash-'))
+  const path = join(dir, 'journal.jsonl')
+  writeFileSync(path, lines.map((l) => l + '\n').join(''))
+  return path
+}
+
+test('GET / serves the self-contained HTML page', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  dashboard = await startDashboardServer({ journalPath })
+  expect(dashboard.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
+  const res = await get(dashboard.url + '/')
+  expect(res.status).toBe(200)
+  expect(res.headers['content-type']).toContain('text/html')
+  expect(res.body).toContain('<!doctype html>')
+})
+
+test('GET /model returns the dashboard payload as JSON, reflecting the journal', async () => {
+  const journalPath = journalWith([
+    '{"ts":1,"type":"run_start","data":{"runId":"run-9","name":"demo","goal":"g"}}',
+    '{"ts":2,"type":"verified","data":{"reason":"all verifiers passed","costUsd":0.4}}',
+  ])
+  dashboard = await startDashboardServer({ journalPath })
+  const res = await get(dashboard.url + '/model')
+  expect(res.status).toBe(200)
+  expect(res.headers['content-type']).toContain('application/json')
+  const payload = JSON.parse(res.body)
+  expect(payload.runId).toBe('run-9')
+  expect(payload.status).toBe('verified')
+  expect(payload.layout).toEqual([])
+})
+
+test('GET /model on a run directory with no journal yet returns an empty, running payload', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lr-dash-'))
+  dashboard = await startDashboardServer({ journalPath: join(dir, 'journal.jsonl') })
+  const res = await get(dashboard.url + '/model')
+  expect(res.status).toBe(200)
+  const payload = JSON.parse(res.body)
+  expect(payload).toMatchObject({ runId: 'unknown', status: 'running', nodes: [] })
+})
+
+test('GET /events replays existing journal lines as SSE frames immediately', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  dashboard = await startDashboardServer({ journalPath, watcher: () => ({ close() {} }) })
+  const body = await new Promise<string>((resolve, reject) => {
+    http.get(dashboard!.url + '/events', (res) => {
+      expect(res.headers['content-type']).toContain('text/event-stream')
+      let received = ''
+      res.on('data', (chunk) => {
+        received += chunk
+        if (received.includes('\n\n')) { res.destroy(); resolve(received) }
+      })
+      res.on('error', () => resolve(received)) // destroy() triggers an error on some Node versions — that's fine
+    }).on('error', reject)
+  })
+  expect(body).toContain('"type":"run_start"')
+})
+
+test('an unknown route returns 404', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  dashboard = await startDashboardServer({ journalPath })
+  const res = await get(dashboard.url + '/nope')
+  expect(res.status).toBe(404)
+})
+
+test('the dashboard never writes to the journal file (read-only)', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const before = require('node:fs').readFileSync(journalPath, 'utf8')
+  dashboard = await startDashboardServer({ journalPath })
+  await get(dashboard.url + '/')
+  await get(dashboard.url + '/model')
+  const after = require('node:fs').readFileSync(journalPath, 'utf8')
+  expect(after).toBe(before)
+})
