@@ -53,8 +53,12 @@ export async function uiAction(
 
   if (opts.open) {
     const { execFile } = await import('node:child_process')
-    const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open'
-    execFile(opener, [dashboard.url], () => {})
+    // `start` is a cmd.exe builtin, not a standalone executable, so it must
+    // be invoked through cmd /c rather than execFile'd directly.
+    const [cmd, args] = process.platform === 'darwin' ? ['open', [dashboard.url]]
+      : process.platform === 'win32' ? ['cmd', ['/c', 'start', '""', dashboard.url]]
+      : ['xdg-open', [dashboard.url]]
+    execFile(cmd, args, () => {})
   }
 
   return { code: 0, dashboard }
