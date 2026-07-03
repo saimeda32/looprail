@@ -9,6 +9,7 @@ import {
 } from '../index.js'
 import { startDashboardServer, type DashboardServer } from '../dashboard/server.js'
 import { defaultIo, dim, err, heading, ok, renderTable, warn, type CliIo } from './ui.js'
+import { addWorkspace, defaultRegistryPath } from '../workspace/registry.js'
 
 export function loadLoop(file: string | undefined, cwd: string): { def: LoopDef; path: string } {
   const path = resolve(cwd, file ?? 'looprail.yaml')
@@ -166,6 +167,19 @@ export interface RunDeps {
   registry?: AdapterRegistry
   gate?: GateHandler
   io?: CliIo
+  registryPath?: string
+}
+
+// Best-effort: a run must never fail because the workspace registry file
+// couldn't be written (permissions, a blocked path, a full disk). Mission
+// control simply won't see this project until the registry write succeeds
+// on some later run, or the user runs `looprail workspace add` by hand.
+function autoRegisterWorkspace(cwd: string, registryPath: string): void {
+  try {
+    addWorkspace(registryPath, cwd)
+  } catch {
+    // swallowed — see comment above
+  }
 }
 
 export async function runAction(
@@ -181,6 +195,7 @@ export async function runAction(
     io.out(err(e instanceof Error ? e.message : String(e)))
     return 1
   }
+  autoRegisterWorkspace(resolve(opts.cwd), deps.registryPath ?? defaultRegistryPath())
   const findings = lintLoop(loaded.def)
   if (!opts.json) {
     for (const f of findings) {

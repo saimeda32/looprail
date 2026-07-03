@@ -262,3 +262,37 @@ test('run --ui dashboard reflects the finished run at /model once closed data is
   const events = readJournal(j(runsRoot(cwd), id, 'journal.jsonl'))
   expect(events.some((e) => e.type === 'verified')).toBe(true)
 })
+
+test('run auto-registers its cwd as a workspace on first use', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-autoreg-'))
+  writeFileSync(join(cwd, 'looprail.yaml'), FIXTURE)
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-autoreg-reg-')), 'workspaces.json')
+  const { io } = capture()
+  const code = await runAction(undefined, { cwd, json: true }, { io, registryPath })
+  expect(code).toBe(0)
+  const { listWorkspaces } = await import('../workspace/registry.js')
+  expect(listWorkspaces(registryPath)).toEqual([cwd])
+})
+
+test('running the same workspace twice does not duplicate its registry entry', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-autoreg-'))
+  writeFileSync(join(cwd, 'looprail.yaml'), FIXTURE)
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-autoreg-reg-')), 'workspaces.json')
+  await runAction(undefined, { cwd, json: true }, { io: capture().io, registryPath })
+  await runAction(undefined, { cwd, json: true }, { io: capture().io, registryPath })
+  const { listWorkspaces } = await import('../workspace/registry.js')
+  expect(listWorkspaces(registryPath)).toEqual([cwd])
+})
+
+test('a registry file the process cannot write to never fails the run', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-autoreg-'))
+  writeFileSync(join(cwd, 'looprail.yaml'), FIXTURE)
+  // a path whose parent is itself a FILE, not a directory: writeRegistry's
+  // own mkdirSync(dirname(path)) throws ENOTDIR here — this must be
+  // swallowed, not surfaced to the run's exit code.
+  const blocker = join(mkdtempSync(join(tmpdir(), 'lr-autoreg-blocker-')), 'blocker-file')
+  writeFileSync(blocker, 'not a directory')
+  const registryPath = join(blocker, 'workspaces.json')
+  const code = await runAction(undefined, { cwd, json: true }, { io: capture().io, registryPath })
+  expect(code).toBe(0)
+})
