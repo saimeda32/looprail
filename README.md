@@ -96,6 +96,7 @@ dollars, whichever comes first.
 | `looprail run [file]` | Run the loop with live progress and a cost report |
 | `looprail run --ui` | Same, and open a live dashboard for this run |
 | `looprail ui [runId]` | Open the dashboard for a run (defaults to the latest) |
+| `looprail ui --all` | Open mission control: every run, across every registered project |
 | `looprail doctor` | Show which agent CLIs are installed and logged in |
 | `looprail lint <file>` | Check a Loopfile for common loop-design mistakes |
 | `looprail status [runId]` | Show verdict history for a run (`--watch` to follow) |
@@ -227,6 +228,32 @@ not just a combined number.
 Every project you run a loop in registers itself automatically, so looprail
 knows about it without any setup on your part.
 
+### Mission control
+
+If you're running loops in more than one project, `looprail ui --all` opens
+one dashboard for all of them at once, instead of one at a time. Every run
+across every registered project shows up as a card, and clicking into one
+gets you the same live per-run dashboard `looprail ui` shows, streaming
+output and all.
+
+Projects register themselves the moment you `looprail run` there, so most of
+the time there's nothing to set up. You can also manage the list by hand:
+
+```bash
+looprail workspace add        # register the current directory
+looprail workspace add ~/code/finch
+looprail workspace remove ~/code/finch
+looprail workspace list
+```
+
+Mission control also shows a lightweight presence indicator for raw Claude
+Code sessions, separate from looprail runs, in any project you've
+registered. If you're just working in Claude Code directly, without going
+through `looprail run`, you'll see a card that says a session is active
+there and when it was last active. That's it: presence only, no verdict, no
+cost, no iteration count, because a raw session was never run through a
+loop and never produced anything looprail can verify.
+
 ### How it works
 
 The engine is small and boring on purpose. Each iteration walks the graph in
@@ -246,10 +273,10 @@ anything the CLI can run, the SDK can too. See
 ## Status
 
 The engine, the CLI, the adapters, and the Loopfile format are here and
-tested. The dashboard is here too, with live streaming output. Right now it
-shows one run at a time; a mission-control view showing every run across every
-project you've registered is landing next. After that: an MCP server so
-Claude Desktop, Cursor, and VS Code's Copilot Chat can call into looprail
+tested. The dashboard is here too, with live streaming output, in both a
+single-run view (`looprail ui`) and a mission-control view across every
+registered project (`looprail ui --all`). Still on the roadmap: an MCP server
+so Claude Desktop, Cursor, and VS Code's Copilot Chat can call into looprail
 directly, and a benchmarking harness for comparing loop designs with real
 numbers.
 
