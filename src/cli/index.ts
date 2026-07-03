@@ -9,6 +9,7 @@ import { registerLint } from './lint-cmd.js'
 import { registerReplay } from './replay-cmd.js'
 import { registerRun } from './run-cmd.js'
 import { registerLogs, registerStatus } from './status-cmd.js'
+import { registerMcp } from './mcp-cmd.js'
 import { registerUi } from './ui-cmd.js'
 import { registerWorkspace } from './workspace-cmd.js'
 
@@ -32,6 +33,7 @@ export function buildProgram(): Command {
   registerExplain(program)
   registerUi(program)
   registerWorkspace(program)
+  registerMcp(program)
   return program
 }
 
