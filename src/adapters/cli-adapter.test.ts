@@ -55,4 +55,24 @@ describe('CliAdapter', () => {
   test('rejects a template with neither {prompt} nor stdin mode', () => {
     expect(() => new CliAdapter({ name: 'x', command: 'mytool run' })).toThrow(/\{prompt\}/)
   })
+
+  test('onChunk receives streamed stdout chunks as they arrive from exec', async () => {
+    const chunks: string[] = []
+    const exec: ExecFn = async (_file, _args, opts = {}) => {
+      opts.onChunk?.('partial ')
+      opts.onChunk?.('output')
+      return { stdout: 'partial output', stderr: '', exitCode: 0 }
+    }
+    const a = new CliAdapter({ name: 'x', command: 'mytool {prompt}', exec })
+    await a.invoke({ prompt: 'p' }, (c) => chunks.push(c))
+    expect(chunks).toEqual(['partial ', 'output'])
+  })
+
+  test('invoke without an onChunk callback works exactly as before (backward compatible)', async () => {
+    const { exec, calls } = fakeExec()
+    const a = new CliAdapter({ name: 'x', command: 'mytool {prompt}', exec })
+    const res = await a.invoke({ prompt: 'p' })
+    expect(res.output).toBe('raw output')
+    expect(calls[0]).toMatchObject({ file: 'mytool', args: ['p'] })
+  })
 })

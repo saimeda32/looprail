@@ -5,6 +5,11 @@ export interface MockStep {
   output: string
   costUsd?: number
   tokens?: number
+  // optional scripted streaming chunks, delivered to onChunk (if given)
+  // before resolving — see design decision 1: streaming is opt-in per
+  // adapter, MockAdapter only streams when a step scripts chunks, so every
+  // existing MockStep (and every existing test) is byte-for-byte unaffected.
+  chunks?: string[]
 }
 
 export class MockAdapter implements Adapter {
@@ -16,7 +21,7 @@ export class MockAdapter implements Adapter {
     this.steps = [...steps]
   }
 
-  async invoke(req: AgentRequest): Promise<AgentResult> {
+  async invoke(req: AgentRequest, onChunk?: (text: string) => void): Promise<AgentResult> {
     this.calls.push(req)
     const idx = this.steps.findIndex(
       (s) => s !== null && (!s.match || s.match.test(req.prompt)),
@@ -24,6 +29,7 @@ export class MockAdapter implements Adapter {
     if (idx === -1) throw new Error(`MockAdapter exhausted for prompt: ${req.prompt.slice(0, 80)}`)
     const step = this.steps[idx]!
     this.steps[idx] = null
+    if (onChunk) for (const chunk of step.chunks ?? []) onChunk(chunk)
     return {
       output: step.output,
       costUsd: step.costUsd ?? 0,

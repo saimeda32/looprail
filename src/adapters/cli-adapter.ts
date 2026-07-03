@@ -10,13 +10,23 @@ export interface ExecResult {
 export type ExecFn = (
   file: string,
   args: string[],
-  opts?: { input?: string; timeoutMs?: number; cwd?: string },
+  opts?: { input?: string; timeoutMs?: number; cwd?: string; onChunk?: (text: string) => void },
 ) => Promise<ExecResult>
 
 export const defaultExec: ExecFn = async (file, args, opts = {}) => {
-  const res = await execa(file, args, {
+  const subprocess = execa(file, args, {
     input: opts.input, timeout: opts.timeoutMs, cwd: opts.cwd, reject: false,
   })
+  // Streaming is best-effort: execa's own stdout stream is available on the
+  // in-flight subprocess handle before it resolves. A caller that never
+  // passes onChunk (every call site that existed before this plan) never
+  // touches this branch, so the final-string behavior this function still
+  // returns below is unchanged for them.
+  if (opts.onChunk) {
+    const onChunk = opts.onChunk
+    subprocess.stdout?.on('data', (chunk: Buffer) => onChunk(chunk.toString('utf8')))
+  }
+  const res = await subprocess
   return {
     stdout: typeof res.stdout === 'string' ? res.stdout : '',
     stderr: typeof res.stderr === 'string' ? res.stderr : '',
@@ -56,7 +66,7 @@ export class CliAdapter implements Adapter {
     }
   }
 
-  async invoke(req: AgentRequest): Promise<AgentResult> {
+  async invoke(req: AgentRequest, onChunk?: (text: string) => void): Promise<AgentResult> {
     const started = Date.now()
     const tokens = this.opts.command.split(/\s+/).filter(Boolean)
     const [file, ...args] = tokens.map((t) => (t === '{prompt}' ? req.prompt : t))
@@ -65,6 +75,7 @@ export class CliAdapter implements Adapter {
       input: this.opts.stdin ? req.prompt : undefined,
       timeoutMs: req.timeoutMs,
       cwd: this.opts.cwd,
+      onChunk,
     })
     if (res.exitCode !== 0) {
       throw new Error(

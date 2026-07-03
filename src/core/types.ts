@@ -33,7 +33,7 @@ export interface AgentResult {
 
 export interface Adapter {
   name: string
-  invoke(req: AgentRequest): Promise<AgentResult>
+  invoke(req: AgentRequest, onChunk?: (text: string) => void): Promise<AgentResult>
 }
 
 export interface AgentDef { adapter: string; model?: string; command?: string }

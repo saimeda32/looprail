@@ -29,6 +29,21 @@ describe('MockAdapter', () => {
     const mock = new MockAdapter([])
     await expect(mock.invoke({ prompt: 'x' })).rejects.toThrow(/exhausted/)
   })
+
+  test('scripted chunks are delivered to onChunk, in order, before the promise resolves', async () => {
+    const mock = new MockAdapter([{ output: 'final answer', chunks: ['final ', 'answer'] }])
+    const seen: string[] = []
+    const result = await mock.invoke({ prompt: 'go' }, (c) => seen.push(c))
+    expect(seen).toEqual(['final ', 'answer'])
+    expect(result.output).toBe('final answer')
+  })
+
+  test('a step with no chunks streams nothing even when onChunk is provided', async () => {
+    const mock = new MockAdapter([{ output: 'no streaming here' }])
+    const seen: string[] = []
+    await mock.invoke({ prompt: 'go' }, (c) => seen.push(c))
+    expect(seen).toEqual([])
+  })
 })
 
 describe('registry', () => {
