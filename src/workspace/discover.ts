@@ -86,17 +86,29 @@ export function buildRunListEntry(
 // single journal read. On-demand only — called once per `ui --all`
 // request/poll tick, never on a timer of its own (see Global Constraints:
 // no daemon).
+//
+// Each workspace's work is wrapped in its own try/catch: a registered
+// workspace can go bad in ways outside our control between registration and
+// scan time (its journal file replaced by a directory, the workspace
+// deleted, a permissions error, a TOCTOU race between readdirSync and the
+// read) and any of those is a synchronous throw. One bad workspace must
+// never zero out or crash the scan for every OTHER registered workspace, so
+// we skip and log rather than let it propagate.
 export function discoverRuns(workspaces: string[]): RunListEntry[] {
   const entries: RunListEntry[] = []
   for (const workspace of workspaces) {
-    const root = runsRootOf(workspace)
-    if (!existsSync(root)) continue
-    const def = bestEffortLoopDef(workspace)
-    for (const runId of readdirSync(root)) {
-      const journalPath = join(root, runId, 'journal.jsonl')
-      if (!existsSync(journalPath)) continue
-      const events = readJournal(journalPath)
-      entries.push(buildRunListEntry(workspace, runId, journalPath, events, def))
+    try {
+      const root = runsRootOf(workspace)
+      if (!existsSync(root)) continue
+      const def = bestEffortLoopDef(workspace)
+      for (const runId of readdirSync(root)) {
+        const journalPath = join(root, runId, 'journal.jsonl')
+        if (!existsSync(journalPath)) continue
+        const events = readJournal(journalPath)
+        entries.push(buildRunListEntry(workspace, runId, journalPath, events, def))
+      }
+    } catch (err) {
+      console.error(`discoverRuns: skipping unreadable workspace ${workspace}`, err)
     }
   }
   return entries.sort((a, b) => (b.lastEventAt ?? 0) - (a.lastEventAt ?? 0))
@@ -124,6 +136,11 @@ export function claudeCodeProjectSlug(workspace: string): string {
   return workspace.split('/').join('-')
 }
 
+// Each workspace's work is wrapped in its own try/catch for the same reason
+// as discoverRuns above: a bad workspace (unreadable projects dir,
+// permissions error, a path that turns out not to be a directory) must be
+// skipped and logged, not allowed to crash or blank out every OTHER
+// registered workspace's session data.
 export function discoverClaudeCodeSessions(
   workspaces: string[],
   opts?: { homedir?: string, now?: () => number, recencyMs?: number },
@@ -135,18 +152,22 @@ export function discoverClaudeCodeSessions(
 
   const entries: SessionEntry[] = []
   for (const workspace of workspaces) {
-    const projectDir = join(homedir, '.claude', 'projects', claudeCodeProjectSlug(workspace))
-    if (!existsSync(projectDir)) continue
-    for (const file of readdirSync(projectDir)) {
-      if (!file.endsWith('.jsonl')) continue
-      const mtimeMs = statSync(join(projectDir, file)).mtimeMs
-      if (mtimeMs < cutoff) continue
-      entries.push({
-        workspace,
-        workspaceName: basename(workspace),
-        sessionId: file.slice(0, -'.jsonl'.length),
-        lastActiveAt: mtimeMs,
-      })
+    try {
+      const projectDir = join(homedir, '.claude', 'projects', claudeCodeProjectSlug(workspace))
+      if (!existsSync(projectDir)) continue
+      for (const file of readdirSync(projectDir)) {
+        if (!file.endsWith('.jsonl')) continue
+        const mtimeMs = statSync(join(projectDir, file)).mtimeMs
+        if (mtimeMs < cutoff) continue
+        entries.push({
+          workspace,
+          workspaceName: basename(workspace),
+          sessionId: file.slice(0, -'.jsonl'.length),
+          lastActiveAt: mtimeMs,
+        })
+      }
+    } catch (err) {
+      console.error(`discoverClaudeCodeSessions: skipping unreadable workspace ${workspace}`, err)
     }
   }
   return entries.sort((a, b) => b.lastActiveAt - a.lastActiveAt)

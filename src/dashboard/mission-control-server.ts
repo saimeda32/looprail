@@ -101,9 +101,24 @@ export function startMissionControlServer(opts: MissionControlServerOptions = {}
     }
 
     if (req.method === 'GET' && path === '/api/runs') {
-      const { runs, sessions } = scan()
+      // scan() fans out into discoverRuns/discoverClaudeCodeSessions, which
+      // touch the filesystem of every registered workspace. Those two are
+      // hardened at the source (discover.ts skips a bad workspace instead of
+      // throwing), but this catch is deliberate defense in depth: any
+      // throw from scan() — including from future code — must become a
+      // clean 500, never an uncaught exception that takes down the whole
+      // `looprail ui --all` process.
+      let result: ScanResult
+      try {
+        result = scan()
+      } catch (err) {
+        console.error('mission-control: /api/runs failed to scan workspaces', err)
+        res.writeHead(500, { 'content-type': 'text/plain' })
+        res.end('failed to scan workspaces')
+        return
+      }
       res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ runs, sessions }))
+      res.end(JSON.stringify(result))
       return
     }
 
@@ -113,11 +128,31 @@ export function startMissionControlServer(opts: MissionControlServerOptions = {}
         'cache-control': 'no-cache',
         connection: 'keep-alive',
       })
-      let last = JSON.stringify(scan())
+      // Same defense-in-depth reasoning as /api/runs above, but an SSE
+      // stream can't fall back to a clean 500 once headers are already
+      // written — so a failed scan() here degrades to the last-known-good
+      // snapshot (or an empty one on the very first frame) instead.
+      let last: string
+      try {
+        last = JSON.stringify(scan())
+      } catch (err) {
+        console.error('mission-control: /events failed to scan workspaces on connect', err)
+        last = JSON.stringify({ runs: [], sessions: [] })
+      }
       res.write(`data: ${last}\n\n`)
       res.on('error', () => {})
       const handle = poll(() => {
-        const next = JSON.stringify(scan())
+        // The poll tick is the worst case of all: it fires every pollMs
+        // with zero client interaction, so a throw here would crash the
+        // process spontaneously in the background. Skip this tick and keep
+        // the connection (and the interval) alive on failure.
+        let next: string
+        try {
+          next = JSON.stringify(scan())
+        } catch (err) {
+          console.error('mission-control: /events poll tick failed to scan workspaces', err)
+          return
+        }
         if (snapshotChanged(last, next)) {
           last = next
           res.write(`data: ${next}\n\n`)

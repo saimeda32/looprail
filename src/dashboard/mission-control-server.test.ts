@@ -145,3 +145,99 @@ test('an unknown workspace hash 404s instead of crashing', async () => {
   const res = await get(dashboard.url + '/run/nonexistent12/run-1/model')
   expect(res.status).toBe(404)
 })
+
+// --- Defense in depth: scan() throwing must never crash the process ---
+// discover.ts (discoverRuns/discoverClaudeCodeSessions) is hardened at the
+// source, but these three call sites (`/api/runs`, `/events`'s initial
+// frame, `/events`'s poll tick) also guard directly against scan() itself
+// throwing — from these functions or any future replacement of them.
+
+test('GET /api/runs responds with a clean 500 instead of crashing when scan() throws, and a subsequent request still works', async () => {
+  let shouldThrow = true
+  dashboard = await startMissionControlServer({
+    scan: () => {
+      if (shouldThrow) throw new Error('simulated scan failure')
+      return { runs: [fakeRun()], sessions: [] }
+    },
+  })
+
+  const failed = await get(dashboard.url + '/api/runs')
+  expect(failed.status).toBe(500)
+
+  shouldThrow = false
+  const recovered = await get(dashboard.url + '/api/runs')
+  expect(recovered.status).toBe(200)
+  const payload = JSON.parse(recovered.body) as { runs: unknown[] }
+  expect(payload.runs).toHaveLength(1)
+})
+
+test('GET /api/runs against a real registry pointing at a directory-as-journal workspace stays alive across requests', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'lr-mc-broken-'))
+  // journal.jsonl is a directory, not a file.
+  mkdirSync(join(workspace, '.looprail', 'runs', 'run-1', 'journal.jsonl'), { recursive: true })
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-mc-reg-')), 'workspaces.json')
+  writeFileSync(registryPath, JSON.stringify({ workspaces: [workspace] }))
+
+  dashboard = await startMissionControlServer({ registryPath })
+  const first = await get(dashboard.url + '/api/runs')
+  expect([200, 500]).toContain(first.status)
+  // Regardless of status code, the server must still be alive and answer a
+  // second request cleanly — the whole point of the fix.
+  const second = await get(dashboard.url + '/api/runs')
+  expect([200, 500]).toContain(second.status)
+})
+
+test('GET /events falls back to an empty snapshot on connect when scan() throws, instead of crashing', async () => {
+  dashboard = await startMissionControlServer({
+    scan: () => { throw new Error('simulated scan failure') },
+    poller: () => ({ close() {} }),
+  })
+  const body = await new Promise<string>((resolve, reject) => {
+    http.get(dashboard!.url + '/events', (res) => {
+      let received = ''
+      res.on('data', (chunk) => {
+        received += chunk
+        if (received.includes('\n\n')) { res.destroy(); resolve(received) }
+      })
+      res.on('error', () => resolve(received))
+    }).on('error', reject)
+  })
+  expect(body).toContain('data: {"runs":[],"sessions":[]}')
+})
+
+test('GET /events poll tick survives scan() throwing — connection stays open and a later good tick still delivers', async () => {
+  let scanShouldThrow = false
+  let runs = [fakeRun({ status: 'running' })]
+  let tick: (() => void) | undefined
+  const poller: Poller = (fn) => { tick = fn; return { close: () => { tick = undefined } } }
+  dashboard = await startMissionControlServer({
+    scan: () => {
+      if (scanShouldThrow) throw new Error('simulated poll-tick scan failure')
+      return { runs, sessions: [] }
+    },
+    poller,
+  })
+
+  const frames = await new Promise<string[]>((resolve, reject) => {
+    http.get(dashboard!.url + '/events', (res) => {
+      const seen: string[] = []
+      res.on('data', (chunk) => {
+        seen.push(...chunk.toString().split('\n\n').filter((s: string) => s.startsWith('data: ')))
+        if (seen.length === 1) {
+          // First tick: scan() throws. Connection must survive this.
+          scanShouldThrow = true
+          runs = [fakeRun({ status: 'halted' })]
+          tick?.()
+          // Second tick, right after: scan() recovers and reports a real
+          // change, proving the interval (and `last`) are still intact.
+          scanShouldThrow = false
+          tick?.()
+        }
+        if (seen.length >= 2) { res.destroy(); resolve(seen) }
+      })
+      res.on('error', () => resolve(seen))
+    }).on('error', reject)
+  })
+  expect(frames[0]).toContain('"running"')
+  expect(frames[1]).toContain('"halted"')
+})

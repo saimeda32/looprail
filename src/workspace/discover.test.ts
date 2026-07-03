@@ -86,6 +86,26 @@ test('a registered workspace path that no longer exists on disk is skipped, not 
   expect(discoverRuns([ghost])).toEqual([])
 })
 
+test('discoverRuns skips a workspace whose run journal path is a directory instead of a file, without dropping other workspaces', () => {
+  const broken = mkdtempSync(join(tmpdir(), 'lr-discover-broken-'))
+  // journal.jsonl is a directory, not a file — e.g. a crashed process, a
+  // stray mkdir, or some other tool clobbering the expected path.
+  mkdirSync(join(broken, '.looprail', 'runs', 'run-1', 'journal.jsonl'), { recursive: true })
+
+  const healthy = mkdtempSync(join(tmpdir(), 'lr-discover-healthy-'))
+  const healthyRunDir = join(healthy, '.looprail', 'runs', 'run-2')
+  mkdirSync(healthyRunDir, { recursive: true })
+  writeFileSync(
+    join(healthyRunDir, 'journal.jsonl'),
+    JSON.stringify(ev('run_start', { runId: 'run-2', name: 'n', goal: 'g' })) + '\n',
+  )
+
+  let entries: ReturnType<typeof discoverRuns> = []
+  expect(() => { entries = discoverRuns([broken, healthy]) }).not.toThrow()
+  expect(entries).toHaveLength(1)
+  expect(entries[0].runId).toBe('run-2')
+})
+
 // --- Claude Code raw-session presence detection ---
 
 test('claudeCodeProjectSlug replaces every slash with a dash', () => {
@@ -145,6 +165,32 @@ test('discoverClaudeCodeSessions attributes sessions correctly across multiple w
   const bySessionId = Object.fromEntries(sessions.map((s) => [s.sessionId, s]))
   expect(bySessionId['session-a']).toMatchObject({ workspace: workspaceA, workspaceName: 'alpha' })
   expect(bySessionId['session-b']).toMatchObject({ workspace: workspaceB, workspaceName: 'beta' })
+})
+
+test('discoverClaudeCodeSessions skips a workspace whose Claude Code project path is a file instead of a directory, without dropping other workspaces', () => {
+  const homedir = mkdtempSync(join(tmpdir(), 'lr-claude-home-'))
+  const broken = '/broken/workspace'
+  const projectsParent = join(homedir, '.claude', 'projects')
+  mkdirSync(projectsParent, { recursive: true })
+  // The expected project dir is a plain file, not a directory — readdirSync
+  // on it throws ENOTDIR.
+  writeFileSync(join(projectsParent, claudeCodeProjectSlug(broken)), 'not a directory')
+
+  const healthy = '/healthy/workspace'
+  const healthyDir = join(homedir, '.claude', 'projects', claudeCodeProjectSlug(healthy))
+  mkdirSync(healthyDir, { recursive: true })
+  const file = join(healthyDir, 'session-ok.jsonl')
+  writeFileSync(file, '{}')
+  const now = 4_000_000_000_000
+  const mtime = new Date(now - 60 * 1000)
+  utimesSync(file, mtime, mtime)
+
+  let sessions: ReturnType<typeof discoverClaudeCodeSessions> = []
+  expect(() => {
+    sessions = discoverClaudeCodeSessions([broken, healthy], { homedir, now: () => now })
+  }).not.toThrow()
+  expect(sessions).toHaveLength(1)
+  expect(sessions[0].workspace).toBe(healthy)
 })
 
 test('discoverClaudeCodeSessions never reads file content — a corrupt jsonl file is still detected by mtime alone', () => {
