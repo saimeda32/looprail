@@ -12,6 +12,9 @@ export { invokeWithRetry, InfraError, isInfraError, type RetryDeps } from './eng
 export { runIteration } from './engine/scheduler.js'
 export { runLoop, contextHash, type RunOptions } from './engine/runner.js'
 export { JournalWriter, readJournal } from './journal/journal.js'
+export {
+  runsRoot, latestRunId, listRunIds, summarizeJournal, type RunSummary,
+} from './journal/runs.js'
 export { loadCache } from './journal/cache.js'
 export { parseLoopfile } from './config/loopfile.js'
 export { lintLoop, type LintFinding } from './config/lint.js'

@@ -1,65 +1,16 @@
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Command } from 'commander'
 import { readJournal, type JournalEvent } from '../index.js'
+import { latestRunId, runsRoot, summarizeJournal, type RunSummary } from '../journal/runs.js'
 import { defaultIo, dim, err, heading, ok, warn, type CliIo } from './ui.js'
 
-export function runsRoot(cwd: string): string {
-  return join(cwd, '.looprail', 'runs')
-}
-
-export function latestRunId(cwd: string): string | null {
-  const root = runsRoot(cwd)
-  if (!existsSync(root)) return null
-  const runs = readdirSync(root)
-    .filter((name) => existsSync(join(root, name, 'journal.jsonl')))
-    .map((name) => ({ name, mtime: statSync(join(root, name)).mtimeMs }))
-    .sort((a, b) => b.mtime - a.mtime)
-  return runs[0]?.name ?? null
-}
-
-export interface RunSummary {
-  runId: string
-  name: string
-  status: 'running' | 'verified' | 'halted'
-  reason?: string
-  iterations: number
-  costUsd: number
-  verdicts: { iteration: number; nodeId: string; status: string; evidence: string }[]
-}
-
-export function summarizeJournal(events: JournalEvent[]): RunSummary {
-  const s: RunSummary = {
-    runId: 'unknown', name: '', status: 'running',
-    iterations: 0, costUsd: 0, verdicts: [],
-  }
-  for (const e of events) {
-    const d = e.data as Record<string, unknown>
-    if (e.type === 'run_start') {
-      s.runId = String(d.runId)
-      s.name = String(d.name)
-    }
-    if (e.type === 'iteration_end') {
-      s.iterations = Number(d.iteration)
-      s.costUsd = Number(d.costUsd)
-    }
-    if (e.type === 'node_end' && d.verdict) {
-      const v = d.verdict as { status: string; evidence: string }
-      s.verdicts.push({
-        iteration: Number(d.iteration ?? 0),
-        nodeId: String(d.nodeId),
-        status: v.status,
-        evidence: v.evidence,
-      })
-    }
-    if (e.type === 'verified' || e.type === 'halt') {
-      s.status = e.type === 'verified' ? 'verified' : 'halted'
-      s.reason = String(d.reason)
-      s.costUsd = Number(d.costUsd)
-    }
-  }
-  return s
-}
+// Re-exported for backward compatibility — every existing import of these
+// three names from './status-cmd.js' (this file's own test file included)
+// keeps working unmodified. Real implementations now live in
+// src/journal/runs.ts so src/mcp/'s run_status/list_runs tools can reuse
+// them without importing anything under src/cli/ (see Global Constraints).
+export { latestRunId, runsRoot, summarizeJournal, type RunSummary }
 
 export function renderSummary(s: RunSummary): string[] {
   const statusLine = s.status === 'verified' ? ok('verified')
