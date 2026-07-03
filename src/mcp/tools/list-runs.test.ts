@@ -45,3 +45,28 @@ test('limit caps the number of runs returned', async () => {
   expect(parsed.runs).toHaveLength(1)
   expect(parsed.runs[0].runId).toBe('run-b')
 })
+
+test('allWorkspaces:true lists runs across every registered workspace, not just cwd', async () => {
+  const { addWorkspace } = await import('../../workspace/registry.js')
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-mcp-ws-')), 'workspaces.json')
+  const a = mkdtempSync(join(tmpdir(), 'lr-mcp-list-a-'))
+  writeRun(a, 'run-1', [ev('run_start', { runId: 'run-1', name: 'demo' })], 1000)
+  addWorkspace(registryPath, a)
+  const result = await listRunsHandler({ allWorkspaces: true }, { cwd: '/irrelevant', registryPath })
+  const parsed = JSON.parse((result.content[0] as { text: string }).text)
+  expect(parsed.scope).toBe('all-workspaces')
+  expect(parsed.runs).toHaveLength(1)
+})
+
+test('allWorkspaces:false (default) still scopes to cwd only, unaffected by the registry', async () => {
+  const { addWorkspace } = await import('../../workspace/registry.js')
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-mcp-ws-')), 'workspaces.json')
+  const other = mkdtempSync(join(tmpdir(), 'lr-mcp-list-other-'))
+  writeRun(other, 'run-1', [ev('run_start', { runId: 'run-1', name: 'demo' })], 1000)
+  addWorkspace(registryPath, other)
+  const cwd = tmpCwd()
+  const result = await listRunsHandler({}, { cwd, registryPath })
+  const parsed = JSON.parse((result.content[0] as { text: string }).text)
+  expect(parsed.scope).toBe('cwd')
+  expect(parsed.runs).toEqual([])
+})
