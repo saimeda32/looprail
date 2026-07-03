@@ -10,6 +10,7 @@ import { registerReplay } from './replay-cmd.js'
 import { registerRun } from './run-cmd.js'
 import { registerLogs, registerStatus } from './status-cmd.js'
 import { registerUi } from './ui-cmd.js'
+import { registerWorkspace } from './workspace-cmd.js'
 
 const pkg = createRequire(import.meta.url)('../../package.json') as { version: string }
 
@@ -30,6 +31,7 @@ export function buildProgram(): Command {
   registerLogs(program)
   registerExplain(program)
   registerUi(program)
+  registerWorkspace(program)
   return program
 }
 
