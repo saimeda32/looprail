@@ -119,6 +119,7 @@ the executor it is grading.
 | --- | --- |
 | `looprail init` | Detect installed agents and scaffold a `looprail.yaml` |
 | `looprail run [file]` | Run the loop with live progress and a cost report |
+| `looprail ui [runId]` | Open the local dashboard for a run (defaults to the latest) |
 | `looprail doctor` | Show which agent CLIs are installed and logged in |
 | `looprail lint <file>` | Check a Loopfile for common loop-design mistakes |
 | `looprail status [runId]` | Show verdict history for a run (`--watch` to follow) |
@@ -144,7 +145,9 @@ rails:
 Looprail checks a rail before it starts a node, not after, so a loop halts the
 moment it would go over budget rather than one expensive step later. Every run
 is journaled to `.looprail/runs/<id>/journal.jsonl`, which is what powers
-`status`, `logs`, `resume`, and `replay`.
+`status`, `logs`, `resume`, `replay`, and the dashboard. Add `--ui` to `run` to
+open the dashboard alongside the run and watch nodes complete live, or run
+`looprail ui` afterward to look at any past run.
 
 ## Verdict policies
 
@@ -185,8 +188,10 @@ anything the CLI can run, the SDK can too. See
 ## Status
 
 The engine, the CLI, the adapters, and the Loopfile format are here and tested.
-A local web dashboard and a benchmarking harness for comparing loop designs are
-on the roadmap.
+The local web dashboard is here too (`looprail run --ui`, or `looprail ui` for
+a past run). It's a single-run view for now; a multi-run mission-control
+dashboard is planned next. A benchmarking harness for comparing loop designs
+is still on the roadmap.
 
 ## Contributing
 

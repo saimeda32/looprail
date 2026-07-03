@@ -1,10 +1,12 @@
-import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
+import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import { agentCostBreakdown, makeGate, runAction } from './run-cmd.js'
 import { JournalWriter, parseLoopfile } from '../index.js'
 import { startDashboardServer } from '../dashboard/server.js'
+import { createRegistry } from '../adapters/registry.js'
 
 const FIXTURE = `
 name: cli-fixture
@@ -194,6 +196,56 @@ test('run --ui starts a dashboard before the run and closes it once the run fini
   const code = await runAction(undefined, { cwd, ui: true }, { io })
   expect(code).toBe(0)
   expect(lines.some((l) => l.includes('http://127.0.0.1:'))).toBe(true)
+})
+
+test('run --ui: the run directory exists the instant the dashboard URL is printed, and /events is live from that first connection', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-run-ui-'))
+  writeFileSync(join(cwd, 'looprail.yaml'), FIXTURE)
+  // a slow adapter buys real wall-clock time for the /events connection
+  // (opened the instant the dashboard URL is known, via the io.out hook
+  // below) to land before the run finishes and the dashboard closes.
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    async invoke(req) {
+      await new Promise((r) => setTimeout(r, 50))
+      const verifying = req.prompt.includes('VERDICT:')
+      return {
+        output: verifying ? 'VERDICT: pass\nSCORE: 1\nEVIDENCE: mock adapter auto-pass' : '[mock] done',
+        costUsd: 0, tokens: 0, durationMs: 1,
+      }
+    },
+  })
+  const { io } = capture()
+  let runDirExistedAtDashboardStart: boolean | undefined
+  const framePromise = new Promise<string>((resolve, reject) => {
+    io.out = (l: string) => {
+      const match = l.match(/http:\/\/127\.0\.0\.1:\d+/)
+      if (!match) return
+      // This fires synchronously the instant the dashboard is listening —
+      // strictly before executeRun (and the JournalWriter inside it) has
+      // run a single line. It's the earliest point any real client (a
+      // browser tab, this test) could ever connect, so this is exactly
+      // where the run directory needs to already exist for the /events
+      // parent-dir-watch fallback to have something real to watch.
+      const runsDir = join(cwd, '.looprail', 'runs')
+      const runs = existsSync(runsDir) ? readdirSync(runsDir) : []
+      runDirExistedAtDashboardStart = runs.length === 1 && existsSync(join(runsDir, runs[0]!))
+      http.get(`${match[0]}/events`, (res) => {
+        let received = ''
+        res.on('data', (chunk) => {
+          received += chunk
+          if (received.includes('\n\n')) { res.destroy(); resolve(received) }
+        })
+        res.on('error', () => resolve(received))
+      }).on('error', reject)
+    }
+  })
+  const code = await runAction(undefined, { cwd, ui: true }, { io, registry })
+  expect(code).toBe(0)
+  expect(runDirExistedAtDashboardStart).toBe(true)
+  const frame = await framePromise
+  expect(frame).toContain('"type":"run_start"')
 })
 
 test('run --ui dashboard reflects the finished run at /model once closed data is still on disk', async () => {

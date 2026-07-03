@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import type { Command } from 'commander'
@@ -196,6 +196,14 @@ export async function runAction(
 
   let dashboard: DashboardServer | undefined
   if (opts.ui) {
+    // Create the run directory before the dashboard starts listening, so its
+    // /events parent-dir-watch fallback always has a real directory to watch
+    // from the first connection onward — otherwise a client connecting
+    // before executeRun creates the directory (via JournalWriter's own
+    // mkdirSync) gets no watcher at all and live updates never start until a
+    // manual refresh. JournalWriter's later mkdirSync on this same path is a
+    // safe no-op (recursive: true).
+    mkdirSync(runDir, { recursive: true })
     // panel-expand up front so node ids in the dashboard match the ids the
     // engine will actually journal (runLoop does this same expansion
     // internally — see splitRegions/expandPanels in engine/runner.ts)
