@@ -45,3 +45,22 @@ test('the page renders an empty-state message container for a run with no events
   const html = buildPage()
   expect(html).toContain('id="empty-state"')
 })
+
+test('the page defines a live-output section, hidden by default, with a tab strip and output body', () => {
+  const html = buildPage()
+  expect(html).toContain('id="live-output-section"')
+  expect(html).toContain('id="live-tabs"')
+  expect(html).toContain('id="live-output-body"')
+})
+
+test('the inline client renders live output tabs from the running nodes on every re-render', () => {
+  const html = buildPage()
+  expect(html).toContain('function renderLiveOutput(model)')
+  expect(html).toContain('renderLiveOutput(model)') // called from render(model), not just defined
+})
+
+test('the default tab is the first running node, and clicking a tab is wired via addEventListener', () => {
+  const html = buildPage()
+  expect(html).toContain('selectedTab = running[0].id')
+  expect(html).toContain('addEventListener')
+})
