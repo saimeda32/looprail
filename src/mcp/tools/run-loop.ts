@@ -4,7 +4,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import {
-  createDefaultRegistry, lintLoop, parseLoopfile, runLoop, type RunReport,
+  createDefaultRegistry, expandPanels, lintLoop, parseLoopfile, runLoop, validateGraph,
+  type RunReport,
 } from '../../index.js'
 import type { McpToolDeps } from './deps.js'
 import { errorResult, textResult } from './result.js'
@@ -55,6 +56,20 @@ export async function runLoopHandler(
     }
   }
 
+  // lintLoop only validates the raw graph (L005), but runLoop validates AGAIN
+  // after expandPanels — panel-expansion-specific faults (e.g. a clone id
+  // colliding with a literal node id) can slip past the raw check and only
+  // surface here. Catch that synchronously too, so an unrunnable-after-
+  // expansion loop is rejected before 'started' is ever reported, same as
+  // an unrunnable-before-expansion one already is above.
+  const expansionErrors = validateGraph(expandPanels(def))
+  if (expansionErrors.length > 0) {
+    return {
+      result: errorResult(`loop is invalid after panel expansion — not started:\n${expansionErrors.join('\n')}`),
+      done: Promise.resolve(undefined),
+    }
+  }
+
   const runId = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
   const runDir = join(cwd, '.looprail', 'runs', runId)
   const registry = createDefaultRegistry({ cwd })
@@ -66,10 +81,12 @@ export async function runLoopHandler(
   // runDir's journal as it happens, so run_status observes progress with
   // zero shared in-memory state between this call and a later one.
   const done = runLoop(def, { registry, cwd, runDir, runId }).catch((e: unknown) => {
-    // Can only fire if runLoop throws before its very first emit() call —
-    // e.g. a panel-expansion validateGraph failure lintLoop's raw-graph
-    // L005 check didn't catch (the same narrow gap `looprail run` has
-    // today). stderr only: stdout is the live MCP protocol stream.
+    // Defense in depth only: the pre-flight lintLoop + validateGraph(expandPanels(def))
+    // checks above already reject synchronously before 'started' is ever reported, so
+    // runLoop should no longer throw before its first emit() call. If it somehow still
+    // does (e.g. a future validateGraph rule this pre-flight doesn't mirror), this at
+    // least logs instead of crashing the detached promise silently. stderr only: stdout
+    // is the live MCP protocol stream.
     console.error(`[looprail mcp] run ${runId} failed to start: ${e instanceof Error ? e.message : String(e)}`)
     return undefined
   })

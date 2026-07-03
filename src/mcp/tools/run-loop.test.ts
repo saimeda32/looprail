@@ -54,6 +54,32 @@ test('a loop that fails lint is rejected synchronously and never starts a backgr
   expect(existsSync(join(cwd, '.looprail', 'runs'))).toBe(false)
 })
 
+test('a loop valid pre-expansion but invalid post-expansion is rejected synchronously, never starts, and never emits a runId that looks started', async () => {
+  const cwd = tmpCwd()
+  // "do" panel-expands into clones "do@1"/"do@2" (see expandPanels in
+  // src/core/graph.ts), which collides with the literal node id "do@1"
+  // below — a duplicate-id fault validateGraph can only see on the
+  // EXPANDED graph, never on the raw one lintLoop checks (raw ids
+  // do/do@1/check are all unique).
+  writeFileSync(join(cwd, 'looprail.yaml'), `
+name: demo
+goal: Say DONE.
+agents:
+  worker: { adapter: mock }
+graph:
+  do: { role: executor, agent: worker, panel: 2 }
+  do@1: { role: executor, agent: worker }
+  check: { role: tester, after: "do@1", run: "true", expect: "exit 0" }
+rails:
+  max_iterations: 2
+  max_cost_usd: 1
+`)
+  const { result, done } = await runLoopHandler({}, { cwd })
+  expect(result.isError).toBe(true)
+  expect(await done).toBeUndefined()
+  expect(existsSync(join(cwd, '.looprail', 'runs'))).toBe(false)
+})
+
 test('a missing loopfile returns an error result', async () => {
   const cwd = tmpCwd()
   const { result, done } = await runLoopHandler({}, { cwd })
