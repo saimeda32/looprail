@@ -112,6 +112,15 @@ test('claudeCodeProjectSlug replaces every slash with a dash', () => {
   expect(claudeCodeProjectSlug('/a/b/c')).toBe('-a-b-c')
 })
 
+test('claudeCodeProjectSlug matches the real, verified Claude Code project directory naming for this machine', () => {
+  // Pinned ground-truth: confirmed live on this machine, not inferred.
+  expect(claudeCodeProjectSlug('/Users/skiranmeda/sai-git/looprail')).toBe('-Users-skiranmeda-sai-git-looprail')
+})
+
+test('claudeCodeProjectSlug replaces any non-alphanumeric character, not just slashes', () => {
+  expect(claudeCodeProjectSlug('/a/b.c d_e')).toBe('-a-b-c-d-e')
+})
+
 test('discoverClaudeCodeSessions returns a session with a recent mtime and excludes an old one', () => {
   const homedir = mkdtempSync(join(tmpdir(), 'lr-claude-home-'))
   const workspace = '/some/workspace'

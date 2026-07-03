@@ -132,8 +132,25 @@ export interface SessionEntry {
   lastActiveAt: number
 }
 
+// Best-effort match of Claude Code's own project-directory naming scheme,
+// which is not publicly documented. Claude Code stores each project's
+// session transcripts under ~/.claude/projects/<slug>, where <slug> is
+// derived from the absolute workspace path. The one verified-real example
+// on this machine: `/Users/skiranmeda/sai-git/looprail` produces the
+// directory `-Users-skiranmeda-sai-git-looprail` (confirmed live, not
+// inferred). That example only exercises `/`, so this broadens the
+// replacement to the full non-alphanumeric character class as the most
+// defensible guess at Claude Code's actual scheme — it's still only a
+// guess for characters this machine has never produced (e.g. a literal
+// `.` in a path), and it does NOT eliminate collisions: `/a/b-c` and
+// `/a/b/c` both slug to `-a-b-c` either way, because both `/` and `-` map
+// to the same replacement character. That is a real, currently
+// unavoidable limitation — fixing it with workspace-side disambiguation
+// (e.g. a hash suffix) would break matching against Claude Code's real
+// directories entirely, which defeats the purpose of this function, so it
+// is intentionally not attempted here.
 export function claudeCodeProjectSlug(workspace: string): string {
-  return workspace.split('/').join('-')
+  return workspace.replace(/[^a-zA-Z0-9]/g, '-')
 }
 
 // Each workspace's work is wrapped in its own try/catch for the same reason
