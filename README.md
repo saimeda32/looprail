@@ -107,9 +107,15 @@ dollars, whichever comes first.
 | `looprail workspace add [path]` | Register a project so its runs show up together (defaults to cwd) |
 | `looprail workspace list` | Show every registered project |
 | `looprail workspace remove <path>` | Stop tracking a project |
+| `looprail mcp` | Start looprail as an MCP server for Claude Desktop, Cursor, or VS Code |
 
 You rarely need `workspace add` yourself — `looprail run` registers its own
 project the first time you use it there.
+
+`looprail mcp` lets you do the same things — lint a loopfile, start a run,
+check on it — from inside Claude Desktop, Cursor, or VS Code's Copilot Chat
+instead of a terminal. See [docs/MCP.md](docs/MCP.md) for the config
+snippet each host needs and the full list of tools it exposes.
 
 ---
 
@@ -179,8 +185,8 @@ aider, and GitHub Copilot each have a real command-line mode looprail can
 shell out to and parse output from, so any of them can run any node. Cursor
 doesn't have that (it's an IDE, not a scriptable process), so it can't be
 assigned a node — the only way Cursor or Claude Desktop connect to looprail is
-the other direction, as an MCP client calling into looprail's own tools, which
-is on the roadmap below.
+the other direction, as an MCP client calling into looprail's own tools via
+`looprail mcp` (see [docs/MCP.md](docs/MCP.md)).
 
 ### Rails
 
@@ -275,10 +281,10 @@ anything the CLI can run, the SDK can too. See
 The engine, the CLI, the adapters, and the Loopfile format are here and
 tested. The dashboard is here too, with live streaming output, in both a
 single-run view (`looprail ui`) and a mission-control view across every
-registered project (`looprail ui --all`). Still on the roadmap: an MCP server
-so Claude Desktop, Cursor, and VS Code's Copilot Chat can call into looprail
-directly, and a benchmarking harness for comparing loop designs with real
-numbers.
+registered project (`looprail ui --all`). `looprail mcp` runs looprail as an
+MCP server for Claude Desktop, Cursor, and VS Code's Copilot Chat. A
+benchmarking harness for comparing loop designs with real numbers is still
+on the roadmap.
 
 ## Contributing
 
