@@ -3,6 +3,8 @@ import { join } from 'node:path'
 import type { Command } from 'commander'
 import { expandPanels, validateGraph, type LoopDef } from '../index.js'
 import { startDashboardServer, type DashboardServer } from '../dashboard/server.js'
+import { startMissionControlServer, type MissionControlServer } from '../dashboard/mission-control-server.js'
+import { defaultRegistryPath, listWorkspaces } from '../workspace/registry.js'
 import { loadLoop } from './run-cmd.js'
 import { latestRunId, runsRoot } from './status-cmd.js'
 import { defaultIo, dim, err, heading, type CliIo } from './ui.js'
@@ -64,14 +66,61 @@ export async function uiAction(
   return { code: 0, dashboard }
 }
 
+export interface UiAllActionOpts {
+  registryPath?: string
+}
+
+// The --all counterpart to uiAction: one server, every registered
+// workspace, no runId. See mission-control-server.ts for the routing table.
+// Deliberately never fails on an empty registry — an empty mission-control
+// page is a legitimate, useful state (it tells the user exactly what to do
+// next), not an error condition.
+export async function uiAllAction(
+  opts: UiAllActionOpts,
+  io: CliIo = defaultIo,
+): Promise<{ code: number; dashboard?: MissionControlServer }> {
+  const registryPath = opts.registryPath ?? defaultRegistryPath()
+  const dashboard = await startMissionControlServer({ registryPath })
+
+  io.out(heading('looprail mission control'))
+  io.out(`  ${dashboard.url}`)
+  if (listWorkspaces(registryPath).length === 0) {
+    io.out(dim('  no workspaces registered yet — `looprail workspace add` in a project, or just `looprail run` there (it registers itself automatically)'))
+  }
+
+  return { code: 0, dashboard }
+}
+
 export function registerUi(program: Command): void {
   program
     .command('ui [runId]')
     .description('start a local dashboard visualizing a run from its journal (latest run by default)')
     .option('--file <path>', 'loopfile to load for graph edges and rail maxes (default ./looprail.yaml)')
     .option('--open', 'open the dashboard in the default browser')
-    .action(async (runId: string | undefined, opts: { file?: string; open?: boolean }, cmd: Command) => {
+    .option('--all', 'mission control: show every run across every registered workspace (ignores runId)')
+    .action(async (
+      runId: string | undefined,
+      opts: { file?: string; open?: boolean; all?: boolean },
+      cmd: Command,
+    ) => {
       const { cwd } = cmd.optsWithGlobals<{ cwd: string }>()
+
+      if (opts.all) {
+        if (runId) {
+          defaultIo.out(err('`looprail ui --all` does not take a runId — drop --all to view one run'))
+          process.exitCode = 1
+          return
+        }
+        const result = await uiAllAction({})
+        process.exitCode = result.code
+        if (result.dashboard) {
+          const shutdown = () => { void result.dashboard!.close().then(() => process.exit(0)) }
+          process.on('SIGINT', shutdown)
+          process.on('SIGTERM', shutdown)
+        }
+        return
+      }
+
       const result = await uiAction(runId, { cwd, file: opts.file, open: opts.open })
       process.exitCode = result.code
       if (result.dashboard) {

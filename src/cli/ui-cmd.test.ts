@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, test } from 'vitest'
 import { runAction } from './run-cmd.js'
-import { loadExpandedLoopDef, uiAction } from './ui-cmd.js'
+import { loadExpandedLoopDef, uiAction, uiAllAction } from './ui-cmd.js'
+import { addWorkspace } from '../workspace/registry.js'
 
 const FIXTURE = `
 name: ui-fixture
@@ -92,4 +93,49 @@ test('a valid loopfile is loaded, expanded, and drives edges in /model', async (
 test('a missing loopfile falls back to observed-only mode without failing', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'lr-ui-'))
   expect(loadExpandedLoopDef(undefined, cwd)).toBeUndefined()
+})
+
+test('uiAllAction with an empty registry starts a server and prints a helpful hint, not an error', async () => {
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-ui-all-')), 'workspaces.json')
+  const { io, lines } = capture()
+  const result = await uiAllAction({ registryPath }, io)
+  cleanup = () => result.dashboard!.close()
+  expect(result.code).toBe(0)
+  expect(lines.join('\n')).toContain('no workspaces registered')
+  const res = await get(result.dashboard!.url + '/api/runs')
+  expect(JSON.parse(res.body).runs).toEqual([])
+})
+
+test('uiAllAction lists runs from every registered workspace at /api/runs', async () => {
+  const cwd = await completedRun()
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-ui-all-')), 'workspaces.json')
+  addWorkspace(registryPath, cwd)
+  const { io } = capture()
+  const result = await uiAllAction({ registryPath }, io)
+  cleanup = () => result.dashboard!.close()
+  const res = await get(result.dashboard!.url + '/api/runs')
+  const runs = JSON.parse(res.body).runs as { runId: string }[]
+  expect(runs).toHaveLength(1)
+})
+
+test('the mission-control card links to a working per-run dashboard', async () => {
+  const cwd = await completedRun()
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-ui-all-')), 'workspaces.json')
+  addWorkspace(registryPath, cwd)
+  const { io } = capture()
+  const result = await uiAllAction({ registryPath }, io)
+  cleanup = () => result.dashboard!.close()
+  const listRes = await get(result.dashboard!.url + '/api/runs')
+  const [run] = JSON.parse(listRes.body).runs as { workspaceHash: string; runId: string }[]
+  const runRes = await get(`${result.dashboard!.url}/run/${run.workspaceHash}/${run.runId}/model`)
+  expect(JSON.parse(runRes.body).name).toBe('ui-fixture')
+})
+
+test('uiAllAction serves the mission-control page at /, not a single-run dashboard', async () => {
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-ui-all-')), 'workspaces.json')
+  const { io } = capture()
+  const result = await uiAllAction({ registryPath }, io)
+  cleanup = () => result.dashboard!.close()
+  const res = await get(result.dashboard!.url + '/')
+  expect(res.body).toContain('looprail mission control')
 })
