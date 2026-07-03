@@ -15,28 +15,43 @@ npx looprail init      # detect your agents, scaffold a looprail.yaml
 npx looprail run       # run the loop, watch it work, stop when verified
 ```
 
-## Why
+The rest of this document is in two parts. **Using looprail** is a how-to:
+install it, run a loop, read the commands. **What looprail does** is the
+concept underneath: why loops need a verifier, how to mix models, what the
+dashboard shows you while a loop runs.
 
-A single prompt to an agent gives you one shot. You read the result, notice it
-missed something, and prompt again. Looprail is the part you were doing by hand:
-plan the work, do it, check it, feed the failures back, and try again, with a
-hard ceiling on iterations and spend so a bad loop can't run away.
+---
 
-Two ideas do most of the work:
+## Using looprail
 
-- **The verifier is the point.** A loop is only as honest as the check that
-  ends it. "Make the tests pass" is a good goal because a test runner can prove
-  it. "Improve the code" is a bad one because nothing can. Looprail makes you
-  name the check up front and refuses to run a loop that has no way to verify
-  itself.
-- **Don't let a model grade its own work.** You can send the executor's output
-  to a different model, or a different provider, for review. A critic panel
-  made of Claude, Codex, and a local model catches things three copies of one
-  model never will.
+### Install
 
-## The Loopfile
+Looprail needs Node 20 or newer.
 
-A loop lives in a `looprail.yaml`. Here is a small one that fixes failing tests:
+```bash
+npm install -g looprail      # or run it with npx looprail <command>
+```
+
+You also need at least one agent CLI installed and logged in. Run
+`looprail doctor` to see what it found.
+
+### Quickstart
+
+```bash
+looprail init            # detects your agents, scaffolds looprail.yaml
+looprail run             # runs it, shows live progress, stops when verified
+looprail run --ui        # same, but opens a live dashboard alongside it
+```
+
+`init` picks a template for you (`fix-tests`, `research-report`, `refactor`,
+or `content-pipeline`) and fills in whichever agent CLIs it found. Pass
+`--yes` for zero prompts, or `--template <name> --agent <adapter>` to skip
+detection entirely.
+
+### Writing a Loopfile
+
+A loop lives in a `looprail.yaml`. Here is a small one that fixes failing
+tests:
 
 ```yaml
 name: fix-tests
@@ -73,7 +88,52 @@ assertions, and if either check fails it feeds the actual failure back into the
 next attempt. It stops when both pass, or when it hits eight iterations or ten
 dollars, whichever comes first.
 
-## Roles
+### Commands
+
+| Command | What it does |
+| --- | --- |
+| `looprail init` | Detect installed agents and scaffold a `looprail.yaml` |
+| `looprail run [file]` | Run the loop with live progress and a cost report |
+| `looprail run --ui` | Same, and open a live dashboard for this run |
+| `looprail ui [runId]` | Open the dashboard for a run (defaults to the latest) |
+| `looprail doctor` | Show which agent CLIs are installed and logged in |
+| `looprail lint <file>` | Check a Loopfile for common loop-design mistakes |
+| `looprail status [runId]` | Show verdict history for a run (`--watch` to follow) |
+| `looprail logs <runId> [node]` | Print node output from a past run |
+| `looprail explain <file> <node>` | Show exactly what a node would be sent |
+| `looprail replay <runId>` | Re-run with cached results; edit one prompt, only the rest re-runs |
+| `looprail resume <runId>` | Continue an interrupted run |
+| `looprail workspace add [path]` | Register a project so its runs show up together (defaults to cwd) |
+| `looprail workspace list` | Show every registered project |
+| `looprail workspace remove <path>` | Stop tracking a project |
+
+You rarely need `workspace add` yourself — `looprail run` registers its own
+project the first time you use it there.
+
+---
+
+## What looprail does
+
+### Why a loop needs a verifier
+
+A single prompt to an agent gives you one shot. You read the result, notice it
+missed something, and prompt again. Looprail is the part you were doing by
+hand: plan the work, do it, check it, feed the failures back, and try again,
+with a hard ceiling on iterations and spend so a bad loop can't run away.
+
+Two ideas do most of the work:
+
+- **The verifier is the point.** A loop is only as honest as the check that
+  ends it. "Make the tests pass" is a good goal because a test runner can prove
+  it. "Improve the code" is a bad one because nothing can. Looprail makes you
+  name the check up front and refuses to run a loop that has no way to verify
+  itself.
+- **Don't let a model grade its own work.** You can send the executor's output
+  to a different model, or a different provider, for review. A critic panel
+  made of Claude, Codex, and a local model catches things three copies of one
+  model never will.
+
+### Roles
 
 Every node in the graph plays one role:
 
@@ -91,7 +151,7 @@ Planning and execution are just regions of the same graph. Planners and their
 critics run first and can revise the plan a few rounds before any work starts.
 Everything else iterates until the verdict comes back clean.
 
-## Mixing models
+### Mixing models
 
 Each node picks which agent runs it, so you can shape a loop by cost and by
 independence:
@@ -113,22 +173,15 @@ A critic panel with one critic per provider gives you three different blind
 spots instead of one. `looprail lint` warns when a judge uses the same model as
 the executor it is grading.
 
-## Commands
+Looprail doesn't drive every agent tool the same way. Claude Code, Codex,
+aider, and GitHub Copilot each have a real command-line mode looprail can
+shell out to and parse output from, so any of them can run any node. Cursor
+doesn't have that (it's an IDE, not a scriptable process), so it can't be
+assigned a node — the only way Cursor or Claude Desktop connect to looprail is
+the other direction, as an MCP client calling into looprail's own tools, which
+is on the roadmap below.
 
-| Command | What it does |
-| --- | --- |
-| `looprail init` | Detect installed agents and scaffold a `looprail.yaml` |
-| `looprail run [file]` | Run the loop with live progress and a cost report |
-| `looprail ui [runId]` | Open the local dashboard for a run (defaults to the latest) |
-| `looprail doctor` | Show which agent CLIs are installed and logged in |
-| `looprail lint <file>` | Check a Loopfile for common loop-design mistakes |
-| `looprail status [runId]` | Show verdict history for a run (`--watch` to follow) |
-| `looprail logs <runId> [node]` | Print node output from a past run |
-| `looprail explain <file> <node>` | Show exactly what a node would be sent |
-| `looprail replay <runId>` | Re-run with cached results; edit one prompt, only the rest re-runs |
-| `looprail resume <runId>` | Continue an interrupted run |
-
-## Rails
+### Rails
 
 Rails are the ceiling on a run. All of them are optional except the first two:
 
@@ -143,13 +196,12 @@ rails:
 ```
 
 Looprail checks a rail before it starts a node, not after, so a loop halts the
-moment it would go over budget rather than one expensive step later. Every run
-is journaled to `.looprail/runs/<id>/journal.jsonl`, which is what powers
-`status`, `logs`, `resume`, `replay`, and the dashboard. Add `--ui` to `run` to
-open the dashboard alongside the run and watch nodes complete live, or run
-`looprail ui` afterward to look at any past run.
+moment it would go over budget rather than one expensive step later. A
+misconfigured loop (a critic pointed at work that doesn't exist, an
+unregistered agent) halts loudly and immediately instead of quietly burning
+iterations trying to recover from something that will never fix itself.
 
-## Verdict policies
+### Verdict policies
 
 How the checks combine into a pass or fail:
 
@@ -158,27 +210,33 @@ How the checks combine into a pass or fail:
 - `{ weighted: 0.7 }`: the pass weight over the total weight must clear the
   threshold. Give a node more weight with `weight: 2`.
 
-## Install
+### Watching a run
 
-Looprail needs Node 20 or newer.
+Every run is journaled to `.looprail/runs/<id>/journal.jsonl` as it happens,
+which is what `status`, `logs`, `resume`, `replay`, and the dashboard all read
+from. `looprail run --ui` (or `looprail ui` for a past run) opens a local page
+showing the DAG live: which node is running, which have passed or failed, and
+a per-node output panel you can click into. When a node is still running, its
+output streams into that panel as the agent produces it — no "please wait,"
+you watch it write. If more than one node is running at once (a critic panel,
+say), a tab switcher lets you flip between watching each one live. Cost and
+iteration count show as running totals against your rails, broken down per
+agent so a three-way critic panel shows you exactly which model is expensive,
+not just a combined number.
 
-```bash
-npm install -g looprail      # or run it with npx looprail <command>
-```
+Every project you run a loop in registers itself automatically, so looprail
+knows about it without any setup on your part.
 
-You also need at least one agent CLI installed and logged in. Run
-`looprail doctor` to see what it found.
-
-## How it works
+### How it works
 
 The engine is small and boring on purpose. Each iteration walks the graph in
 dependency order and runs independent nodes at the same time. Verifying nodes
 return a structured verdict with evidence. A router collects the verdicts and
 decides whether the run is verified, should try again with the failures fed
 back, should re-plan because it has stalled, or should halt because a rail was
-hit. Config mistakes (a critic pointed at missing work, an unregistered agent)
-halt loudly instead of quietly burning iterations. Transient adapter failures
-retry with backoff before they count against the loop.
+hit. Config mistakes halt loudly instead of quietly burning iterations.
+Transient adapter failures retry with backoff before they count against the
+loop.
 
 There is a small TypeScript SDK behind the CLI if you want to build loops in
 code instead of YAML. The YAML compiles to the same objects the SDK builds, so
@@ -187,11 +245,13 @@ anything the CLI can run, the SDK can too. See
 
 ## Status
 
-The engine, the CLI, the adapters, and the Loopfile format are here and tested.
-The local web dashboard is here too (`looprail run --ui`, or `looprail ui` for
-a past run). It's a single-run view for now; a multi-run mission-control
-dashboard is planned next. A benchmarking harness for comparing loop designs
-is still on the roadmap.
+The engine, the CLI, the adapters, and the Loopfile format are here and
+tested. The dashboard is here too, with live streaming output. Right now it
+shows one run at a time; a mission-control view showing every run across every
+project you've registered is landing next. After that: an MCP server so
+Claude Desktop, Cursor, and VS Code's Copilot Chat can call into looprail
+directly, and a benchmarking harness for comparing loop designs with real
+numbers.
 
 ## Contributing
 
