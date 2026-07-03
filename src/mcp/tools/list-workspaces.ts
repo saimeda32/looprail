@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import { defaultRegistryPath, listWorkspaces } from '../../workspace/registry.js'
+import { defaultRegistryPath, listWorkspaces } from '../../index.js'
 import type { McpToolDeps } from './deps.js'
 import { textResult } from './result.js'
 

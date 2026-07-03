@@ -2,9 +2,10 @@ import { join } from 'node:path'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
-import { listRunIds, readJournal, runsRoot, summarizeJournal } from '../../index.js'
-import { defaultRegistryPath, listWorkspaces } from '../../workspace/registry.js'
-import { discoverRuns } from '../../workspace/discover.js'
+import {
+  defaultRegistryPath, discoverRuns, listRunIds, listWorkspaces, readJournal, runsRoot,
+  summarizeJournal,
+} from '../../index.js'
 import type { McpToolDeps } from './deps.js'
 import { textResult } from './result.js'
 

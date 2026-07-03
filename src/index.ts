@@ -32,3 +32,7 @@ export { createShellAdapter, shellQuote } from './adapters/shell.js'
 export {
   createDefaultRegistry, createCliMockAdapter, type DefaultRegistryOptions,
 } from './adapters/default-registry.js'
+export {
+  addWorkspace, defaultRegistryPath, listWorkspaces, removeWorkspace, type WorkspaceRegistry,
+} from './workspace/registry.js'
+export { discoverRuns, type RunListEntry } from './workspace/discover.js'
