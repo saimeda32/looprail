@@ -7,6 +7,7 @@ export interface NodeIterationRecord {
   status: NodeStatus
   evidence?: string
   costUsd?: number
+  tokens?: number
   durationMs?: number
   output?: string
 }
@@ -16,7 +17,11 @@ export interface DashboardNode {
   role: Role
   status: NodeStatus
   costUsd: number
+  tokens: number
   iterations: NodeIterationRecord[]
+  agent?: string
+  model?: string
+  streamingOutput?: string
 }
 
 export interface PlanVersion {
@@ -32,6 +37,7 @@ export interface DashboardTotals {
   iteration: number
   maxIterations?: number
   replans: number
+  tokens: number
 }
 
 export interface DashboardModel {
@@ -63,10 +69,12 @@ function edgesFromDef(def: LoopDef): [string, string][] {
   return edges
 }
 
-function ensureNode(nodes: Map<string, DashboardNode>, id: string, role: Role): DashboardNode {
+function ensureNode(
+  nodes: Map<string, DashboardNode>, id: string, role: Role, agent?: string, model?: string,
+): DashboardNode {
   let n = nodes.get(id)
   if (!n) {
-    n = { id, role, status: 'pending', costUsd: 0, iterations: [] }
+    n = { id, role, status: 'pending', costUsd: 0, tokens: 0, iterations: [], agent, model }
     nodes.set(id, n)
   }
   return n
@@ -74,7 +82,11 @@ function ensureNode(nodes: Map<string, DashboardNode>, id: string, role: Role): 
 
 export function buildViewModel(events: JournalEvent[], def?: LoopDef): DashboardModel {
   const nodes = new Map<string, DashboardNode>()
-  if (def) for (const n of def.nodes) ensureNode(nodes, n.id, n.role)
+  if (def) {
+    for (const n of def.nodes) {
+      ensureNode(nodes, n.id, n.role, n.agent, n.agent ? def.agents[n.agent]?.model : undefined)
+    }
+  }
 
   let runId = 'unknown'
   let name = ''
@@ -82,6 +94,7 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
   let status: DashboardModel['status'] = 'running'
   let reason: string | undefined
   let costUsd = 0
+  let tokens = 0
   let iteration = 0
   let replans = 0
   const plans: PlanVersion[] = []
@@ -97,6 +110,12 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
       case 'node_start': {
         const n = ensureNode(nodes, String(d.nodeId), d.role as Role)
         n.status = 'running'
+        n.streamingOutput = ''
+        break
+      }
+      case 'node_progress': {
+        const n = ensureNode(nodes, String(d.nodeId), d.role as Role)
+        n.streamingOutput = (n.streamingOutput ?? '') + String(d.chunk ?? '')
         break
       }
       case 'node_end': {
@@ -105,19 +124,23 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
         const verdict = d.verdict as Verdict | null
         const iter = Number(d.iteration ?? 0)
         const cost = Number(d.costUsd ?? 0)
+        const nodeTokens = Number(d.tokens ?? 0)
         const nodeStatus: NodeStatus = verdict ? verdict.status : 'done'
         n.status = nodeStatus
         n.costUsd += cost
+        n.tokens += nodeTokens
         n.iterations.push({
           iteration: iter,
           status: nodeStatus,
           evidence: verdict?.evidence,
           costUsd: cost,
+          tokens: nodeTokens,
           durationMs: d.durationMs === undefined ? undefined : Number(d.durationMs),
           output: d.output === undefined ? undefined : String(d.output),
         })
         if (d.role === 'planner') plans.push({ replan: replans, iteration: iter, nodeId, output: String(d.output ?? '') })
         iteration = Math.max(iteration, iter)
+        tokens += nodeTokens
         break
       }
       case 'node_skipped': {
@@ -151,7 +174,7 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
     nodes: [...nodes.values()],
     edges: def ? edgesFromDef(def) : [],
     totals: {
-      costUsd, iteration, replans,
+      costUsd, iteration, replans, tokens,
       maxCostUsd: def?.rails.maxCostUsd,
       maxIterations: def?.rails.maxIterations,
     },

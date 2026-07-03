@@ -35,7 +35,7 @@ test('run_start seeds identity; node lifecycle drives status', () => {
   const check = m.nodes.find((n) => n.id === 'check')!
   expect(check.status).toBe('pass')
   expect(check.iterations).toEqual([
-    { iteration: 1, status: 'pass', evidence: 'looks right', costUsd: 0.05, durationMs: undefined, output: 'PASS' },
+    { iteration: 1, status: 'pass', evidence: 'looks right', costUsd: 0.05, tokens: 0, durationMs: undefined, output: 'PASS' },
   ])
   const doNode = m.nodes.find((n) => n.id === 'do')!
   expect(doNode.status).toBe('done') // no verdict on an executor node_end
@@ -127,4 +127,101 @@ test('a node observed in the journal but absent from a stale def is still listed
   ], def)
   expect(m.nodes.map((n) => n.id).sort()).toEqual(['ghost', 'plan'])
   expect(m.nodes.find((n) => n.id === 'ghost')!.status).toBe('running')
+})
+
+test('node_start resets the streaming buffer and node_progress appends to it in order', () => {
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('node_start', { nodeId: 'do', role: 'executor', iteration: 1 }),
+    ev('node_progress', { nodeId: 'do', role: 'executor', iteration: 1, chunk: 'work' }),
+    ev('node_progress', { nodeId: 'do', role: 'executor', iteration: 1, chunk: 'ing...' }),
+  ])
+  expect(m.nodes.find((n) => n.id === 'do')!.streamingOutput).toBe('working...')
+})
+
+test('a fresh node_start clears whatever streamed on a previous run of the same node id', () => {
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('node_start', { nodeId: 'do', role: 'executor', iteration: 1 }),
+    ev('node_progress', { nodeId: 'do', role: 'executor', iteration: 1, chunk: 'stale from iteration 1' }),
+    ev('node_end', { nodeId: 'do', role: 'executor', iteration: 1, costUsd: 0, verdict: null, output: 'done-1' }),
+    ev('node_start', { nodeId: 'do', role: 'executor', iteration: 2 }),
+  ])
+  expect(m.nodes.find((n) => n.id === 'do')!.streamingOutput).toBe('')
+})
+
+test('a def-seeded node carries its agent key and model from the loopfile', () => {
+  const def: LoopDef = {
+    name: 'demo', goal: 'g',
+    agents: { worker: { adapter: 'claude-code', model: 'claude-opus-4' } },
+    nodes: [{ id: 'do', role: 'executor', agent: 'worker' }],
+    rails: { maxIterations: 5, maxCostUsd: 2.5 },
+    verdictPolicy: { kind: 'all-pass' },
+  }
+  const m = buildViewModel([ev('run_start', { runId: 'r', name: 'n', goal: 'g' })], def)
+  const node = m.nodes.find((n) => n.id === 'do')!
+  expect(node.agent).toBe('worker')
+  expect(node.model).toBe('claude-opus-4')
+})
+
+test('an observed-only node (no loopfile loaded) has no agent or model', () => {
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('node_start', { nodeId: 'do', role: 'executor', iteration: 1 }),
+  ])
+  const node = m.nodes.find((n) => n.id === 'do')!
+  expect(node.agent).toBeUndefined()
+  expect(node.model).toBeUndefined()
+})
+
+test('node_end tokens accumulate into DashboardNode.tokens and the matching NodeIterationRecord.tokens', () => {
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('node_start', { nodeId: 'do', role: 'executor', iteration: 1 }),
+    ev('node_end', {
+      nodeId: 'do', role: 'executor', iteration: 1, costUsd: 0.1, tokens: 1234, verdict: null, output: 'did it',
+    }),
+  ])
+  const node = m.nodes.find((n) => n.id === 'do')!
+  expect(node.tokens).toBe(1234)
+  expect(node.iterations).toEqual([
+    { iteration: 1, status: 'done', evidence: undefined, costUsd: 0.1, tokens: 1234, durationMs: undefined, output: 'did it' },
+  ])
+})
+
+test('DashboardTotals.tokens sums tokens across multiple nodes and iterations', () => {
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('node_start', { nodeId: 'do', role: 'executor', iteration: 1 }),
+    ev('node_end', { nodeId: 'do', role: 'executor', iteration: 1, costUsd: 0.1, tokens: 100, verdict: null, output: 'a' }),
+    ev('node_start', { nodeId: 'do', role: 'executor', iteration: 2 }),
+    ev('node_end', { nodeId: 'do', role: 'executor', iteration: 2, costUsd: 0.1, tokens: 50, verdict: null, output: 'b' }),
+    ev('node_start', { nodeId: 'check', role: 'critic', iteration: 1 }),
+    ev('node_end', {
+      nodeId: 'check', role: 'critic', iteration: 1, costUsd: 0.05, tokens: 25,
+      verdict: { node: 'do', status: 'pass', evidence: 'looks right' }, output: 'PASS',
+    }),
+  ])
+  expect(m.totals.tokens).toBe(175)
+})
+
+test('a node_end with no tokens field does not break accumulation for other nodes', () => {
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('node_start', { nodeId: 'plan', role: 'planner', iteration: 0 }),
+    ev('node_end', { nodeId: 'plan', role: 'planner', iteration: 0, costUsd: 0, verdict: null, output: 'v1' }),
+    ev('node_start', { nodeId: 'do', role: 'executor', iteration: 1 }),
+    ev('node_end', {
+      nodeId: 'do', role: 'executor', iteration: 1, costUsd: 0.1, tokens: 0, verdict: null, output: 'did it',
+    }),
+    ev('node_start', { nodeId: 'check', role: 'critic', iteration: 1 }),
+    ev('node_end', {
+      nodeId: 'check', role: 'critic', iteration: 1, costUsd: 0.05, tokens: 75,
+      verdict: { node: 'do', status: 'pass', evidence: 'looks right' }, output: 'PASS',
+    }),
+  ])
+  expect(m.nodes.find((n) => n.id === 'plan')!.tokens).toBe(0)
+  expect(m.nodes.find((n) => n.id === 'do')!.tokens).toBe(0)
+  expect(m.nodes.find((n) => n.id === 'check')!.tokens).toBe(75)
+  expect(m.totals.tokens).toBe(75)
 })
