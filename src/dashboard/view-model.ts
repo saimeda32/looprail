@@ -141,6 +141,7 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
         if (d.role === 'planner') plans.push({ replan: replans, iteration: iter, nodeId, output: String(d.output ?? '') })
         iteration = Math.max(iteration, iter)
         tokens += nodeTokens
+        costUsd += cost
         break
       }
       case 'node_skipped': {
@@ -153,7 +154,10 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
       }
       case 'iteration_end':
         iteration = Math.max(iteration, Number(d.iteration ?? 0))
-        costUsd = Number(d.costUsd ?? costUsd)
+        // costUsd is already live (summed per node_end above); reconcile against the rails
+        // guard's authoritative running spend in case it saw cost the node-level sum can't
+        // (e.g. retry cost not attached to any single node_end). Never let the total regress.
+        costUsd = Math.max(costUsd, Number(d.costUsd ?? costUsd))
         break
       case 'replan':
         replans += 1
@@ -162,7 +166,7 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
       case 'halt':
         status = e.type === 'verified' ? 'verified' : 'halted'
         reason = String(d.reason)
-        costUsd = Number(d.costUsd ?? costUsd)
+        costUsd = Math.max(costUsd, Number(d.costUsd ?? costUsd))
         break
       default:
         break

@@ -205,6 +205,39 @@ test('DashboardTotals.tokens sums tokens across multiple nodes and iterations', 
   expect(m.totals.tokens).toBe(175)
 })
 
+test('totals.costUsd updates live per node_end, before iteration_end fires (matching tokens cadence)', () => {
+  const midIteration = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('node_start', { nodeId: 'do', role: 'executor', iteration: 1 }),
+    ev('node_end', {
+      nodeId: 'do', role: 'executor', iteration: 1, costUsd: 0.2, tokens: 500, verdict: null, output: 'did it',
+    }),
+    // iteration_end has NOT fired yet -- costUsd must already be live, not frozen at 0
+  ])
+  expect(midIteration.totals.costUsd).toBe(0.2)
+  expect(midIteration.totals.tokens).toBe(500) // same cadence as costUsd
+
+  const afterIterationEnd = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('node_start', { nodeId: 'do', role: 'executor', iteration: 1 }),
+    ev('node_end', {
+      nodeId: 'do', role: 'executor', iteration: 1, costUsd: 0.2, tokens: 500, verdict: null, output: 'did it',
+    }),
+    ev('iteration_end', { iteration: 1, costUsd: 0.2 }),
+  ])
+  expect(afterIterationEnd.totals.costUsd).toBe(0.2) // still correct once settled -- no regression
+})
+
+test('totals.costUsd reconciles up to the guard-authoritative total if it ever reports ahead of the node_end sum', () => {
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('node_end', { nodeId: 'do', role: 'executor', iteration: 1, costUsd: 0.1, verdict: null, output: 'did it' }),
+    // guard.spentUsd reflects 0.15 here (e.g. cost the view-model can't otherwise see) -- total must never be LESS than this
+    ev('iteration_end', { iteration: 1, costUsd: 0.15 }),
+  ])
+  expect(m.totals.costUsd).toBe(0.15)
+})
+
 test('a node_end with no tokens field does not break accumulation for other nodes', () => {
   const m = buildViewModel([
     ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
