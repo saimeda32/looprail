@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { createServer, type Server } from 'node:http'
+import { createServer, type Server, type ServerResponse } from 'node:http'
 import { dirname } from 'node:path'
 import type { LoopDef } from '../core/types.js'
 import { readJournal } from '../journal/journal.js'
@@ -26,6 +26,26 @@ function readEvents(journalPath: string) {
   return existsSync(journalPath) ? readJournal(journalPath) : []
 }
 
+function readLength(journalPath: string): number {
+  return existsSync(journalPath) ? readFileSync(journalPath, 'utf8').length : 0
+}
+
+// A filesystem read can throw for reasons outside our control: the journal
+// path gets deleted between an existsSync check and the read (TOCTOU), a
+// permissions error, or the path turning out to be a directory. Whatever the
+// cause, a synchronous throw inside a request handler becomes an uncaught
+// exception that crashes the whole process — so every route that touches the
+// journal on disk funnels its error handling through this one helper.
+function sendReadError(res: ServerResponse, context: string, err: unknown): void {
+  console.error(`dashboard: ${context}`, err)
+  if (!res.headersSent) {
+    res.writeHead(500, { 'content-type': 'text/plain' })
+    res.end('failed to read journal')
+  } else {
+    res.end()
+  }
+}
+
 export function startDashboardServer(opts: DashboardServerOptions): Promise<DashboardServer> {
   const watch = opts.watcher ?? fsWatcher
 
@@ -39,21 +59,37 @@ export function startDashboardServer(opts: DashboardServerOptions): Promise<Dash
     }
 
     if (req.method === 'GET' && url.pathname === '/model') {
-      const payload = buildDashboardPayload(readEvents(opts.journalPath), opts.def)
-      res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify(payload))
+      try {
+        const payload = buildDashboardPayload(readEvents(opts.journalPath), opts.def)
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(payload))
+      } catch (err) {
+        sendReadError(res, '/model failed to read journal', err)
+      }
       return
     }
 
     if (req.method === 'GET' && url.pathname === '/events') {
+      // Read the replay data and starting offset BEFORE writing any response
+      // headers, so a read failure here (deleted file, permissions, a path
+      // that turns out to be a directory) can still be answered with a clean
+      // 500 instead of crashing mid-stream.
+      let replay: string
+      let offset: number
+      try {
+        replay = buildReplay(readEvents(opts.journalPath))
+        offset = readLength(opts.journalPath)
+      } catch (err) {
+        sendReadError(res, '/events failed to read journal', err)
+        return
+      }
       res.writeHead(200, {
         'content-type': 'text/event-stream',
         'cache-control': 'no-cache',
         connection: 'keep-alive',
       })
-      res.write(buildReplay(readEvents(opts.journalPath)))
+      res.write(replay)
       res.on('error', () => {}) // client disconnects mid-write are not server errors
-      let offset = existsSync(opts.journalPath) ? readFileSync(opts.journalPath, 'utf8').length : 0
       // The journal file may not exist yet (run hasn't written its first
       // line). Node's real fs.watch() throws synchronously with ENOENT for
       // a nonexistent path, which would otherwise crash the whole process.

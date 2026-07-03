@@ -124,6 +124,26 @@ test('an unknown route returns 404', async () => {
   expect(res.status).toBe(404)
 })
 
+test('GET /model against a journalPath that is a directory returns a clean error instead of crashing the process', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lr-dash-')) // journalPath itself IS the directory, not a file inside it
+  dashboard = await startDashboardServer({ journalPath: dir })
+  const res = await get(dashboard.url + '/model')
+  expect(res.status).toBe(500)
+  // the server is still alive and serving other routes afterwards
+  const health = await get(dashboard.url + '/')
+  expect(health.status).toBe(200)
+})
+
+test('GET /events against a journalPath that is a directory returns a clean response instead of crashing the process', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lr-dash-'))
+  dashboard = await startDashboardServer({ journalPath: dir })
+  const res = await get(dashboard.url + '/events')
+  expect(res.status).toBe(500)
+  // the server is still alive and serving other routes afterwards
+  const health = await get(dashboard.url + '/model')
+  expect(health.status).toBe(500) // same broken path — still a clean error, not a crash
+})
+
 test('the dashboard never writes to the journal file (read-only)', async () => {
   const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
   const before = require('node:fs').readFileSync(journalPath, 'utf8')
