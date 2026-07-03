@@ -4,6 +4,7 @@ import type { McpToolDeps } from './tools/deps.js'
 import { registerLintLoopfileTool } from './tools/lint-loopfile.js'
 import { registerRunLoopTool } from './tools/run-loop.js'
 import { registerRunStatusTool } from './tools/run-status.js'
+import { registerListRunsTool } from './tools/list-runs.js'
 
 const pkg = createRequire(import.meta.url)('../../package.json') as { version: string }
 
@@ -14,6 +15,7 @@ export function createLooprailMcpServer(deps: McpServerDeps): McpServer {
   registerLintLoopfileTool(server, deps)
   registerRunLoopTool(server, deps)
   registerRunStatusTool(server, deps)
-  // Tasks 4-6 each add one more registerXTool(server, deps) call here.
+  registerListRunsTool(server, deps)
+  // Tasks 5-6 each add one more registerXTool(server, deps) call here.
   return server
 }
