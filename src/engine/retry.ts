@@ -19,13 +19,14 @@ export async function invokeWithRetry(
   adapter: Adapter,
   req: AgentRequest,
   deps: RetryDeps = {},
+  onChunk?: (text: string) => void,
 ): Promise<AgentResult> {
   const retries = deps.retries ?? 2
   const sleep = deps.sleep ?? defaultSleep
   let lastErr: unknown
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      return await adapter.invoke(req)
+      return await adapter.invoke(req, onChunk)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       if (isInfraError(msg)) {

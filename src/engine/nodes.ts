@@ -23,6 +23,7 @@ export async function executeNode(
   state: RunState,
   outcomes: Map<string, NodeOutcome>,
   deps: EngineDeps,
+  onChunk?: (text: string) => void,
 ): Promise<NodeOutcome> {
   const base = { nodeId: node.id, role: node.role, costUsd: 0, tokens: 0, durationMs: 0 }
 
@@ -125,7 +126,7 @@ export async function executeNode(
     let res = await invokeWithRetry(adapter, {
       prompt, timeoutMs: node.timeoutMs,
       model: agentDef.model, command: agentDef.command,
-    }, deps)
+    }, deps, onChunk)
     let verdict = VERIFYING.has(node.role) ? parseVerdict(node.id, res.output) : null
     let cost = res.costUsd
     let tokens = res.tokens
@@ -135,7 +136,7 @@ export async function executeNode(
         prompt: `${prompt}\n\nYour previous reply had no verdict block. Reply again ending with:\nVERDICT: pass|fail\nEVIDENCE: <reason>`,
         timeoutMs: node.timeoutMs,
         model: agentDef.model, command: agentDef.command,
-      }, deps)
+      }, deps, onChunk)
       cost += retry.costUsd
       tokens += retry.tokens
       verdict = parseVerdict(node.id, retry.output)

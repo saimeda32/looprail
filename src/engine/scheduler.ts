@@ -31,6 +31,7 @@ export async function runIteration(
   onNode?: (o: NodeOutcome) => void,
   shouldContinue?: () => boolean,
   onNodeStart?: (node: NodeDef) => void,
+  onChunk?: (nodeId: string, chunk: string) => void,
 ): Promise<NodeOutcome[]> {
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const outcomes = new Map<string, NodeOutcome>()
@@ -41,7 +42,10 @@ export async function runIteration(
       layer.map((id) => async () => {
         const node = byId.get(id)!
         onNodeStart?.(node)
-        let outcome = await executeNode(def, node, state, outcomes, deps)
+        let outcome = await executeNode(
+          def, node, state, outcomes, deps,
+          onChunk && ((chunk: string) => onChunk(node.id, chunk)),
+        )
         if (outcome.verdict && node.weight !== undefined) {
           outcome = { ...outcome, verdict: { ...outcome.verdict, weight: node.weight } }
         }

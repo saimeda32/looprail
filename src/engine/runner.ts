@@ -79,6 +79,10 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   const onNodeStart = (n: NodeDef) => {
     emit('node_start', { nodeId: n.id, role: n.role, iteration: state.iteration })
   }
+  const onChunk = (nodeId: string, chunk: string): void => {
+    const node = expanded.nodes.find((n) => n.id === nodeId)
+    emit('node_progress', { nodeId, role: node?.role, iteration: state.iteration, chunk })
+  }
   // pre-start rail enforcement: halt BEFORE starting a node that would breach
   const shouldContinue = () => guard.check(state.iteration) === null
 
@@ -101,7 +105,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     if (planning.length === 0) return
     const maxRounds = Math.max(1, ...planning.map((n) => n.rounds ?? 1))
     for (let round = 1; round <= maxRounds; round++) {
-      const outs = await runIteration(expanded, planning, state, deps, onNode, shouldContinue, onNodeStart)
+      const outs = await runIteration(expanded, planning, state, deps, onNode, shouldContinue, onNodeStart, onChunk)
       const planner = outs.find((o) => o.role === 'planner')
       if (planner) state.plan = planner.output
       if (guard.check(state.iteration)) return // breached mid-planning; loop halts on entry
@@ -119,7 +123,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     const breachBefore = guard.check(state.iteration)
     if (breachBefore) return finish('halted', `rail breached (${breachBefore.rail}): ${breachBefore.detail}`)
 
-    outcomes = await runIteration(expanded, execution, state, deps, onNode, shouldContinue, onNodeStart)
+    outcomes = await runIteration(expanded, execution, state, deps, onNode, shouldContinue, onNodeStart, onChunk)
     const verdicts = outcomes.flatMap((o) => (o.verdict ? [o.verdict] : []))
     fingerprints.push(verdictFingerprint(verdicts))
     emit('iteration_end', { iteration: state.iteration, costUsd: guard.spentUsd })

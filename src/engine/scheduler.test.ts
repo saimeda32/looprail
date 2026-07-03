@@ -123,3 +123,35 @@ test('node weight is stamped onto its verdict', async () => {
     { plan: null, iteration: 1, feedback: null }, { registry })
   expect(outs[0].verdict?.weight).toBe(2)
 })
+
+test('onChunk is labeled per node id even when nodes run concurrently', async () => {
+  const registry = createRegistry()
+  registry.register({
+    name: 'probe',
+    async invoke(req, onChunk) {
+      onChunk?.(`chunk[${req.prompt}]`)
+      return { output: 'x', costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  })
+  const seen: Record<string, string> = {}
+  await runIteration(
+    makeDef(2),
+    [
+      { id: 'n1', role: 'executor', agent: 'a', prompt: 'UNIQUE-N1-MARKER' },
+      { id: 'n2', role: 'executor', agent: 'a', prompt: 'UNIQUE-N2-MARKER' },
+    ],
+    { plan: null, iteration: 1, feedback: null }, { registry },
+    undefined, undefined, undefined,
+    (nodeId, chunk) => { seen[nodeId] = chunk })
+  expect(seen.n1).toContain('UNIQUE-N1-MARKER')
+  expect(seen.n2).toContain('UNIQUE-N2-MARKER')
+})
+
+test('runIteration works unchanged when onChunk is omitted', async () => {
+  const registry = createRegistry()
+  registry.register({ name: 'probe', invoke: async () => ({ output: 'x', costUsd: 0, tokens: 0, durationMs: 1 }) })
+  const outcomes = await runIteration(
+    makeDef(), [{ id: 'do', role: 'executor', agent: 'a' }],
+    { plan: null, iteration: 1, feedback: null }, { registry })
+  expect(outcomes.map((o) => o.nodeId)).toEqual(['do'])
+})

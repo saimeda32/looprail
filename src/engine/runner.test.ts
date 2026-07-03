@@ -364,3 +364,47 @@ test('transient errors route like failures: the loop keeps iterating', async () 
   expect(report.reason).toContain('iterations')
   expect(execCalls).toBe(2) // iterated after the first error instead of halting
 })
+
+test('node_progress events are journaled and streamed live as adapters produce partial output', async () => {
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    async invoke(req, onChunk) {
+      onChunk?.('chunk-a ')
+      onChunk?.('chunk-b')
+      return {
+        output: req.prompt.includes('CRITIC') ? 'VERDICT: pass\nEVIDENCE: ok' : 'DONE',
+        costUsd: 0, tokens: 0, durationMs: 1,
+      }
+    },
+  })
+  const runDir = join(mkdtempSync(join(tmpdir(), 'lr-')), 'run')
+  const def = loop({
+    nodes: [
+      { id: 'do', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'do', after: ['do'] },
+    ],
+  })
+  await runLoop(def, { registry, runDir })
+  const events = readJournal(join(runDir, 'journal.jsonl'))
+  const progress = events.filter((e) => e.type === 'node_progress' && e.data.nodeId === 'do')
+  expect(progress.map((e) => e.data.chunk)).toEqual(['chunk-a ', 'chunk-b'])
+  expect(progress[0].data.role).toBe('executor')
+  expect(progress[0].data.iteration).toBe(1)
+})
+
+test('a loop with no streaming adapter never emits node_progress (opt-in, zero overhead)', async () => {
+  const mock = new MockAdapter([
+    { match: /EXECUTOR/, output: 'DONE' },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok' },
+  ])
+  const def = loop({
+    nodes: [
+      { id: 'do', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'do', after: ['do'] },
+    ],
+  })
+  const seen: string[] = []
+  await runLoop(def, { registry: reg(mock), onEvent: (e) => seen.push(e.type) })
+  expect(seen).not.toContain('node_progress')
+})

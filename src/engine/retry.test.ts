@@ -50,3 +50,20 @@ test('isInfraError matches auth shapes only', () => {
   expect(isInfraError('rate limit exceeded')).toBe(false)
   expect(isInfraError('ECONNRESET')).toBe(false)
 })
+
+test('forwards onChunk straight through to the adapter on every attempt', async () => {
+  const seenChunks: string[] = []
+  let n = 0
+  const adapter: Adapter = {
+    name: 'streamy',
+    async invoke(_req, onChunk) {
+      n++
+      onChunk?.(`attempt-${n} `)
+      if (n === 1) throw new Error('ETIMEDOUT')
+      return { output: 'ok', costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  }
+  const res = await invokeWithRetry(adapter, { prompt: 'p' }, { sleep: async () => {} }, (c) => seenChunks.push(c))
+  expect(res.output).toBe('ok')
+  expect(seenChunks).toEqual(['attempt-1 ', 'attempt-2 '])
+})

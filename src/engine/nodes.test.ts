@@ -178,3 +178,28 @@ test('adapter receives model and command from the AgentDef', async () => {
   await executeNode(withModel, { id: 'do', role: 'executor', agent: 'a' }, state, none, deps)
   expect(mock.calls[0]).toMatchObject({ model: 'haiku', command: 'echo hi' })
 })
+
+test('onChunk is forwarded to the adapter for an executor node', async () => {
+  const seen: string[] = []
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    async invoke(_req, onChunk) {
+      onChunk?.('working')
+      onChunk?.('...')
+      return { output: 'did the work', costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  })
+  const out = await executeNode(
+    def, { id: 'do', role: 'executor', agent: 'a' }, state, none, { registry },
+    (c) => seen.push(c))
+  expect(seen).toEqual(['working', '...'])
+  expect(out.output).toBe('did the work')
+})
+
+test('a tester node never calls onChunk (no adapter is invoked)', async () => {
+  const seen: string[] = []
+  const deps: EngineDeps = { registry: createRegistry() }
+  await executeNode(def, { id: 't1', role: 'tester', run: 'true' }, state, none, deps, (c) => seen.push(c))
+  expect(seen).toEqual([])
+})
