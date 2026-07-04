@@ -1,9 +1,23 @@
+import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
 import type { JournalEvent } from '../core/types.js'
 
+// Run history lives under the real home directory, not inside the project -
+// the same choice Claude Code makes for ~/.claude/projects/<slug>/. History
+// survives a deleted or moved project directory, and mission control can
+// read it centrally instead of depending on every registered workspace's
+// own .looprail/runs/ still being on disk. Each workspace gets its own
+// subdirectory keyed by a hash of its resolved path (see workspaceHash) so
+// two projects never collide and a project's runs are still trivially
+// groupable without storing anything workspace-identifying in the path.
+export function workspaceHash(workspace: string): string {
+  return createHash('sha256').update(resolve(workspace)).digest('hex').slice(0, 12)
+}
+
 export function runsRoot(cwd: string): string {
-  return join(cwd, '.looprail', 'runs')
+  return join(homedir(), '.looprail', 'runs', workspaceHash(cwd))
 }
 
 export function listRunIds(cwd: string): string[] {

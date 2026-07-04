@@ -241,9 +241,13 @@ How the checks combine into a pass or fail:
 
 ### Watching a run
 
-Every run is journaled to `.looprail/runs/<id>/journal.jsonl` as it happens,
-which is what `status`, `logs`, `resume`, `replay`, and the dashboard all read
-from. `looprail run --ui` (or `looprail ui` for a past run) opens a local page
+Every run is journaled to `~/.looprail/runs/<workspace>/<id>/journal.jsonl` as
+it happens, the same way Claude Code keeps its own session history under
+`~/.claude` rather than inside your repo - your project directory never gets
+a stray `.looprail/` folder, and a run's history survives even if you delete
+or move the project. This is what `status`, `logs`, `resume`, `replay`, and
+the dashboard all read from. `looprail run --ui` (or `looprail ui` for a past
+run) opens a local page
 showing the DAG live: which node is running, which have passed or failed, and
 a per-node output panel you can click into. When a node is still running, its
 output streams into that panel as the agent produces it - no "please wait,"

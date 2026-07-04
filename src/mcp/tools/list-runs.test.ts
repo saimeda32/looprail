@@ -10,7 +10,7 @@ function ev(type: JournalEvent['type'], data: Record<string, unknown>): JournalE
 }
 
 function writeRun(cwd: string, runId: string, events: JournalEvent[], mtimeMs: number): void {
-  const dir = join(cwd, '.looprail', 'runs', runId)
+  const dir = join(runsRoot(cwd), runId)
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'journal.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n')
   utimesSync(dir, new Date(mtimeMs), new Date(mtimeMs))

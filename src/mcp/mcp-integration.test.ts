@@ -5,6 +5,7 @@ import { expect, test } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import type { JournalEvent } from '../index.js'
+import { runsRoot } from '../journal/runs.js'
 import { createLooprailMcpServer } from './server.js'
 
 function ev(type: JournalEvent['type'], data: Record<string, unknown>): JournalEvent {
@@ -70,7 +71,7 @@ rails:
 
 test('list_runs reads a pre-seeded journal fixture correctly over the real transport', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'lr-mcp-int-'))
-  const runDir = join(cwd, '.looprail', 'runs', 'run-fixture')
+  const runDir = join(runsRoot(cwd), 'run-fixture')
   mkdirSync(runDir, { recursive: true })
   writeFileSync(join(runDir, 'journal.jsonl'), [
     ev('run_start', { runId: 'run-fixture', name: 'demo' }),

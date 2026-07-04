@@ -20,7 +20,7 @@ of CLI subcommands.
 | `lint_loopfile` | Parse and statically validate a loopfile; returns findings |
 | `run_loop` | Lint and start a run in the background; returns a `runId` immediately |
 | `run_status` | Read a run's current status/iteration/cost from its journal |
-| `list_runs` | List runs under a directory's `.looprail/runs`, most recent first |
+| `list_runs` | List a directory's runs from its centralized `~/.looprail/runs` history, most recent first |
 | `explain_node` | Dry-run what context a node would receive, without running anything |
 | `list_workspaces` | List every project registered with looprail mission control (`looprail workspace add`) |
 

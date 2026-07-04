@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { homedir as osHomedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { expandPanels, parseLoopfile, validateGraph, type JournalEvent, type LoopDef } from '../index.js'
 import { readJournal } from '../journal/journal.js'
+import { runsRoot, workspaceHash } from '../journal/runs.js'
 import { buildViewModel } from '../dashboard/view-model.js'
 
 // Deliberately duplicated in miniature from loadExpandedLoopDef
@@ -36,15 +36,10 @@ function agentsInUse(def: LoopDef | undefined, events: JournalEvent[]): string[]
   return [...seen]
 }
 
-export function workspaceHash(workspace: string): string {
-  return createHash('sha256').update(workspace).digest('hex').slice(0, 12)
-}
-
-// A one-line, deliberate duplicate of status-cmd.ts's runsRoot(cwd) - see
-// design decision 5 for why this file never imports from src/cli/.
-export function runsRootOf(workspace: string): string {
-  return join(workspace, '.looprail', 'runs')
-}
+// Re-exported so existing call sites (mission-control-server.ts, tests) do
+// not need an import path change - both now come from journal/runs.ts,
+// the single place that decides where run history actually lives.
+export { runsRoot as runsRootOf, workspaceHash }
 
 export interface RunListEntry {
   workspace: string
@@ -101,7 +96,7 @@ export function discoverRuns(workspaces: string[]): RunListEntry[] {
   const entries: RunListEntry[] = []
   for (const workspace of workspaces) {
     try {
-      const root = runsRootOf(workspace)
+      const root = runsRoot(workspace)
       if (!existsSync(root)) continue
       const def = bestEffortLoopDef(workspace)
       for (const runId of readdirSync(root)) {

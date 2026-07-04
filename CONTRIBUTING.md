@@ -37,5 +37,5 @@ The engine lives in `src/core` and `src/engine`, the adapters in
 ## Reporting bugs
 
 Open an issue with the Loopfile you ran, the command, and what happened. If a
-run misbehaved, the journal under `.looprail/runs/<id>/journal.jsonl` is the
-most useful thing to attach.
+run misbehaved, the journal `looprail status <runId>` points you to under
+`~/.looprail/runs/` is the most useful thing to attach.

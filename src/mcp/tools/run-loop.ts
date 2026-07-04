@@ -7,6 +7,7 @@ import {
   createDefaultRegistry, expandPanels, lintLoop, parseLoopfile, runLoop, validateGraph,
   type RunReport,
 } from '../../index.js'
+import { runsRoot } from '../../journal/runs.js'
 import type { McpToolDeps } from './deps.js'
 import { makeMcpGate, sweepPendingGates, type GateTimerDeps } from './gate-registry.js'
 import { errorResult, textResult } from './result.js'
@@ -72,7 +73,7 @@ export async function runLoopHandler(
   }
 
   const runId = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
-  const runDir = join(cwd, '.looprail', 'runs', runId)
+  const runDir = join(runsRoot(cwd), runId)
   const registry = createDefaultRegistry({ cwd })
 
   // Detached on purpose (see design decision 1 / decision 7): this promise

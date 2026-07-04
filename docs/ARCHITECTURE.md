@@ -56,8 +56,10 @@ halts instead, because a check that never ran cannot pass.
 ## The journal
 
 Every run writes a line-delimited JSON journal to
-`.looprail/runs/<id>/journal.jsonl` as it goes. This is the single source of
-truth for everything after the fact: `status` and `logs` read it, and `resume`
+`~/.looprail/runs/<workspace-hash>/<id>/journal.jsonl` as it goes, keyed by a
+hash of the project's own path rather than living inside the project (see
+src/journal/runs.ts). This is the single source of truth for everything after
+the fact: `status` and `logs` read it, and `resume`
 and `replay` rebuild a cache from it. The cache is keyed on a hash of each
 node's exact prompt, so if you edit one prompt and replay, only that node and
 the nodes downstream of it run again. Everything else comes back from cache for

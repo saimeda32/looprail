@@ -8,6 +8,7 @@ import {
   type NodeOutcome, type Rails, type RunReport,
 } from '../index.js'
 import { startDashboardServer, type DashboardServer } from '../dashboard/server.js'
+import { runsRoot } from '../journal/runs.js'
 import { defaultIo, dim, err, heading, ok, renderTable, warn, type CliIo } from './ui.js'
 import { addWorkspace, defaultRegistryPath } from '../workspace/registry.js'
 
@@ -217,7 +218,7 @@ export async function runAction(
     return 1
   }
   const runId = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
-  const runDir = join(opts.cwd, '.looprail', 'runs', runId)
+  const runDir = join(runsRoot(opts.cwd), runId)
 
   let dashboard: DashboardServer | undefined
   if (opts.ui) {

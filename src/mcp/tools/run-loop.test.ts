@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import { readJournal } from '../../index.js'
+import { runsRoot } from '../../journal/runs.js'
 import { approveGateHandler } from './approve-gate.js'
 import { gateKey, pendingGates } from './gate-registry.js'
 import { runLoopHandler } from './run-loop.js'
@@ -81,7 +82,7 @@ test('a loop that fails lint is rejected synchronously and never starts a backgr
   const { result, done } = await runLoopHandler({}, { cwd })
   expect(result.isError).toBe(true)
   expect(await done).toBeUndefined()
-  expect(existsSync(join(cwd, '.looprail', 'runs'))).toBe(false)
+  expect(existsSync(runsRoot(cwd))).toBe(false)
 })
 
 test('a loop valid pre-expansion but invalid post-expansion is rejected synchronously, never starts, and never emits a runId that looks started', async () => {
@@ -107,7 +108,7 @@ rails:
   const { result, done } = await runLoopHandler({}, { cwd })
   expect(result.isError).toBe(true)
   expect(await done).toBeUndefined()
-  expect(existsSync(join(cwd, '.looprail', 'runs'))).toBe(false)
+  expect(existsSync(runsRoot(cwd))).toBe(false)
 })
 
 test('a missing loopfile returns an error result', async () => {

@@ -6,6 +6,7 @@ import { PassThrough } from 'node:stream'
 import { expect, test, vi } from 'vitest'
 import { agentCostBreakdown, makeGate, runAction } from './run-cmd.js'
 import { JournalWriter, parseLoopfile } from '../index.js'
+import { runsRoot } from '../journal/runs.js'
 import { startDashboardServer } from '../dashboard/server.js'
 import { createRegistry } from '../adapters/registry.js'
 
@@ -79,9 +80,9 @@ test('verified run exits 0, renders progress and report, writes a journal', asyn
   expect(text).toContain('verified')
   expect(text).toContain('do')            // node progress line
   expect(text).toContain('budget')        // cost ticker vs max_cost_usd
-  const runs = readdirSync(join(cwd, '.looprail', 'runs'))
+  const runs = readdirSync(runsRoot(cwd))
   expect(runs).toHaveLength(1)
-  expect(readdirSync(join(cwd, '.looprail', 'runs', runs[0]))).toContain('journal.jsonl')
+  expect(readdirSync(join(runsRoot(cwd), runs[0]))).toContain('journal.jsonl')
 })
 
 test('halted run exits 2 with the rail reason', async () => {
@@ -269,7 +270,7 @@ test('run --ui: the run directory exists the instant the dashboard URL is printe
       // browser tab, this test) could ever connect, so this is exactly
       // where the run directory needs to already exist for the /events
       // parent-dir-watch fallback to have something real to watch.
-      const runsDir = join(cwd, '.looprail', 'runs')
+      const runsDir = runsRoot(cwd)
       const runs = existsSync(runsDir) ? readdirSync(runsDir) : []
       runDirExistedAtDashboardStart = runs.length === 1 && existsSync(join(runsDir, runs[0]!))
       http.get(`${match[0]}/events`, (res) => {

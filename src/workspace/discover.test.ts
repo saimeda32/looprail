@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import type { JournalEvent } from '../core/types.js'
+import { runsRoot } from '../journal/runs.js'
 import {
   buildRunListEntry,
   claudeCodeProjectSlug,
@@ -57,7 +58,7 @@ rails:
   max_iterations: 2
   max_cost_usd: 1
 `)
-  const runDir = join(workspace, '.looprail', 'runs', 'run-1')
+  const runDir = join(runsRoot(workspace), 'run-1')
   mkdirSync(runDir, { recursive: true })
   writeFileSync(join(runDir, 'journal.jsonl'), [
     JSON.stringify(ev('run_start', { runId: 'run-1', name: 'demo', goal: 'g' })),
@@ -73,7 +74,7 @@ test('discoverRuns merges runs from multiple workspaces, sorted most-recently-ac
   const a = mkdtempSync(join(tmpdir(), 'lr-discover-a-'))
   const b = mkdtempSync(join(tmpdir(), 'lr-discover-b-'))
   for (const [ws, ts] of [[a, 100], [b, 200]] as const) {
-    const runDir = join(ws, '.looprail', 'runs', 'run-1')
+    const runDir = join(runsRoot(ws), 'run-1')
     mkdirSync(runDir, { recursive: true })
     writeFileSync(join(runDir, 'journal.jsonl'), JSON.stringify(ev('run_start', { runId: 'run-1', name: 'n', goal: 'g' }, ts)) + '\n')
   }
@@ -90,10 +91,10 @@ test('discoverRuns skips a workspace whose run journal path is a directory inste
   const broken = mkdtempSync(join(tmpdir(), 'lr-discover-broken-'))
   // journal.jsonl is a directory, not a file - e.g. a crashed process, a
   // stray mkdir, or some other tool clobbering the expected path.
-  mkdirSync(join(broken, '.looprail', 'runs', 'run-1', 'journal.jsonl'), { recursive: true })
+  mkdirSync(join(runsRoot(broken), 'run-1', 'journal.jsonl'), { recursive: true })
 
   const healthy = mkdtempSync(join(tmpdir(), 'lr-discover-healthy-'))
-  const healthyRunDir = join(healthy, '.looprail', 'runs', 'run-2')
+  const healthyRunDir = join(runsRoot(healthy), 'run-2')
   mkdirSync(healthyRunDir, { recursive: true })
   writeFileSync(
     join(healthyRunDir, 'journal.jsonl'),
@@ -108,7 +109,7 @@ test('discoverRuns skips a workspace whose run journal path is a directory inste
 
 test('discoverRuns skips one broken run but still returns the healthy runs in the SAME workspace', () => {
   const workspace = mkdtempSync(join(tmpdir(), 'lr-discover-mixed-'))
-  const runsDir = join(workspace, '.looprail', 'runs')
+  const runsDir = runsRoot(workspace)
 
   // A broken run: its journal.jsonl is a directory, not a file, so reading it
   // throws (EISDIR). This must NOT take down the healthy run beside it.

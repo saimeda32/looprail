@@ -3,6 +3,7 @@ import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, test } from 'vitest'
+import { runsRoot } from '../journal/runs.js'
 import { workspaceHash, type RunListEntry, type SessionEntry } from '../workspace/discover.js'
 import {
   matchRunRoute, snapshotChanged, startMissionControlServer, type MissionControlServer, type Poller,
@@ -121,7 +122,7 @@ test('GET /events sends a fresh frame when a poll tick reports a changed scan', 
 
 test('GET /run/<hash>/<runId>/ serves the shared per-run dashboard page, and /model resolves the workspace by hash', async () => {
   const workspace = mkdtempSync(join(tmpdir(), 'lr-mc-'))
-  const runDir = join(workspace, '.looprail', 'runs', 'run-1')
+  const runDir = join(runsRoot(workspace), 'run-1')
   mkdirSync(runDir, { recursive: true })
   writeFileSync(join(runDir, 'journal.jsonl'), JSON.stringify({
     ts: 1, type: 'run_start', data: { runId: 'run-1', name: 'demo', goal: 'g' },
@@ -174,7 +175,7 @@ test('GET /api/runs responds with a clean 500 instead of crashing when scan() th
 test('GET /api/runs against a real registry pointing at a directory-as-journal workspace stays alive across requests', async () => {
   const workspace = mkdtempSync(join(tmpdir(), 'lr-mc-broken-'))
   // journal.jsonl is a directory, not a file.
-  mkdirSync(join(workspace, '.looprail', 'runs', 'run-1', 'journal.jsonl'), { recursive: true })
+  mkdirSync(join(runsRoot(workspace), 'run-1', 'journal.jsonl'), { recursive: true })
   const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-mc-reg-')), 'workspaces.json')
   writeFileSync(registryPath, JSON.stringify({ workspaces: [workspace] }))
 
