@@ -53,6 +53,38 @@ test('renderVerdict handles fewer than 2 configs', () => {
   expect(renderVerdict(result({ configs: [result().configs[0]] }))).toBe('not enough configs to compare')
 })
 
+test('renderVerdict reports each config\'s own pass rate when the baseline wins and rivals differ from each other', () => {
+  const r = result({
+    configs: [
+      { id: 'baseline', mode: 'mock', runs: [], stats: stats({ id: 'baseline', passRate: 1 }) },
+      { id: 'looprail', mode: 'mock', runs: [], stats: stats({ id: 'looprail', passRate: 0 }) },
+      { id: 'other', mode: 'mock', runs: [], stats: stats({ id: 'other', passRate: 0.5 }) },
+    ],
+  })
+  const v = renderVerdict(r)
+  expect(v).toContain('no configuration beat "baseline"')
+  expect(v).toContain('baseline: 100%')
+  expect(v).toContain('looprail: 0%')
+  expect(v).toContain('other: 50%')
+  // the old shared "(all at X%)" phrasing is factually wrong whenever rates differ
+  expect(v).not.toContain('all at')
+})
+
+test('renderVerdict still renders a genuine 3-way tie as a tie, with matching per-config rates', () => {
+  const r = result({
+    configs: [
+      { id: 'baseline', mode: 'mock', runs: [], stats: stats({ id: 'baseline', passRate: 0.8 }) },
+      { id: 'looprail', mode: 'mock', runs: [], stats: stats({ id: 'looprail', passRate: 0.8 }) },
+      { id: 'other', mode: 'mock', runs: [], stats: stats({ id: 'other', passRate: 0.8 }) },
+    ],
+  })
+  const v = renderVerdict(r)
+  expect(v).toContain('no configuration beat "baseline"')
+  expect(v).toContain('baseline: 80%')
+  expect(v).toContain('looprail: 80%')
+  expect(v).toContain('other: 80%')
+})
+
 test('renderTable lists every config with its mode and pass rate', () => {
   const table = renderTable(result())
   expect(table).toContain('baseline')

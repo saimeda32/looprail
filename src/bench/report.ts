@@ -14,7 +14,10 @@ export function renderVerdict(result: BenchResult): string {
     return bIt < aIt ? b : a
   })
   if (best.id === baseline.id) {
-    return `no configuration beat "${baseline.id}" on pass rate (all at ${(baseline.stats.passRate * 100).toFixed(0)}%)`
+    const rates = configs
+      .map((c) => `${c.id}: ${(c.stats.passRate * 100).toFixed(0)}%`)
+      .join(', ')
+    return `no configuration beat "${baseline.id}" on pass rate (${rates})`
   }
   const passDelta = (best.stats.passRate - baseline.stats.passRate) * 100
   const wasteDelta = (baseline.stats.wastedFractionMean - best.stats.wastedFractionMean) * 100
