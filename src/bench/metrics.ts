@@ -61,15 +61,7 @@ export function aggregateConfig(id: string, results: BenchRunResult[]): ConfigSt
   const wasted = results.map(wastedExecutorCostUsd)
   // recompute the same total executorCost used inside wastedExecutorCostUsd
   // so the fraction denominator matches exactly what produced the numerator
-  const totalsExec = results.map((r) => {
-    let sum = 0
-    for (const e of r.events) {
-      if (e.type !== 'node_end') continue
-      const d = e.data as { role?: unknown; costUsd?: unknown }
-      if (d.role === 'executor') sum += Number(d.costUsd ?? 0)
-    }
-    return sum
-  })
+  const totalsExec = results.map((r) => executorCost(r.events))
   const wastedFractions = results.map((r, i) => (totalsExec[i] > 0 ? wasted[i] / totalsExec[i] : 0))
   const redo = results.map(redoIterations)
 

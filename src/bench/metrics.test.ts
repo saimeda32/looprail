@@ -83,6 +83,26 @@ test('aggregateConfig: cost mean/median/p90 arithmetic', () => {
   expect(stats.costP90Usd).toBe(5)
 })
 
+test('aggregateConfig: meanWastedExecutorCostUsd and wastedFractionMean over real executor events', () => {
+  const results = [
+    // verified, iterations=2: total executor cost 3+2=5; landed (iteration 2) = 2; wasted = 5-2 = 3; fraction = 3/5 = 0.6
+    run({
+      report: report({ status: 'verified', iterations: 2 }),
+      events: [nodeEnd(1, 'executor', 3), nodeEnd(2, 'executor', 2)],
+    }),
+    // halted, iterations=2: nothing landed, so all executor cost is wasted: 2+2=4; fraction = 4/4 = 1
+    run({
+      report: report({ status: 'halted', iterations: 2 }),
+      events: [nodeEnd(1, 'executor', 2), nodeEnd(2, 'executor', 2)],
+    }),
+  ]
+  const stats = aggregateConfig('x', results)
+  // meanWastedExecutorCostUsd = (3 + 4) / 2 = 3.5
+  expect(stats.meanWastedExecutorCostUsd).toBe(3.5)
+  // wastedFractionMean = (0.6 + 1) / 2 = 0.8
+  expect(stats.wastedFractionMean).toBeCloseTo(0.8, 5)
+})
+
 test('aggregateConfig: wallMsMean and meanRedoIterations', () => {
   const results = [
     run({ report: report({ iterations: 1 }), wallMs: 100 }),
