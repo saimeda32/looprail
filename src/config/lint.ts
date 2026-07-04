@@ -81,5 +81,25 @@ export function lintLoop(def: LoopDef): LintFinding[] {
     })
   }
 
+  // A quorum larger than the number of verdicts the graph can produce can never
+  // be met. Panels expand into one verdict per clone, so count clones, not nodes.
+  if (def.verdictPolicy.kind === 'quorum') {
+    const verifierCount = verifying.reduce((sum, n) => {
+      if (typeof n.panel === 'number') return sum + n.panel
+      if (Array.isArray(n.panel)) return sum + n.panel.length
+      return sum + 1
+    }, 0)
+    if (def.verdictPolicy.atLeast > verifierCount) {
+      findings.push({
+        rule: 'L008', level: 'error',
+        message: `quorum of ${def.verdictPolicy.atLeast} can never be met — the graph has only ${verifierCount} verifying node(s)`,
+      })
+    }
+  }
+  // A weighted policy needs no analogous check: its threshold is a ratio bounded
+  // to (0, 1] at parse time, and when every verifier passes the ratio reaches
+  // 1.0, so a weighted loop with at least one verifier (guaranteed by L001) is
+  // always satisfiable.
+
   return findings
 }

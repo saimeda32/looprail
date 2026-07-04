@@ -82,3 +82,31 @@ test('L007: a non-numeric concurrency is an error', () => {
   const finding = lintLoop(def).find((f) => f.rule === 'L007')!
   expect(finding.level).toBe('error')
 })
+
+test('L008: quorum exceeding the verifier count can never be met', () => {
+  const def = make(
+    [{ id: 'do', role: 'executor', agent: 'big' },
+     { id: 't', role: 'tester', run: 'true', after: ['do'] }],
+    { verdictPolicy: { kind: 'quorum', atLeast: 2 } })
+  const finding = lintLoop(def).find((f) => f.rule === 'L008')!
+  expect(finding.level).toBe('error')
+  expect(finding.message).toContain('only 1')
+})
+
+test('L008: a panel counts as one verifier per clone, so a satisfiable quorum passes lint', () => {
+  const def = make(
+    [{ id: 'do', role: 'executor', agent: 'big' },
+     { id: 'crit', role: 'critic', agent: 'small', of: 'do', panel: 3, after: ['do'] },
+     { id: 'syn', role: 'synthesizer', agent: 'big', after: ['crit'] }],
+    { verdictPolicy: { kind: 'quorum', atLeast: 3 } })
+  expect(rules(def)).not.toContain('L008')
+})
+
+test('L008: a quorum within the verifier count passes lint', () => {
+  const def = make(
+    [{ id: 'do', role: 'executor', agent: 'big' },
+     { id: 't1', role: 'tester', run: 'true', after: ['do'] },
+     { id: 't2', role: 'tester', run: 'true', after: ['do'] }],
+    { verdictPolicy: { kind: 'quorum', atLeast: 2 } })
+  expect(rules(def)).not.toContain('L008')
+})
