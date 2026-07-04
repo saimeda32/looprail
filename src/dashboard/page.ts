@@ -157,6 +157,16 @@ export function buildPage(): string {
   #detail-panel { white-space: pre-wrap; font: 12px/1.55 var(--mono); background: var(--panel); border: 1px solid var(--line); border-radius: 3px; color: var(--ink); padding: 14px 16px; max-height: 260px; overflow: auto; }
   .plan-version { border-left: 2px solid var(--line-bright); padding: 4px 0 4px 12px; margin-bottom: 10px; font-size: 12px; color: var(--ink-dim); }
   .plan-version pre { white-space: pre-wrap; margin: 4px 0 0; color: var(--ink); font-family: var(--mono); }
+  .report-summary { font-size: 13px; line-height: 1.6; color: var(--ink); margin-bottom: 14px; }
+  .report-source { font-size: 11px; color: var(--ink-faint); margin-left: 8px; }
+  .claim-row { display: flex; align-items: baseline; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+  .claim-row:first-of-type { border-top: none; }
+  .claim-confidence { font-variant-numeric: tabular-nums; font-weight: 600; width: 42px; flex: 0 0 auto; text-align: right; }
+  .claim-confidence.conf-high { color: var(--pass); }
+  .claim-confidence.conf-mid { color: var(--warn); }
+  .claim-confidence.conf-low { color: var(--fail); }
+  .claim-text { color: var(--ink); }
+  .claim-reason { color: var(--ink-dim); }
   #empty-state { padding: 60px 20px; text-align: center; color: var(--ink-dim); }
 
   @media (prefers-reduced-motion: reduce) {
@@ -230,6 +240,12 @@ export function buildPage(): string {
         </section>
       </div>
     </div>
+  </div>
+
+  <div class="section-head" id="report-head" style="display:none">Final report</div>
+  <div id="report-panel" style="display:none">
+    <div class="report-summary" id="report-summary"></div>
+    <div id="report-claims"></div>
   </div>
 
   <div class="section-head">Spend by agent</div>
@@ -324,6 +340,33 @@ export function buildPage(): string {
       div.appendChild(title);
       div.appendChild(pre);
       container.appendChild(div);
+    });
+  }
+
+  function renderReport(report) {
+    var head = document.getElementById('report-head');
+    var panel = document.getElementById('report-panel');
+    if (!report) { head.style.display = 'none'; panel.style.display = 'none'; return; }
+    head.style.display = 'block';
+    panel.style.display = 'block';
+    var summary = document.getElementById('report-summary');
+    summary.textContent = report.summary;
+    if (report.source === 'fallback') {
+      var note = htmlEl('span', 'report-source', '(mechanical - no reporting agent)');
+      summary.appendChild(note);
+    }
+    var claims = document.getElementById('report-claims');
+    claims.innerHTML = '';
+    report.claims.forEach(function (c) {
+      var row = htmlEl('div', 'claim-row');
+      var confClass = c.confidence >= 70 ? 'conf-high' : c.confidence >= 40 ? 'conf-mid' : 'conf-low';
+      row.appendChild(htmlEl('span', 'claim-confidence ' + confClass, c.confidence + '%'));
+      var body = htmlEl('span', null);
+      body.appendChild(htmlEl('span', 'claim-text', c.claim));
+      body.appendChild(document.createTextNode(' - '));
+      body.appendChild(htmlEl('span', 'claim-reason', c.reason));
+      row.appendChild(body);
+      claims.appendChild(row);
     });
   }
 
@@ -476,6 +519,7 @@ export function buildPage(): string {
 
     renderAgentTable(model.nodes, model.totals);
     renderPlans(model.plans);
+    renderReport(model.report);
     if (selected && byId[selected]) renderDetail(byId[selected]);
     renderLiveOutput(model);
     renderControls(model);

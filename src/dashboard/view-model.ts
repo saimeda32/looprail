@@ -1,4 +1,4 @@
-import type { JournalEvent, LoopDef, Role, Verdict } from '../core/types.js'
+import type { FinalReport, JournalEvent, LoopDef, Role, Verdict } from '../core/types.js'
 
 export type NodeStatus =
   | 'pending' | 'running' | 'pass' | 'fail' | 'stall' | 'error' | 'done' | 'skipped' | 'interrupted'
@@ -47,6 +47,7 @@ export interface DashboardModel {
   goal: string
   status: 'running' | 'verified' | 'halted'
   reason?: string
+  report?: FinalReport
   nodes: DashboardNode[]
   edges: [string, string][]
   totals: DashboardTotals
@@ -94,6 +95,7 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
   let goal = ''
   let status: DashboardModel['status'] = 'running'
   let reason: string | undefined
+  let report: FinalReport | undefined
   let costUsd = 0
   let tokens = 0
   let iteration = 0
@@ -167,6 +169,7 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
       case 'halt':
         status = e.type === 'verified' ? 'verified' : 'halted'
         reason = String(d.reason)
+        report = d.report as FinalReport | undefined
         costUsd = Math.max(costUsd, Number(d.costUsd ?? costUsd))
         // A node that started but never got its own node_end (a rail
         // breach or a user cancel while it was still in flight - the whole
@@ -184,7 +187,7 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
   }
 
   return {
-    runId, name, goal, status, reason,
+    runId, name, goal, status, reason, report,
     nodes: [...nodes.values()],
     edges: def ? edgesFromDef(def) : [],
     totals: {

@@ -154,6 +154,7 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
       runId: report.runId, status: report.status, reason: report.reason,
       iterations: report.iterations, replans: report.replans,
       costUsd: Number(report.costUsd.toFixed(4)),
+      report: report.report,
     }))
     return report.status === 'verified' ? 0 : 2
   }
@@ -170,6 +171,14 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
       breakdown.map(([agent, cost]) =>
         [agent, def.agents[agent]?.adapter ?? '-', `$${cost.toFixed(3)}`]),
     ))
+  }
+  ctx.io.out('')
+  ctx.io.out(heading('summary') + dim(report.report.source === 'fallback' ? ' (mechanical - no reporting agent)' : ''))
+  ctx.io.out(`  ${report.report.summary}`)
+  for (const claim of report.report.claims) {
+    const confMark = claim.confidence >= 70 ? ok(`${claim.confidence}%`)
+      : claim.confidence >= 40 ? warn(`${claim.confidence}%`) : err(`${claim.confidence}%`)
+    ctx.io.out(`  ${confMark} ${claim.claim} ${dim(`- ${claim.reason}`)}`)
   }
   ctx.io.out(dim(`  journal: ${join(ctx.runDir, 'journal.jsonl')} · run id: ${report.runId}`))
   return report.status === 'verified' ? 0 : 2

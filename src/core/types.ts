@@ -91,6 +91,22 @@ export type RouterDecision =
   | { action: 'replan'; feedback: string }
   | { action: 'halt'; reason: string }
 
+export interface ReportClaim {
+  claim: string
+  confidence: number  // 0-100
+  reason: string
+}
+
+export interface FinalReport {
+  summary: string
+  claims: ReportClaim[]
+  // 'agent': a reporting agent narrated this from the run's own outcomes.
+  // 'fallback': no agent was available, or the one that ran couldn't be
+  // parsed - a report is still generated mechanically from verdicts alone,
+  // so every run gets one either way.
+  source: 'agent' | 'fallback'
+}
+
 export interface RunReport {
   runId: string
   status: 'verified' | 'halted'
@@ -99,6 +115,7 @@ export interface RunReport {
   replans: number
   costUsd: number
   outcomes: NodeOutcome[]
+  report: FinalReport
 }
 
 export type GateHandler = (node: NodeDef, context: string) => Promise<boolean>

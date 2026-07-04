@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto'
 import type {
-  GateHandler, JournalEvent, LoopDef, NodeDef, NodeOutcome, RunReport,
+  FinalReport, GateHandler, JournalEvent, LoopDef, NodeDef, NodeOutcome, RunReport,
 } from '../core/types.js'
 import { expandPanels, validateGraph } from '../core/graph.js'
 import type { RunState } from '../core/context.js'
 import { RailsGuard } from '../core/rails.js'
 import { routeIteration } from '../core/router.js'
 import { verdictFingerprint } from '../core/fingerprint.js'
+import { buildFallbackReport, buildReportPrompt, parseReport, pickReportingAgentKey } from '../core/report.js'
 import { JournalWriter } from '../journal/journal.js'
 import type { AdapterRegistry } from '../adapters/registry.js'
 import { runIteration } from './scheduler.js'
@@ -102,12 +103,37 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   let replans = 0
   const fingerprints: string[] = []
 
-  const finish = (status: RunReport['status'], reason: string): RunReport => {
-    emit(status === 'verified' ? 'verified' : 'halt', { reason, costUsd: guard.spentUsd })
+  // Every run gets a report, agent-narrated when one is available and its
+  // reply parses, mechanically derived from the verdicts already in hand
+  // otherwise - a missing agent, a thrown adapter call (rate limit, missing
+  // permissions), or an unparseable reply all degrade to the same fallback
+  // rather than ever failing the run over an informational extra. A cost
+  // rail breach specifically skips the agent call outright: the whole point
+  // of max_cost_usd is a hard dollar ceiling, and spending more on a report
+  // right after hitting it would defeat that, no matter how cheap the call
+  // itself might be.
+  const buildFinalReport = async (status: RunReport['status'], reason: string): Promise<FinalReport> => {
+    const isCostBreach = status === 'halted' && /rail breached \(cost\)/.test(reason)
+    const agentKey = isCostBreach ? undefined : pickReportingAgentKey(def, outcomes)
+    const agentSpec = agentKey ? def.agents[agentKey] : undefined
+    if (!agentSpec) return buildFallbackReport(outcomes, status, reason)
+    try {
+      const adapter = opts.registry.get(agentSpec.adapter)
+      const prompt = buildReportPrompt(def.goal, status, reason, outcomes)
+      const result = await adapter.invoke({ prompt, model: agentSpec.model, command: agentSpec.command })
+      return parseReport(result.output) ?? buildFallbackReport(outcomes, status, reason)
+    } catch {
+      return buildFallbackReport(outcomes, status, reason)
+    }
+  }
+
+  const finish = async (status: RunReport['status'], reason: string): Promise<RunReport> => {
+    const report = await buildFinalReport(status, reason)
+    emit(status === 'verified' ? 'verified' : 'halt', { reason, costUsd: guard.spentUsd, report })
     return {
       runId, status, reason,
       iterations: state.iteration, replans,
-      costUsd: guard.spentUsd, outcomes,
+      costUsd: guard.spentUsd, outcomes, report,
     }
   }
 
@@ -131,7 +157,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   while (true) {
     state.iteration += 1
     const breachBefore = guard.check(state.iteration)
-    if (breachBefore) return finish('halted', `rail breached (${breachBefore.rail}): ${breachBefore.detail}`)
+    if (breachBefore) return await finish('halted', `rail breached (${breachBefore.rail}): ${breachBefore.detail}`)
 
     outcomes = await runIteration(expanded, execution, state, deps, onNode, shouldContinue, onNodeStart, onChunk)
     const verdicts = outcomes.flatMap((o) => (o.verdict ? [o.verdict] : []))
@@ -157,13 +183,13 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
 
     if (decision.action === 'verified' && skipped.length > 0) {
       const breachDetail = breach ? `rail breached (${breach.rail}): ${breach.detail}` : 'rail breached'
-      return finish(
+      return await finish(
         'halted',
         `${breachDetail} - ${skipped.length} node(s) skipped before verification completed`,
       )
     }
-    if (decision.action === 'verified') return finish('verified', 'all verifiers passed')
-    if (decision.action === 'halt') return finish('halted', decision.reason)
+    if (decision.action === 'verified') return await finish('verified', 'all verifiers passed')
+    if (decision.action === 'halt') return await finish('halted', decision.reason)
     state.feedback = decision.feedback
     if (decision.action === 'replan') {
       replans += 1
