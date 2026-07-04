@@ -110,7 +110,7 @@ looprail's tools appear alongside VS Code's built-in ones.
 
 Every per-project tool takes an optional `cwd` argument; when omitted, it
 defaults to the directory `looprail mcp` was started in (for all three hosts
-above, that's wherever the host itself launched the process — usually your
+above, that's wherever the host itself launched the process, usually your
 open project's root). Pass `cwd` explicitly to ask about a different project
 than the one the host started looprail in. The one exception is
 `list_workspaces`, which takes no `cwd`: it reads the global workspace

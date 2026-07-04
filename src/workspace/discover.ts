@@ -90,7 +90,7 @@ export function buildRunListEntry(
 // Two nested guards, each doing a distinct job. The outer try/catch handles a
 // registered workspace going bad in ways outside our control between
 // registration and scan time (the workspace deleted, its runs root replaced by
-// a file, a permissions error on readdirSync) — any of those is a synchronous
+// a file, a permissions error on readdirSync); any of those is a synchronous
 // throw, and one bad workspace must never zero out or crash the scan for every
 // OTHER registered workspace. The inner try/catch does the same at run
 // granularity: a single run's journal going bad (its journal.jsonl replaced by

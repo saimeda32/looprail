@@ -72,7 +72,7 @@ test('removeWorkspace drops exactly the matching path and leaves the rest', () =
   expect(listWorkspaces(path)).toEqual(['/projects/finch'])
 })
 
-test('two concurrent addWorkspace calls both survive — neither registration is lost', async () => {
+test('two concurrent addWorkspace calls both survive, neither registration is lost', async () => {
   const path = tmpRegistryPath()
   await Promise.all([
     Promise.resolve().then(() => addWorkspace(path, '/projects/scrumlo')),
