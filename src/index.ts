@@ -25,15 +25,17 @@ export { aggregateConfig, percentile, redoIterations, wastedExecutorCostUsd } fr
 export { runBench, type BenchDeps } from './bench/bench-runner.js'
 export { lintLoop, type LintFinding } from './config/lint.js'
 export {
-  CliAdapter, defaultExec,
+  CliAdapter, defaultExec, lineBufferedTransform,
   type CliAdapterOptions, type ExecFn, type ExecResult,
-  type ParsedResponse, type ResponseParser,
+  type LineHandler, type ParsedResponse, type ResponseParser,
 } from './adapters/cli-adapter.js'
 export { detectAgents, type DetectedAgent } from './adapters/detect.js'
-export { createClaudeCodeAdapter, parseClaudeJson } from './adapters/claude-code.js'
-export { createCodexAdapter, parseCodexJsonl } from './adapters/codex.js'
+export {
+  claudeStreamLine, createClaudeCodeAdapter, parseClaudeJson, parseClaudeStreamJsonl,
+} from './adapters/claude-code.js'
+export { codexStreamLine, createCodexAdapter, parseCodexJsonl } from './adapters/codex.js'
 export { createAiderAdapter } from './adapters/aider.js'
-export { createCopilotAdapter } from './adapters/copilot.js'
+export { copilotStreamLine, createCopilotAdapter, parseCopilotJsonl } from './adapters/copilot.js'
 export { createShellAdapter, shellQuote } from './adapters/shell.js'
 export {
   createDefaultRegistry, createCliMockAdapter, type DefaultRegistryOptions,
