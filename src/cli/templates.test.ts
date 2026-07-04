@@ -3,9 +3,46 @@ import { lintLoop, parseLoopfile } from '../index.js'
 import { TEMPLATES } from './templates.js'
 
 describe('template gallery', () => {
-  test('ships exactly the four advertised templates', () => {
+  test('ships exactly the five advertised templates', () => {
     expect(Object.keys(TEMPLATES).sort()).toEqual(
-      ['content-pipeline', 'fix-tests', 'refactor', 'research-report'])
+      ['content-pipeline', 'fix-tests', 'refactor', 'research-report', 'review-diff'])
+  })
+
+  test('no template ships a literal edit-me placeholder in its goal', () => {
+    for (const [name, template] of Object.entries(TEMPLATES)) {
+      const yaml = template.yaml('claude-code', 'codex')
+      expect(yaml, `${name} should be runnable as shipped`).not.toMatch(/\(edit me\)/i)
+    }
+  })
+
+  test('refactor splits review into two independent critics on two agent keys', () => {
+    const yaml = TEMPLATES.refactor.yaml('claude-code', 'codex')
+    expect(yaml).toContain('crit-correct:')
+    expect(yaml).toContain('crit-quality:')
+    expect(yaml).toContain('agent: correctness')
+    expect(yaml).toContain('agent: quality')
+  })
+
+  test('review-diff has no planner and no tester — it is a read-only review', () => {
+    const def = parseLoopfile(TEMPLATES['review-diff'].yaml('claude-code', 'codex'))
+    expect(def.nodes.some((n) => n.role === 'planner')).toBe(false)
+    expect(def.nodes.some((n) => n.role === 'tester')).toBe(false)
+    expect(def.nodes.filter((n) => n.role === 'executor')).toHaveLength(1)
+    expect(def.nodes.filter((n) => n.role === 'critic')).toHaveLength(1)
+  })
+
+  test('review-diff goal explicitly mentions git diff and the current pending changes', () => {
+    const yaml = TEMPLATES['review-diff'].yaml('claude-code', 'codex')
+    expect(yaml).toContain('git diff')
+    expect(yaml.toLowerCase()).toContain('pending')
+  })
+
+  test('review-diff rails are smaller/cheaper than the multi-round templates', () => {
+    const def = parseLoopfile(TEMPLATES['review-diff'].yaml('claude-code', 'codex'))
+    expect(def.rails.maxIterations).toBe(4)
+    expect(def.rails.maxCostUsd).toBe(8)
+    expect(def.rails.stallAfter).toBe(2)
+    expect(def.rails.replanLimit).toBe(1)
   })
 
   const PAIRINGS: Array<[worker: string, reviewer: string]> = [

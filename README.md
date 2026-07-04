@@ -44,7 +44,8 @@ looprail run --ui        # same, but opens a live dashboard alongside it
 ```
 
 `init` picks a template for you (`fix-tests`, `research-report`, `refactor`,
-or `content-pipeline`) and fills in whichever agent CLIs it found. Pass
+`content-pipeline`, or `review-diff`) and fills in whichever agent CLIs it
+found. Pass
 `--yes` for zero prompts, or `--template <name> --agent <adapter>` to skip
 detection entirely.
 
