@@ -1,38 +1,70 @@
+// Model tier is a per-agent-role RECOMMENDATION only — the user (or --yes'
+// non-interactive default) always makes the actual choice; nothing in this
+// file ever picks a tier on its own.
+export type Tier = 'strong' | 'medium' | 'cheap'
+
+// Which already-resolved CLI adapter (worker or reviewer) a role's agent key
+// should be wired to — see init-cmd.ts, which resolves `worker`/`reviewer`
+// adapter strings once and then fans them out across every agent key here.
+export type RoleKind = 'worker' | 'reviewer'
+
+export interface AgentRole {
+  key: string
+  label: string
+  recommendedTier: Tier
+  kind: RoleKind
+}
+
 export interface Template {
   description: string
-  // worker runs the executor/planner nodes; reviewer runs the
-  // critic/checker/judge/synthesizer nodes. Pass two different adapters to
-  // get genuine cross-model independent verification; pass the same
-  // adapter twice for a single-adapter environment (still lint-clean).
-  yaml: (worker: string, reviewer: string) => string
+  // one entry per agent key the template's yaml() declares — lets a caller
+  // (init-cmd.ts) know what to prompt for and what to recommend as default.
+  agentRoles: AgentRole[]
+  // adapters and models are both keyed by agent key (e.g. 'worker',
+  // 'checker', 'fact-editor'). templates.ts does zero tier decision-making
+  // here — it only interpolates whatever adapter+model string it is given.
+  yaml: (adapters: Record<string, string>, models: Record<string, string | undefined>) => string
 }
 
 const REVIEWER_COMMENT = '# independent reviewer — a different model catches what the worker\'s own model misses'
 
-// Model names are Claude-specific (haiku/sonnet/opus), so only set model: when
-// the adapter actually is claude-code -- codex/aider/copilot-cli/shell/mock
-// have different or no model-tier concept, and should keep deferring to their
-// own default. 'strong' tier is for real generative/judgment work (building,
-// fixing, or catching a genuinely hard-to-spot problem like an unsupported
-// claim). 'cheap' tier is for narrow, mechanical checks (did a test get
-// deleted, does this look more readable) where a smaller model is just as
-// effective and meaningfully faster/cheaper.
-function modelTier(adapter: string, tier: 'strong' | 'cheap'): string {
-  if (adapter !== 'claude-code') return ''
-  return `, model: ${tier === 'strong' ? 'sonnet' : 'haiku'}`
+// Model names are Claude-specific (haiku/sonnet/opus), so only claude-code
+// gets a model: field -- codex/aider/copilot-cli/shell/mock have different or
+// no model-tier concept, and should keep deferring to their own default.
+// This is a pure translation: it never runs unless a caller passes an
+// explicit tier, and the tier itself always comes from the user's choice (or
+// the recommended default in non-interactive mode) — see init-cmd.ts.
+export function tierToModel(adapter: string, tier: Tier): string | undefined {
+  if (adapter !== 'claude-code') return undefined
+  if (tier === 'strong') return 'opus'
+  if (tier === 'medium') return 'sonnet'
+  return 'haiku'
+}
+
+function agentSpec(
+  adapters: Record<string, string>,
+  models: Record<string, string | undefined>,
+  key: string,
+): string {
+  const model = models[key]
+  return `{ adapter: ${adapters[key]}${model ? `, model: ${model}` : ''} }`
 }
 
 export const TEMPLATES: Record<string, Template> = {
   'fix-tests': {
     description: 'make a failing test suite pass, with an anti-gaming critic',
-    yaml: (worker, reviewer) => `name: fix-tests
+    agentRoles: [
+      { key: 'worker', label: 'worker (fixes the failing tests)', recommendedTier: 'medium', kind: 'worker' },
+      { key: 'checker', label: 'checker (anti-gaming critic)', recommendedTier: 'cheap', kind: 'reviewer' },
+    ],
+    yaml: (adapters, models) => `name: fix-tests
 goal: |
   Make the test suite pass. Done means: npm test exits 0 and a critic
   confirms no test was deleted, skipped, or weakened to force a pass.
 
 agents:
-  worker:  { adapter: ${worker}${modelTier(worker, 'strong')} }
-  checker: { adapter: ${reviewer}${modelTier(reviewer, 'cheap')} }  ${REVIEWER_COMMENT}
+  worker:  ${agentSpec(adapters, models, 'worker')}
+  checker: ${agentSpec(adapters, models, 'checker')}  ${REVIEWER_COMMENT}
 
 graph:
   fix:   { role: executor, agent: worker }
@@ -52,7 +84,11 @@ verdict: { policy: all-pass }
 
   'research-report': {
     description: 'cited research report with plan critique and a critic panel',
-    yaml: (worker, reviewer) => `name: research-report
+    agentRoles: [
+      { key: 'worker', label: 'worker (plans and drafts the report)', recommendedTier: 'medium', kind: 'worker' },
+      { key: 'checker', label: 'checker (verifies every claim is sourced)', recommendedTier: 'medium', kind: 'reviewer' },
+    ],
+    yaml: (adapters, models) => `name: research-report
 goal: |
   Produce a cited research report on this repository's own architecture
   and the most consequential decisions in its history — inspect the
@@ -62,11 +98,11 @@ goal: |
   the sentence above describing the subject with your own topic.
 
 agents:
-  worker:  { adapter: ${worker}${modelTier(worker, 'strong')} }
-  checker: { adapter: ${reviewer}${modelTier(reviewer, 'strong')} }  ${REVIEWER_COMMENT}
-  # checker is 'strong', not the usual cheap critic default: catching an
-  # unsupported or hallucinated claim requires real understanding of the
-  # domain claim, not a mechanical pattern check.
+  worker:  ${agentSpec(adapters, models, 'worker')}
+  checker: ${agentSpec(adapters, models, 'checker')}  ${REVIEWER_COMMENT}
+  # checker defaults to 'medium', not the usual cheap critic default:
+  # catching an unsupported or hallucinated claim requires real
+  # understanding of the domain claim, not a mechanical pattern check.
 
 graph:
   plan:      { role: planner, agent: worker }
@@ -89,7 +125,12 @@ verdict: { policy: all-pass }
 
   refactor: {
     description: 'behavior-preserving refactor guarded by tests and two critics',
-    yaml: (worker, reviewer) => `name: refactor
+    agentRoles: [
+      { key: 'worker', label: 'worker (performs the refactor)', recommendedTier: 'medium', kind: 'worker' },
+      { key: 'correctness', label: 'correctness critic', recommendedTier: 'cheap', kind: 'reviewer' },
+      { key: 'quality', label: 'quality critic', recommendedTier: 'cheap', kind: 'reviewer' },
+    ],
+    yaml: (adapters, models) => `name: refactor
 goal: |
   Refactor the largest or most complex file under src/ without changing
   behavior — use your own judgment to pick one if a specific file isn't
@@ -100,9 +141,9 @@ goal: |
   "the largest or most complex file under src/" above with its path.
 
 agents:
-  worker:      { adapter: ${worker}${modelTier(worker, 'strong')} }
-  correctness: { adapter: ${reviewer}${modelTier(reviewer, 'cheap')} }  ${REVIEWER_COMMENT}
-  quality:     { adapter: ${reviewer}${modelTier(reviewer, 'cheap')} }
+  worker:      ${agentSpec(adapters, models, 'worker')}
+  correctness: ${agentSpec(adapters, models, 'correctness')}  ${REVIEWER_COMMENT}
+  quality:     ${agentSpec(adapters, models, 'quality')}
 
 graph:
   refactor:     { role: executor, agent: worker }
@@ -124,7 +165,12 @@ verdict: { policy: all-pass }
 
   'content-pipeline': {
     description: 'draft → weighted style/fact critique → human sign-off',
-    yaml: (worker, reviewer) => `name: content-pipeline
+    agentRoles: [
+      { key: 'worker', label: 'worker (drafts the article)', recommendedTier: 'medium', kind: 'worker' },
+      { key: 'editor', label: 'editor (style critic)', recommendedTier: 'cheap', kind: 'reviewer' },
+      { key: 'fact-editor', label: 'fact-editor (fact-checking critic)', recommendedTier: 'medium', kind: 'reviewer' },
+    ],
+    yaml: (adapters, models) => `name: content-pipeline
 goal: |
   Draft, edit, and fact-check a short, publishable article explaining
   what this repository does and why it exists, written for engineers
@@ -133,12 +179,13 @@ goal: |
   instead, replace the sentence above describing the subject.
 
 agents:
-  worker: { adapter: ${worker}${modelTier(worker, 'strong')} }
-  editor: { adapter: ${reviewer}${modelTier(reviewer, 'cheap')} }  ${REVIEWER_COMMENT}
-  # facts gets its own agent key with a 'strong' model tier — fact-checking
-  # needs real reasoning (same logic as research-report's critics) — while
-  # style stays 'cheap' since tone/clarity judgment is bounded.
-  fact-editor: { adapter: ${reviewer}${modelTier(reviewer, 'strong')} }
+  worker: ${agentSpec(adapters, models, 'worker')}
+  editor: ${agentSpec(adapters, models, 'editor')}  ${REVIEWER_COMMENT}
+  # fact-editor gets its own agent key with a 'medium' recommended tier —
+  # fact-checking needs real reasoning (same logic as research-report's
+  # critics) — while style stays 'cheap' since tone/clarity judgment is
+  # bounded.
+  fact-editor: ${agentSpec(adapters, models, 'fact-editor')}
 
 graph:
   outline: { role: planner, agent: worker }
@@ -161,7 +208,11 @@ verdict: { policy: { weighted: 0.8 } }
 
   'review-diff': {
     description: 'adversarial review of a pending diff, no code changes made',
-    yaml: (worker, reviewer) => `name: review-diff
+    agentRoles: [
+      { key: 'worker', label: 'worker (writes the review)', recommendedTier: 'medium', kind: 'worker' },
+      { key: 'reviewer', label: 'reviewer (re-examines the diff)', recommendedTier: 'medium', kind: 'reviewer' },
+    ],
+    yaml: (adapters, models) => `name: review-diff
 goal: |
   Review the currently pending changes (run 'git diff') in whatever
   directory this loop is run from. List every correctness, security,
@@ -171,10 +222,10 @@ goal: |
   finds nothing the review missed and nothing it wrongly flagged.
 
 agents:
-  worker:   { adapter: ${worker}${modelTier(worker, 'strong')} }
-  reviewer: { adapter: ${reviewer}${modelTier(reviewer, 'strong')} }  ${REVIEWER_COMMENT}
-  # critic is 'strong', not the usual cheap default: code review requires
-  # real judgment, not mechanical pattern-matching.
+  worker:   ${agentSpec(adapters, models, 'worker')}
+  reviewer: ${agentSpec(adapters, models, 'reviewer')}  ${REVIEWER_COMMENT}
+  # critic defaults to 'medium', not the usual cheap default: code review
+  # requires real judgment, not mechanical pattern-matching.
 
 graph:
   review: { role: executor, agent: worker,
@@ -194,7 +245,11 @@ verdict: { policy: all-pass }
 
   'build-app': {
     description: 'build a new app, website, or feature from a spec, with its own tests',
-    yaml: (worker, reviewer) => `name: build-app
+    agentRoles: [
+      { key: 'worker', label: 'worker (builds the app and its tests)', recommendedTier: 'medium', kind: 'worker' },
+      { key: 'checker', label: 'checker (spec critic)', recommendedTier: 'medium', kind: 'reviewer' },
+    ],
+    yaml: (adapters, models) => `name: build-app
 goal: |
   Build SPEC (edit this line: describe the app, website, or feature you
   want, including your language/framework if you have one). Done means:
@@ -202,11 +257,11 @@ goal: |
   actually satisfies the spec, not just that something runs.
 
 agents:
-  worker:  { adapter: ${worker}${modelTier(worker, 'strong')} }
-  checker: { adapter: ${reviewer}${modelTier(reviewer, 'strong')} }  ${REVIEWER_COMMENT}
-  # critic is 'strong', not the usual cheap default: checking "does this
-  # actually satisfy the spec" requires real understanding, not a
-  # mechanical check.
+  worker:  ${agentSpec(adapters, models, 'worker')}
+  checker: ${agentSpec(adapters, models, 'checker')}  ${REVIEWER_COMMENT}
+  # critic defaults to 'medium', not the usual cheap default: checking
+  # "does this actually satisfy the spec" requires real understanding,
+  # not a mechanical check.
 
 graph:
   plan:  { role: planner, agent: worker }

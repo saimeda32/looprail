@@ -47,8 +47,72 @@ test('interactive path uses the injected ask for agent and template', async () =
     io: capture().io,
   })
   expect(code).toBe(0)
-  expect(asked).toHaveLength(2)
+  // the template and agent prompts are asked first; the picked template then
+  // also prompts once per agent role for its model tier (tested separately
+  // below) — this test only pins down the original template/agent behavior.
+  expect(asked.slice(0, 2)).toEqual(['Pick a template', 'Which agent should run your loop?'])
   expect(readFileSync(join(cwd, 'looprail.yaml'), 'utf8')).toContain('adapter: codex')
+})
+
+test('non-interactive (--yes): every agent role silently gets its recommended tier, no prompting', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-init-'))
+  const { io } = capture()
+  const code = await initAction(
+    { cwd, template: 'fix-tests', agent: 'claude-code', yes: true },
+    { detect: detected(['claude-code']), io })
+  expect(code).toBe(0)
+  const yaml = readFileSync(join(cwd, 'looprail.yaml'), 'utf8')
+  // fix-tests: worker recommends 'medium' (sonnet), checker recommends 'cheap' (haiku)
+  expect(yaml).toContain('worker:  { adapter: claude-code, model: sonnet }')
+  expect(yaml).toContain('checker: { adapter: claude-code, model: haiku }')
+})
+
+test('no ask provided (e.g. non-TTY without --yes): every agent role still gets its recommended tier', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-init-'))
+  const { io } = capture()
+  const code = await initAction(
+    { cwd, template: 'fix-tests', agent: 'claude-code' },
+    { detect: detected(['claude-code']), io })
+  expect(code).toBe(0)
+  const yaml = readFileSync(join(cwd, 'looprail.yaml'), 'utf8')
+  expect(yaml).toContain('worker:  { adapter: claude-code, model: sonnet }')
+  expect(yaml).toContain('checker: { adapter: claude-code, model: haiku }')
+})
+
+test('interactive: a real user choice of "strong" overrides the recommended tier in the generated yaml', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-init-'))
+  const code = await initAction(
+    { cwd, template: 'fix-tests', agent: 'claude-code' },
+    {
+      detect: detected(['claude-code']),
+      ask: async (question) => (question.includes('worker') ? 'strong' : 'cheap'),
+      io: capture().io,
+    })
+  expect(code).toBe(0)
+  const yaml = readFileSync(join(cwd, 'looprail.yaml'), 'utf8')
+  // worker's real answer ("strong") is reflected, not its "medium" recommendation
+  expect(yaml).toContain('worker:  { adapter: claude-code, model: opus }')
+  // checker's real answer ("cheap") happens to match its recommendation, but
+  // it still came from the injected ask, not a bypass of it
+  expect(yaml).toContain('checker: { adapter: claude-code, model: haiku }')
+})
+
+test('interactive tier prompt offers the recommended tier as the first (default-on-enter) choice', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-init-'))
+  const seen: Record<string, string[]> = {}
+  const code = await initAction(
+    { cwd, template: 'fix-tests', agent: 'claude-code' },
+    {
+      detect: detected(['claude-code']),
+      ask: async (question, choices) => {
+        seen[question] = choices
+        return choices[0]
+      },
+      io: capture().io,
+    })
+  expect(code).toBe(0)
+  expect(seen['Model tier for worker (fixes the failing tests) (claude-code)?']).toEqual(['medium', 'strong', 'cheap'])
+  expect(seen['Model tier for checker (anti-gaming critic) (claude-code)?']).toEqual(['cheap', 'strong', 'medium'])
 })
 
 test('refuses to overwrite without --force, overwrites with it', async () => {

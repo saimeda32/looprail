@@ -4,7 +4,41 @@ import { createInterface } from 'node:readline/promises'
 import type { Command } from 'commander'
 import { detectAgents, type DetectedAgent } from '../index.js'
 import { defaultIo, err, ok, warn, type CliIo } from './ui.js'
-import { TEMPLATES } from './templates.js'
+import { TEMPLATES, tierToModel, type AgentRole, type Tier } from './templates.js'
+
+// order tiers are offered in when a role's recommended tier isn't first —
+// the recommended tier is always moved to the front so it's the default
+// choice on a bare enter (askViaStdin falls back to choices[0]).
+const ALL_TIERS: Tier[] = ['strong', 'medium', 'cheap']
+
+function tierChoices(recommended: Tier): Tier[] {
+  return [recommended, ...ALL_TIERS.filter((t) => t !== recommended)]
+}
+
+// Resolves each of the template's agent roles to a concrete adapter (fanning
+// the already-resolved worker/reviewer adapters out per role) and a model
+// tier — prompting interactively when possible, otherwise silently applying
+// the role's recommended tier (exactly like every other --yes-skipped
+// prompt in this file).
+async function resolveAgents(
+  roles: AgentRole[],
+  worker: string,
+  reviewer: string,
+  opts: InitOpts,
+  deps: InitDeps,
+): Promise<{ adapters: Record<string, string>; models: Record<string, string | undefined> }> {
+  const adapters: Record<string, string> = {}
+  const models: Record<string, string | undefined> = {}
+  for (const role of roles) {
+    const adapter = role.kind === 'worker' ? worker : reviewer
+    adapters[role.key] = adapter
+    const tier = opts.yes || !deps.ask
+      ? role.recommendedTier
+      : await deps.ask(`Model tier for ${role.label} (${adapter})?`, tierChoices(role.recommendedTier)) as Tier
+    models[role.key] = tierToModel(adapter, tier)
+  }
+  return { adapters, models }
+}
 
 // known looprail adapter ids — mirrors createDefaultRegistry's registrations
 // (src/adapters/default-registry.ts). Kept here rather than imported so init
@@ -92,6 +126,8 @@ export async function initAction(opts: InitOpts, deps: InitDeps = {}): Promise<n
     io.out(`worker: ${worker}, reviewer: ${reviewer} — independent verification`)
   }
 
+  const { adapters, models } = await resolveAgents(template.agentRoles, worker, reviewer, opts, deps)
+
   // re-check immediately before the write: closes the TOCTOU window opened
   // by the async prompts/detection above (another process could have
   // created the file in the meantime). The early guard above still covers
@@ -101,7 +137,7 @@ export async function initAction(opts: InitOpts, deps: InitDeps = {}): Promise<n
     return 1
   }
 
-  writeFileSync(target, template.yaml(worker, reviewer))
+  writeFileSync(target, template.yaml(adapters, models))
   io.out(ok(`wrote ${target} (template: ${templateName}, worker: ${worker}, reviewer: ${reviewer})`))
   io.out('next: looprail run')
   return 0
