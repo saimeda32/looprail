@@ -340,3 +340,19 @@ test('GET /events poll tick survives scan() throwing - connection stays open and
   expect(frames[0]).toContain('"running"')
   expect(frames[1]).toContain('"halted"')
 })
+
+test('startMissionControlServer binds to an explicit port when given one', async () => {
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-mc-reg-')), 'workspaces.json')
+  writeFileSync(registryPath, JSON.stringify({ workspaces: [] }))
+  const port = 41569
+  dashboard = await startMissionControlServer({ registryPath, port })
+  expect(dashboard.url).toBe(`http://127.0.0.1:${port}`)
+})
+
+test('startMissionControlServer rejects with a clear error when the requested port is already taken', async () => {
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-mc-reg-')), 'workspaces.json')
+  writeFileSync(registryPath, JSON.stringify({ workspaces: [] }))
+  const port = 41570
+  dashboard = await startMissionControlServer({ registryPath, port })
+  await expect(startMissionControlServer({ registryPath, port })).rejects.toThrow(/port 41570 is already in use/)
+})

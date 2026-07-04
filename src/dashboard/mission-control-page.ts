@@ -42,7 +42,7 @@ export function buildMissionControlPage(): string {
     background-image:
       linear-gradient(var(--line) 1px, transparent 1px),
       linear-gradient(90deg, var(--line) 1px, transparent 1px);
-    background-size: 48px 48px; background-position: -1px -1px; background-attachment: fixed;
+    background-size: 48px 48px; background-position: -1px -1px;
     display: flex; flex-direction: column; min-height: 100vh;
   }
   a { color: inherit; }

@@ -63,6 +63,9 @@ export interface MissionControlServerOptions {
   // import from cli/. Returns undefined for a workspace with no loadable
   // loopfile, same as bestEffortLoopDef above.
   resumeFor?: (workspace: string, runId: string) => ((overrides: ResumeOverrides) => Promise<void>) | undefined
+  // See DashboardServerOptions.port - same OS-assigned-by-default, reject-
+  // don't-silently-retry behavior.
+  port?: number
 }
 
 export interface MissionControlServer {
@@ -221,8 +224,13 @@ export function startMissionControlServer(opts: MissionControlServerOptions = {}
     res.end('not found')
   })
 
-  return new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => {
+  return new Promise((resolve, reject) => {
+    server.once('error', (e: NodeJS.ErrnoException) => {
+      reject(e.code === 'EADDRINUSE'
+        ? new Error(`port ${opts.port} is already in use - stop whatever is using it, or drop --port to pick a free one automatically`)
+        : e)
+    })
+    server.listen(opts.port ?? 0, '127.0.0.1', () => {
       const addr = server.address()
       const port = addr && typeof addr === 'object' ? addr.port : 0
       resolve({

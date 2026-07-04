@@ -18,6 +18,11 @@ export interface DashboardServerOptions {
   journalPath: string
   def?: LoopDef
   watcher?: Watcher
+  // Defaults to 0 (OS-assigned free port) - deliberately random so several
+  // dashboards can run at once without colliding. Set explicitly for a
+  // stable, bookmarkable URL; a port already in use rejects with a clear
+  // error rather than silently falling back to a different one.
+  port?: number
   // Continues a halted run in place with optionally-raised rails. Injected
   // by the CLI layer (ui-cmd.ts wraps cli/resume-cmd.ts's resumeAction) so
   // this module never needs to know how a run is actually continued, only
@@ -398,8 +403,13 @@ export function startDashboardServer(opts: DashboardServerOptions): Promise<Dash
     res.end('not found')
   })
 
-  return new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => {
+  return new Promise((resolve, reject) => {
+    server.once('error', (e: NodeJS.ErrnoException) => {
+      reject(e.code === 'EADDRINUSE'
+        ? new Error(`port ${opts.port} is already in use - stop whatever is using it, or drop --port to pick a free one automatically`)
+        : e)
+    })
+    server.listen(opts.port ?? 0, '127.0.0.1', () => {
       const addr = server.address()
       const port = addr && typeof addr === 'object' ? addr.port : 0
       resolve({

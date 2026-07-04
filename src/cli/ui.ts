@@ -16,6 +16,30 @@ export function renderTable(headers: string[], rows: string[][]): string {
   return [pc.bold(line(headers)), ...rows.map(line)].join('\n')
 }
 
+// Word-wraps to `width` columns without ever splitting a word - a real
+// agent's report summary/claim/reason text runs 100-300+ characters
+// unwrapped (verified against a live run), and a terminal's own raw
+// wrapping has no hanging indent, so a continuation line reads as a new
+// top-level item instead of a continuation of the one above it. Callers
+// own the indent themselves (see run-cmd.ts's report printing).
+export function wrapText(text: string, width: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean)
+  if (words.length === 0) return ['']
+  const lines: string[] = []
+  let current = ''
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word
+    if (candidate.length > width && current) {
+      lines.push(current)
+      current = word
+    } else {
+      current = candidate
+    }
+  }
+  lines.push(current)
+  return lines
+}
+
 export interface CliIo {
   out(line: string): void
 }

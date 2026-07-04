@@ -29,6 +29,7 @@ export interface UiActionOpts {
   cwd: string
   file?: string
   open?: boolean
+  port?: number
 }
 
 export async function uiAction(
@@ -54,7 +55,13 @@ export async function uiAction(
   const onResume = async (overrides: ResumeOverrides): Promise<void> => {
     await resumeAction(id, { cwd: opts.cwd, file: opts.file, json: true, ...overrides }, { io: { out: () => {} } })
   }
-  const dashboard = await startDashboardServer({ journalPath, def, onResume })
+  let dashboard: DashboardServer
+  try {
+    dashboard = await startDashboardServer({ journalPath, def, onResume, port: opts.port })
+  } catch (e) {
+    io.out(err(e instanceof Error ? e.message : String(e)))
+    return { code: 1 }
+  }
 
   io.out(heading(`looprail dashboard - ${id}`))
   io.out(`  ${dashboard.url}`)
@@ -75,6 +82,7 @@ export async function uiAction(
 
 export interface UiAllActionOpts {
   registryPath?: string
+  port?: number
 }
 
 // The --all counterpart to uiAction: one server, every registered
@@ -93,7 +101,13 @@ export async function uiAllAction(
       await resumeAction(runId, { cwd: workspace, json: true, ...overrides }, { io: { out: () => {} } })
     }
   }
-  const dashboard = await startMissionControlServer({ registryPath, resumeFor })
+  let dashboard: MissionControlServer
+  try {
+    dashboard = await startMissionControlServer({ registryPath, resumeFor, port: opts.port })
+  } catch (e) {
+    io.out(err(e instanceof Error ? e.message : String(e)))
+    return { code: 1 }
+  }
 
   io.out(heading('looprail mission control'))
   io.out(`  ${dashboard.url}`)
@@ -104,6 +118,12 @@ export async function uiAllAction(
   return { code: 0, dashboard }
 }
 
+function parsePort(value: string): number {
+  const n = Number(value)
+  if (!Number.isInteger(n) || n < 1 || n > 65535) throw new Error(`--port must be an integer between 1 and 65535, got "${value}"`)
+  return n
+}
+
 export function registerUi(program: Command): void {
   program
     .command('ui [runId]')
@@ -111,9 +131,10 @@ export function registerUi(program: Command): void {
     .option('--file <path>', 'loopfile to load for graph edges and rail maxes (default ./looprail.yaml)')
     .option('--open', 'open the dashboard in the default browser')
     .option('--all', 'mission control: show every run across every registered workspace (ignores runId)')
+    .option('--port <n>', 'bind to a fixed port for a stable, bookmarkable URL (default: an OS-assigned free port)', parsePort)
     .action(async (
       runId: string | undefined,
-      opts: { file?: string; open?: boolean; all?: boolean },
+      opts: { file?: string; open?: boolean; all?: boolean; port?: number },
       cmd: Command,
     ) => {
       const { cwd } = cmd.optsWithGlobals<{ cwd: string }>()
@@ -124,7 +145,7 @@ export function registerUi(program: Command): void {
           process.exitCode = 1
           return
         }
-        const result = await uiAllAction({})
+        const result = await uiAllAction({ port: opts.port })
         process.exitCode = result.code
         if (result.dashboard) {
           const shutdown = () => { void result.dashboard!.close().then(() => process.exit(0)) }
@@ -134,7 +155,7 @@ export function registerUi(program: Command): void {
         return
       }
 
-      const result = await uiAction(runId, { cwd, file: opts.file, open: opts.open })
+      const result = await uiAction(runId, { cwd, file: opts.file, open: opts.open, port: opts.port })
       process.exitCode = result.code
       if (result.dashboard) {
         const shutdown = () => { void result.dashboard!.close().then(() => process.exit(0)) }

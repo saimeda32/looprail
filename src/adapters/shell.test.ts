@@ -27,6 +27,24 @@ describe('createShellAdapter', () => {
     expect(res).toMatchObject({ output: 'shell says hi', costUsd: 0, tokens: 0 })
   })
 
+  test('substitutes {model} shell-quoted into the user command when the request specifies one', async () => {
+    const { exec, calls } = fakeExec()
+    await createShellAdapter({ exec }).invoke({ prompt: 'p', command: 'mytool --model {model} {prompt}', model: 'gpt-5.4' })
+    expect(calls[0].args[1]).toBe(`mytool --model 'gpt-5.4' 'p'`)
+  })
+
+  test('substitutes {model} with an empty string when the request has none', async () => {
+    const { exec, calls } = fakeExec()
+    await createShellAdapter({ exec }).invoke({ prompt: 'p', command: 'mytool --model {model} {prompt}' })
+    expect(calls[0].args[1]).toBe(`mytool --model '' 'p'`)
+  })
+
+  test('leaves the command untouched when it has no {model} placeholder at all', async () => {
+    const { exec, calls } = fakeExec()
+    await createShellAdapter({ exec }).invoke({ prompt: 'p', command: 'mytool {prompt}', model: 'gpt-5.4' })
+    expect(calls[0].args[1]).toBe(`mytool 'p'`)
+  })
+
   test('pipes the prompt to stdin when the template has no {prompt}', async () => {
     const { exec, calls } = fakeExec()
     await createShellAdapter({ exec }).invoke({ prompt: 'hello', command: 'mytool run' })

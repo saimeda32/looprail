@@ -19,9 +19,15 @@ export function createShellAdapter(
       }
       const started = Date.now()
       const substituted = req.command.includes('{prompt}')
-      const rendered = substituted
+      let rendered = substituted
         ? req.command.replaceAll('{prompt}', shellQuote(req.prompt))
         : req.command
+      // A user's own model-aware CLI (any tool not covered by a built-in
+      // adapter) still needs a way to receive agents.<name>.model - the
+      // built-in adapters get this via a separate extraArgs mechanism, but
+      // shell has no such hook, so the model substitutes inline instead.
+      // Empty when unset, same permissive default {prompt} substitution uses.
+      if (rendered.includes('{model}')) rendered = rendered.replaceAll('{model}', shellQuote(req.model ?? ''))
       const res = await exec('/bin/sh', ['-c', rendered], {
         input: substituted ? undefined : req.prompt,
         timeoutMs: req.timeoutMs,

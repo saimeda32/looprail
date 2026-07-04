@@ -10,7 +10,7 @@ import {
 } from '../index.js'
 import { startDashboardServer, type DashboardServer } from '../dashboard/server.js'
 import { runsRoot } from '../journal/runs.js'
-import { defaultIo, dim, err, heading, ok, renderTable, warn, type CliIo } from './ui.js'
+import { defaultIo, dim, err, heading, ok, renderTable, warn, wrapText, type CliIo } from './ui.js'
 import { addWorkspace, defaultRegistryPath } from '../workspace/registry.js'
 
 export function loadLoop(file: string | undefined, cwd: string): { def: LoopDef; path: string } {
@@ -183,12 +183,28 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
   }
   ctx.io.out('')
   ctx.io.out(heading('summary') + dim(report.report.source === 'fallback' ? ' (mechanical - no reporting agent)' : ''))
-  ctx.io.out(`  ${report.report.summary}`)
-  for (const claim of report.report.claims) {
-    const confMark = claim.confidence >= 70 ? ok(`${claim.confidence}%`)
-      : claim.confidence >= 40 ? warn(`${claim.confidence}%`) : err(`${claim.confidence}%`)
-    ctx.io.out(`  ${confMark} ${claim.claim} ${dim(`- ${claim.reason}`)}`)
+  // A real reporting agent's summary/claim/reason text routinely runs
+  // 100-300+ characters unwrapped (verified against a live copilot-cli
+  // run) - left to the terminal's own wrapping, a continuation line has no
+  // indent and reads as a new top-level item instead of a continuation of
+  // the one above it. Wrap explicitly, with a hanging indent that lines up
+  // under where the text itself starts.
+  const width = Math.max(40, (process.stdout.columns || 100) - 2)
+  for (const line of wrapText(report.report.summary, width)) {
+    ctx.io.out(`  ${line}`)
   }
+  if (report.report.claims.length > 0) ctx.io.out('')
+  for (const claim of report.report.claims) {
+    const badge = String(claim.confidence).padStart(3) + '%'
+    const confMark = claim.confidence >= 70 ? ok(badge) : claim.confidence >= 40 ? warn(badge) : err(badge)
+    const claimLines = wrapText(claim.claim, width - 7)
+    ctx.io.out(`  ${confMark} ${claimLines[0]}`)
+    for (const cont of claimLines.slice(1)) ctx.io.out(`       ${cont}`)
+    for (const reasonLine of wrapText(claim.reason, width - 7)) {
+      ctx.io.out(dim(`       ${reasonLine}`))
+    }
+  }
+  ctx.io.out('')
   ctx.io.out(dim(`  journal: ${join(ctx.runDir, 'journal.jsonl')} · run id: ${report.runId}`))
   return report.status === 'verified' ? 0 : 2
 }
@@ -273,7 +289,7 @@ export function installCancelHandler(runDir: string, journalPath: string): () =>
 
 export async function runAction(
   file: string | undefined,
-  opts: { cwd: string; json?: boolean; yes?: boolean; ui?: boolean },
+  opts: { cwd: string; json?: boolean; yes?: boolean; ui?: boolean; port?: number },
   deps: RunDeps = {},
 ): Promise<number> {
   const io = deps.io ?? defaultIo
@@ -312,13 +328,21 @@ export async function runAction(
 
   let dashboard: DashboardServer | undefined
   if (opts.ui) {
-    // panel-expand up front so node ids in the dashboard match the ids the
-    // engine will actually journal (runLoop does this same expansion
-    // internally - see splitRegions/expandPanels in engine/runner.ts)
-    dashboard = await startDashboardServer({
-      journalPath: join(runDir, 'journal.jsonl'),
-      def: expandPanels(loaded.def),
-    })
+    try {
+      // panel-expand up front so node ids in the dashboard match the ids the
+      // engine will actually journal (runLoop does this same expansion
+      // internally - see splitRegions/expandPanels in engine/runner.ts)
+      dashboard = await startDashboardServer({
+        journalPath: join(runDir, 'journal.jsonl'),
+        def: expandPanels(loaded.def),
+        port: opts.port,
+      })
+    } catch (e) {
+      io.out(err(e instanceof Error ? e.message : String(e)))
+      uninstallCancelHandler()
+      removeRunPid(runDir)
+      return 1
+    }
     if (!opts.json) {
       io.out(dim(`  dashboard: ${dashboard.url}`))
     }
@@ -341,6 +365,12 @@ export async function runAction(
   }
 }
 
+function parsePort(value: string): number {
+  const n = Number(value)
+  if (!Number.isInteger(n) || n < 1 || n > 65535) throw new Error(`--port must be an integer between 1 and 65535, got "${value}"`)
+  return n
+}
+
 export function registerRun(program: Command): void {
   program
     .command('run [file]')
@@ -348,7 +378,12 @@ export function registerRun(program: Command): void {
     .option('--json', 'machine-readable summary on stdout')
     .option('--yes', 'auto-approve human gates (CI)')
     .option('--ui', 'start the local dashboard before the run begins')
-    .action(async (file: string | undefined, opts: { json?: boolean; yes?: boolean; ui?: boolean }, cmd: Command) => {
+    .option('--port <n>', 'bind --ui to a fixed port for a stable, bookmarkable URL (default: an OS-assigned free port)', parsePort)
+    .action(async (
+      file: string | undefined,
+      opts: { json?: boolean; yes?: boolean; ui?: boolean; port?: number },
+      cmd: Command,
+    ) => {
       const { cwd } = cmd.optsWithGlobals<{ cwd: string }>()
       process.exitCode = await runAction(file, { cwd, ...opts })
     })

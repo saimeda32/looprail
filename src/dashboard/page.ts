@@ -33,7 +33,7 @@ export function buildPage(): string {
     background-image:
       linear-gradient(var(--line) 1px, transparent 1px),
       linear-gradient(90deg, var(--line) 1px, transparent 1px);
-    background-size: 48px 48px; background-position: -1px -1px; background-attachment: fixed;
+    background-size: 48px 48px; background-position: -1px -1px;
     display: flex; flex-direction: column; min-height: 100vh;
   }
   a { color: inherit; }
@@ -135,14 +135,14 @@ export function buildPage(): string {
   .live-meta .row b { color: var(--ink); font-weight: 500; }
   #live-output-section[style*="display: none"] + .agent-table-wrap { margin-top: 0; }
 
-  .agent-table { border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
-  .agent-row { display: grid; grid-template-columns: 1fr 110px 60px 90px 90px; align-items: center; padding: 9px 16px; border-bottom: 1px solid var(--line); font-size: 12.5px; background: var(--panel); gap: 8px; }
+  .agent-table { border: 1px solid var(--line); border-radius: 3px; overflow: hidden; overflow-x: auto; }
+  .agent-row { display: grid; grid-template-columns: 1fr 110px 110px 60px 90px 90px; align-items: center; padding: 9px 16px; border-bottom: 1px solid var(--line); font-size: 12.5px; background: var(--panel); gap: 8px; }
   .agent-row:last-child { border-bottom: none; }
   .agent-row.head { font: 600 10.5px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); background: var(--panel-raised); }
   .agent-row.total { font-weight: 600; background: var(--panel-raised); }
   .agent-row .num { text-align: right; font-variant-numeric: tabular-nums; }
-  .agent-row .role { color: var(--ink-dim); }
-  @media (max-width: 560px) { .agent-row { grid-template-columns: 1fr 60px 70px; } .agent-row span:nth-child(2) { display: none; } }
+  .agent-row .role { color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 640px) { .agent-row { grid-template-columns: 1fr 60px 70px; } .agent-row span:nth-child(2), .agent-row span:nth-child(3) { display: none; } }
 
   .run-controls { display: flex; gap: 8px; align-items: center; }
   .control-btn {
@@ -256,6 +256,7 @@ export function buildPage(): string {
             <marker id="arrow-live" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
               <path class="arrow-head-live" d="M0,0 L7,3 L0,6 Z" />
             </marker>
+            <clipPath id="node-clip"><rect x="-2" y="-2" width="152" height="48" /></clipPath>
           </defs>
           <g id="edges"></g>
           <g id="nodes"></g>
@@ -317,6 +318,23 @@ export function buildPage(): string {
     if (className) e.className = className;
     if (text !== undefined) e.textContent = text;
     return e;
+  }
+
+  // Real browser text metrics, not an estimate - SVG <text> has no CSS
+  // text-overflow: ellipsis, and the node-clip clipPath alone (see the DAG
+  // render loop) only stops overflow from bleeding into the next node's
+  // box; it still hard-cuts mid-word with no signal that anything was
+  // trimmed. Binary-searches the longest prefix that actually fits.
+  function fitSvgText(el, text, maxWidth) {
+    el.textContent = text;
+    if (el.getComputedTextLength() <= maxWidth) return;
+    var lo = 0, hi = text.length;
+    while (lo < hi) {
+      var mid = Math.ceil((lo + hi) / 2);
+      el.textContent = text.slice(0, mid) + '\\u2026';
+      if (el.getComputedTextLength() <= maxWidth) lo = mid; else hi = mid - 1;
+    }
+    el.textContent = text.slice(0, lo) + '\\u2026';
   }
 
   function findNode(list, id) {
@@ -399,51 +417,57 @@ export function buildPage(): string {
     });
   }
 
-  function agentLabel(node) {
-    if (!node.agent) return '(' + node.role + ')';
-    return node.model ? node.agent + ' \\u00b7 ' + node.model : node.agent;
-  }
-
+  // Three separate, independently user-named layers describe every node -
+  // role (fixed: executor/critic/tester/...), node id (this graph position,
+  // e.g. "crit"), and agent (the reusable adapter+model assignment, e.g.
+  // "checker") - the same agent can back several nodes, and the same role
+  // can appear on several nodes too, so no single name stands in for the
+  // others. The graph plate already shows all three together (id, then
+  // role/agent/model); this table groups by agent, so it lists the node
+  // id(s) that agent actually backed rather than repeating role alone -
+  // otherwise "checker" here and "crit" on the graph read as unrelated.
   function renderAgentTable(nodes, totals) {
-    var groups = {};
-    var order = [];
+    var groups = {}
+    var order = []
     nodes.forEach(function (n) {
-      var key = agentLabel(n);
-      if (!groups[key]) { groups[key] = { label: key, roles: {}, calls: 0, tokens: 0, costUsd: 0 }; order.push(key); }
-      var g = groups[key];
-      g.roles[n.role] = true;
-      g.calls += n.iterations.length;
-      g.tokens += n.tokens;
-      g.costUsd += n.costUsd;
-    });
-    var table = document.getElementById('agent-table');
-    table.innerHTML = '';
-    var head = htmlEl('div', 'agent-row head');
-    ['Agent', 'Role', 'Calls', 'Tokens', 'Cost'].forEach(function (h, i) {
-      head.appendChild(htmlEl('span', i > 1 ? 'num' : null, h));
-    });
-    table.appendChild(head);
+      var key = n.agent || ('(' + n.role + ')')
+      if (!groups[key]) { groups[key] = { label: key, model: n.model || '', nodeIds: [], calls: 0, tokens: 0, costUsd: 0 }; order.push(key) }
+      var g = groups[key]
+      if (g.nodeIds.indexOf(n.id) === -1) g.nodeIds.push(n.id)
+      g.calls += n.iterations.length
+      g.tokens += n.tokens
+      g.costUsd += n.costUsd
+    })
+    var table = document.getElementById('agent-table')
+    table.innerHTML = ''
+    var head = htmlEl('div', 'agent-row head')
+    ;['Agent', 'Model', 'Nodes', 'Calls', 'Tokens', 'Cost'].forEach(function (h, i) {
+      head.appendChild(htmlEl('span', i > 2 ? 'num' : null, h))
+    })
+    table.appendChild(head)
     if (order.length === 0) {
-      table.appendChild(htmlEl('div', 'agent-row', '(no agent activity yet)'));
-      return;
+      table.appendChild(htmlEl('div', 'agent-row', '(no agent activity yet)'))
+      return
     }
     order.forEach(function (key) {
-      var g = groups[key];
-      var row = htmlEl('div', 'agent-row');
-      row.appendChild(htmlEl('span', null, g.label));
-      row.appendChild(htmlEl('span', 'role', Object.keys(g.roles).join(', ')));
-      row.appendChild(htmlEl('span', 'num', String(g.calls)));
-      row.appendChild(htmlEl('span', 'num', formatTokens(g.tokens)));
-      row.appendChild(htmlEl('span', 'num', '$' + g.costUsd.toFixed(3)));
-      table.appendChild(row);
-    });
-    var total = htmlEl('div', 'agent-row total');
-    total.appendChild(htmlEl('span', null, 'Total'));
-    total.appendChild(htmlEl('span', null, ''));
-    total.appendChild(htmlEl('span', 'num', String(nodes.reduce(function (a, n) { return a + n.iterations.length; }, 0))));
-    total.appendChild(htmlEl('span', 'num', formatTokens(totals.tokens)));
-    total.appendChild(htmlEl('span', 'num', '$' + totals.costUsd.toFixed(3)));
-    table.appendChild(total);
+      var g = groups[key]
+      var row = htmlEl('div', 'agent-row')
+      row.appendChild(htmlEl('span', null, g.label))
+      row.appendChild(htmlEl('span', 'role', g.model || '-'))
+      row.appendChild(htmlEl('span', 'role', g.nodeIds.join(', ')))
+      row.appendChild(htmlEl('span', 'num', String(g.calls)))
+      row.appendChild(htmlEl('span', 'num', formatTokens(g.tokens)))
+      row.appendChild(htmlEl('span', 'num', '$' + g.costUsd.toFixed(3)))
+      table.appendChild(row)
+    })
+    var total = htmlEl('div', 'agent-row total')
+    total.appendChild(htmlEl('span', null, 'Total'))
+    total.appendChild(htmlEl('span', null, ''))
+    total.appendChild(htmlEl('span', null, ''))
+    total.appendChild(htmlEl('span', 'num', String(nodes.reduce(function (a, n) { return a + n.iterations.length }, 0))))
+    total.appendChild(htmlEl('span', 'num', formatTokens(totals.tokens)))
+    total.appendChild(htmlEl('span', 'num', '$' + totals.costUsd.toFixed(3)))
+    table.appendChild(total)
   }
 
   function renderLiveOutput(model) {
@@ -530,12 +554,13 @@ export function buildPage(): string {
       var node = byId[l.id];
       if (!node) return;
       var statusClass = STATUS_CLASS[node.status] || 'node-pending';
-      var g = el('g', { transform: 'translate(' + l.x + ',' + l.y + ')' }, nodesG);
+      var g = el('g', { transform: 'translate(' + l.x + ',' + l.y + ')', 'clip-path': 'url(#node-clip)' }, nodesG);
       var rect = el('rect', { class: 'node-plate ' + statusClass, width: BOX_W, height: BOX_H, rx: 3 }, g);
       el('circle', { class: 'node-dot ' + statusClass, cx: 10, cy: BOX_H / 2, r: 3 }, g);
-      el('text', { class: 'node-label', x: 20, y: 18 }, g).textContent = node.id;
-      el('text', { class: 'node-sub', x: 20, y: 33 }, g).textContent =
-        node.role + (node.agent ? ' \\u00b7 ' + node.agent : '') + (node.model ? ' \\u00b7 ' + node.model : '');
+      var maxTextWidth = BOX_W - 20 - 8;
+      fitSvgText(el('text', { class: 'node-label', x: 20, y: 18 }, g), node.id, maxTextWidth);
+      var subtext = node.role + (node.agent ? ' \\u00b7 ' + node.agent : '') + (node.model ? ' \\u00b7 ' + node.model : '');
+      fitSvgText(el('text', { class: 'node-sub', x: 20, y: 33 }, g), subtext, maxTextWidth);
       g.addEventListener('click', function () { selected = node.id; renderDetail(node); });
       if (selected === node.id) rect.setAttribute('stroke-width', '2.5');
     });

@@ -450,3 +450,17 @@ test('GET /model reports totals.maxIterations/maxCostUsd from the loopfile and r
   const haltedPayload = JSON.parse((await get(dashboard.url + '/model')).body)
   expect(haltedPayload.resumable).toBe(true)
 })
+
+test('startDashboardServer binds to an explicit port when given one', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const port = 41567
+  dashboard = await startDashboardServer({ journalPath, port })
+  expect(dashboard.url).toBe(`http://127.0.0.1:${port}`)
+})
+
+test('startDashboardServer rejects with a clear error when the requested port is already taken', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const port = 41568
+  dashboard = await startDashboardServer({ journalPath, port })
+  await expect(startDashboardServer({ journalPath, port })).rejects.toThrow(/port 41568 is already in use/)
+})
