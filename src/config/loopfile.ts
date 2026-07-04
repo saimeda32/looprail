@@ -26,6 +26,12 @@ export function parseLoopfile(text: string): LoopDef {
   if (!isPositiveNumber(rawRails.max_cost_usd)) {
     problems.push('rails.max_cost_usd must be a positive number')
   }
+  // A non-numeric or non-positive concurrency collapses the scheduler's worker
+  // pool to zero (Math.floor(NaN) => NaN => zero workers), silently producing a
+  // run where no node ever executes. Reject it here instead.
+  if (raw.concurrency !== undefined && !isPositiveNumber(raw.concurrency)) {
+    problems.push('concurrency must be a positive number')
+  }
   for (const [id, n] of Object.entries(graph)) {
     if (!VALID_ROLES.includes(n.role as Role)) {
       problems.push(`node "${id}": missing or invalid role "${n.role}"`)

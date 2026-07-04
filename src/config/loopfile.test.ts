@@ -98,6 +98,20 @@ test('rejects a weighted threshold outside (0, 1]', () => {
     .toThrow(/weighted/)
 })
 
+test('rejects a non-numeric concurrency', () => {
+  expect(() => parseLoopfile(`${SAMPLE}\nconcurrency: fast`))
+    .toThrow(/concurrency must be a positive number/)
+})
+
+test('rejects a non-positive concurrency', () => {
+  expect(() => parseLoopfile(`${SAMPLE}\nconcurrency: 0`))
+    .toThrow(/concurrency must be a positive number/)
+})
+
+test('a positive concurrency parses through', () => {
+  expect(parseLoopfile(`${SAMPLE}\nconcurrency: 3`).concurrency).toBe(3)
+})
+
 test('gate_timeout rail maps to gateTimeoutSec', () => {
   const def = parseLoopfile(
     SAMPLE.replace('max_iterations: 8', 'max_iterations: 8\n  gate_timeout: 300'))

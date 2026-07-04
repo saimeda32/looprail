@@ -73,5 +73,13 @@ export function lintLoop(def: LoopDef): LintFinding[] {
     }
   }
 
+  if (def.concurrency !== undefined
+      && !(typeof def.concurrency === 'number' && def.concurrency > 0)) {
+    findings.push({
+      rule: 'L007', level: 'error',
+      message: `concurrency must be a positive number, got ${JSON.stringify(def.concurrency)} — a non-numeric value collapses the worker pool to zero and nothing runs`,
+    })
+  }
+
   return findings
 }

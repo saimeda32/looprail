@@ -73,3 +73,12 @@ test('L006: non-positive node weight is an error', () => {
   expect(finding.level).toBe('error')
   expect(finding.node).toBe('t')
 })
+
+test('L007: a non-numeric concurrency is an error', () => {
+  const def = make(
+    [{ id: 'do', role: 'executor', agent: 'big' },
+     { id: 't', role: 'tester', run: 'true', after: ['do'] }],
+    { concurrency: 'fast' as unknown as number })
+  const finding = lintLoop(def).find((f) => f.rule === 'L007')!
+  expect(finding.level).toBe('error')
+})
