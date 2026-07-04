@@ -2,6 +2,7 @@
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { Command } from 'commander'
+import { registerBench } from './bench-cmd.js'
 import { registerDoctor } from './doctor-cmd.js'
 import { registerExplain } from './explain-cmd.js'
 import { registerInit } from './init-cmd.js'
@@ -27,6 +28,7 @@ export function buildProgram(): Command {
   registerInit(program)
   registerLint(program)
   registerRun(program)
+  registerBench(program)
   registerReplay(program)
   registerStatus(program)
   registerLogs(program)
