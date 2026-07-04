@@ -55,10 +55,16 @@ export function buildMissionControlPage(): string {
   .wordmark .dot { width: 7px; height: 7px; border-radius: 1px; background: var(--signal); box-shadow: 0 0 8px 1px rgba(232,196,104,0.55); animation: pulse-dot 2.4s ease-in-out infinite; }
   #run-count { font: 12px var(--mono); color: var(--ink-dim); }
 
-  .usage-strip { display: flex; gap: 28px; flex-wrap: wrap; padding: 14px 18px; margin-bottom: 24px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel); }
+  .usage-strip { display: flex; align-items: center; justify-content: space-between; gap: 28px; flex-wrap: wrap; padding: 14px 18px; margin-bottom: 24px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel); }
+  .usage-figures { display: flex; gap: 28px; flex-wrap: wrap; }
   .usage-item { display: flex; flex-direction: column; gap: 2px; }
   .usage-item .label { font: 600 10px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-dim); }
   .usage-item .value { font: 15px var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); }
+
+  .range-picker { display: flex; gap: 4px; }
+  .range-btn { font: 11px var(--mono); padding: 5px 10px; border-radius: 3px; border: 1px solid var(--line); background: var(--panel-raised); color: var(--ink-dim); cursor: pointer; }
+  .range-btn:hover { color: var(--ink); }
+  .range-btn.active { color: var(--signal); border-color: rgba(232,196,104,0.4); background: rgba(232,196,104,0.1); }
 
   .section-head { display: flex; align-items: center; justify-content: space-between; margin: 32px 0 12px; gap: 16px; flex-wrap: wrap; }
   .section-head h2 { font-family: var(--sans); font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-dim); margin: 0; }
@@ -123,11 +129,14 @@ export function buildMissionControlPage(): string {
     <span id="run-count"></span>
   </div>
   <div class="usage-strip">
-    <div class="usage-item"><span class="label">Workspaces</span><span class="value" id="usage-workspaces">0</span></div>
-    <div class="usage-item"><span class="label">Runs</span><span class="value" id="usage-runs">0</span></div>
-    <div class="usage-item"><span class="label">Running now</span><span class="value" id="usage-running">0</span></div>
-    <div class="usage-item"><span class="label">Total cost</span><span class="value" id="usage-cost">$0.00</span></div>
-    <div class="usage-item"><span class="label">Total tokens</span><span class="value" id="usage-tokens">0</span></div>
+    <div class="usage-figures">
+      <div class="usage-item"><span class="label">Workspaces</span><span class="value" id="usage-workspaces">0</span></div>
+      <div class="usage-item"><span class="label">Runs</span><span class="value" id="usage-runs">0</span></div>
+      <div class="usage-item"><span class="label">Running now</span><span class="value" id="usage-running">0</span></div>
+      <div class="usage-item"><span class="label">Cost</span><span class="value" id="usage-cost">$0.00</span></div>
+      <div class="usage-item"><span class="label">Tokens</span><span class="value" id="usage-tokens">0</span></div>
+    </div>
+    <div class="range-picker" id="range-picker"></div>
   </div>
   <main>
     <div id="empty-state" style="display:none"></div>
@@ -181,6 +190,41 @@ export function buildMissionControlPage(): string {
     return a;
   }
 
+  // Client-side only: every run already carries its own real lastEventAt
+  // from the server, so narrowing which ones are visible is a display
+  // filter, not a re-derivation of status/cost/agents (the thing this
+  // client is deliberately never supposed to compute itself).
+  var RANGES = [
+    { key: '24h', label: '24h', ms: 24 * 60 * 60 * 1000 },
+    { key: '7d', label: '7d', ms: 7 * 24 * 60 * 60 * 1000 },
+    { key: '30d', label: '30d', ms: 30 * 24 * 60 * 60 * 1000 },
+    { key: 'all', label: 'All', ms: null },
+  ];
+  var selectedRange = 'all';
+  var lastRuns = [];
+
+  function filterByRange(runs) {
+    var range = null;
+    for (var i = 0; i < RANGES.length; i++) if (RANGES[i].key === selectedRange) range = RANGES[i];
+    if (!range || range.ms === null) return runs;
+    var cutoff = Date.now() - range.ms;
+    return runs.filter(function (r) { return !r.lastEventAt || r.lastEventAt >= cutoff; });
+  }
+
+  function renderRangePicker() {
+    var picker = document.getElementById('range-picker');
+    picker.innerHTML = '';
+    RANGES.forEach(function (range) {
+      var btn = el('button', 'range-btn' + (range.key === selectedRange ? ' active' : ''), range.label);
+      btn.type = 'button';
+      btn.addEventListener('click', function () {
+        selectedRange = range.key;
+        renderRuns(lastRuns);
+      });
+      picker.appendChild(btn);
+    });
+  }
+
   function renderUsage(runs) {
     var workspaces = {};
     var totalCost = 0, totalTokens = 0, running = 0;
@@ -198,18 +242,26 @@ export function buildMissionControlPage(): string {
   }
 
   function renderRuns(runs) {
+    lastRuns = runs;
+    renderRangePicker();
+    var visible = filterByRange(runs);
     var grid = document.getElementById('grid');
     var empty = document.getElementById('empty-state');
-    document.getElementById('run-count').textContent = runs.length + ' run' + (runs.length === 1 ? '' : 's');
-    renderUsage(runs);
+    document.getElementById('run-count').textContent = visible.length + ' run' + (visible.length === 1 ? '' : 's');
+    renderUsage(visible);
     grid.innerHTML = '';
     if (runs.length === 0) {
       empty.style.display = 'block';
       empty.textContent = 'no runs yet - register a workspace with looprail workspace add, or just run looprail run in a project (it registers itself), then start a loop.';
       return;
     }
+    if (visible.length === 0) {
+      empty.style.display = 'block';
+      empty.textContent = 'no runs in the last ' + selectedRange + ' - widen the range above to see older ones.';
+      return;
+    }
     empty.style.display = 'none';
-    runs.forEach(function (r) { grid.appendChild(runCard(r)); });
+    visible.forEach(function (r) { grid.appendChild(runCard(r)); });
   }
 
   function minutesAgo(ts) {
