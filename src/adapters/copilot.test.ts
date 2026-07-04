@@ -55,6 +55,28 @@ describe('createCopilotAdapter', () => {
     expect(res).toMatchObject({ output: 'hi', tokens: 4, costUsd: 0 })
   })
 
+  test('appends --model when the request specifies one', async () => {
+    const calls: string[][] = []
+    const exec: ExecFn = async (_file, args) => {
+      calls.push(args)
+      return { stdout: JSONL, stderr: '', exitCode: 0 }
+    }
+    await createCopilotAdapter({ exec }).invoke({ prompt: 'say hi', model: 'gpt-5.4' })
+    expect(calls[0]).toEqual([
+      'copilot', '-p', 'say hi', '--output-format', 'json', '--allow-all-tools', '--model', 'gpt-5.4',
+    ])
+  })
+
+  test('omits --model when the request has none', async () => {
+    const calls: string[][] = []
+    const exec: ExecFn = async (_file, args) => {
+      calls.push(args)
+      return { stdout: JSONL, stderr: '', exitCode: 0 }
+    }
+    await createCopilotAdapter({ exec }).invoke({ prompt: 'say hi' })
+    expect(calls[0]).toEqual(['copilot', '-p', 'say hi', '--output-format', 'json', '--allow-all-tools'])
+  })
+
   test('streams each token delta live, before the node finishes', async () => {
     const chunks: string[] = []
     const exec: ExecFn = async (_file, _args, opts = {}) => {

@@ -1,4 +1,4 @@
-import type { Adapter } from '../core/types.js'
+import type { Adapter, AgentRequest } from '../core/types.js'
 import { CliAdapter, type ExecFn, type ParsedResponse } from './cli-adapter.js'
 
 interface CopilotEvent {
@@ -57,6 +57,10 @@ export function createCopilotAdapter(
   return new CliAdapter({
     name: 'copilot-cli',
     command: 'gh copilot -p {prompt} --output-format json --allow-all-tools',
+    // `gh copilot -- --help`: "--model <model> Set the AI model to use
+    // (use 'auto' to let Copilot pick automatically)" - same shape as
+    // claude-code/codex's own model pin, verified against the real CLI.
+    extraArgs: (req: AgentRequest) => (req.model ? ['--model', req.model] : []),
     parser: parseCopilotJsonl,
     streamHandler: copilotStreamLine,
     exec: opts.exec,
