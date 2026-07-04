@@ -1,6 +1,6 @@
 // Self-contained mission-control page: a card grid across every registered
 // workspace's runs, plus a secondary section for raw Claude Code sessions.
-// Same house style as page.ts — inline CSS/JS, no external requests, no
+// Same house style as page.ts - inline CSS/JS, no external requests, no
 // framework, same :root design tokens. The client is a thin re-fetcher
 // exactly like page.ts (design decision 7 from the 2026-07-02 dashboard
 // plan): it never derives status/cost/agents/tokens itself, it only renders
@@ -36,46 +36,61 @@ export function buildMissionControlPage(): string {
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   * { box-sizing: border-box; }
+  html, body { background: var(--void); }
   body {
-    margin: 0; font: 14px/1.5 var(--sans);
-    background: var(--void); color: var(--ink);
+    margin: 0; font: 14px/1.5 var(--sans); color: var(--ink);
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 48px 48px; background-position: -1px -1px; background-attachment: fixed;
   }
-  header {
-    padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
-    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  a { color: inherit; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 24px 64px; }
+
+  .masthead {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+    padding-bottom: 20px; border-bottom: 1px solid var(--line); margin-bottom: 24px; flex-wrap: wrap;
   }
-  header h1 {
-    font-size: 13px; margin: 0; font-weight: 600; letter-spacing: 0.02em;
-    text-transform: uppercase; color: var(--ink);
-  }
+  .wordmark { font-family: var(--mono); font-size: 14px; font-weight: 600; letter-spacing: 0.02em; display: flex; align-items: center; gap: 9px; }
+  .wordmark .dot { width: 7px; height: 7px; border-radius: 1px; background: var(--signal); box-shadow: 0 0 8px 1px rgba(232,196,104,0.55); animation: pulse-dot 2.4s ease-in-out infinite; }
   #run-count { font: 12px var(--mono); color: var(--ink-dim); }
-  main { padding: 20px; }
+
+  .usage-strip { display: flex; gap: 28px; flex-wrap: wrap; padding: 14px 18px; margin-bottom: 24px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel); }
+  .usage-item { display: flex; flex-direction: column; gap: 2px; }
+  .usage-item .label { font: 600 10px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-dim); }
+  .usage-item .value { font: 15px var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); }
+
+  .section-head { display: flex; align-items: center; justify-content: space-between; margin: 32px 0 12px; gap: 16px; flex-wrap: wrap; }
+  .section-head h2 { font-family: var(--sans); font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-dim); margin: 0; }
+
+  main { }
   #grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px;
   }
   .run-card {
-    display: block; padding: 14px; border-radius: 4px; background: var(--panel);
-    border: 1px solid var(--line); text-decoration: none; color: inherit;
+    display: block; padding: 14px 16px; border-radius: 3px; background: var(--panel);
+    border: 1px solid var(--line); text-decoration: none; color: inherit; transition: border-color 0.15s ease;
   }
-  .run-card:hover { border-color: var(--line-bright); }
-  .run-card .workspace { font-size: 12px; color: var(--ink-dim); margin-bottom: 4px; }
-  .run-card .run-id { font: 600 13px var(--mono); color: var(--ink); margin-bottom: 8px; }
+  .run-card:hover, .run-card:focus-visible { border-color: var(--line-bright); }
+  .run-card .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px; gap: 8px; }
+  .run-card .name { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .run-card .workspace { font: 10.5px var(--mono); color: var(--ink-faint); margin-bottom: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .status-pill {
-    padding: 3px 10px; border-radius: 3px; font: 600 10.5px/1.4 var(--mono);
-    text-transform: uppercase; letter-spacing: 0.08em;
-    background: var(--panel-raised); color: var(--ink-dim);
-    display: inline-flex; align-items: center; gap: 6px; margin-bottom: 8px;
+    display: inline-flex; align-items: center; gap: 6px; font: 600 10.5px/1.4 var(--mono);
+    letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 9px 4px 7px; border-radius: 3px;
+    border: 1px solid transparent; white-space: nowrap; flex-shrink: 0;
   }
-  .status-pill::before {
-    content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; display: inline-block;
-  }
-  .status-running { color: var(--signal); }
-  .status-running::before { animation: pulse-dot 1.2s ease-in-out infinite; }
-  .status-verified { color: var(--pass); }
-  .status-halted { color: var(--warn); }
+  .status-pill::before { content: ''; width: 6px; height: 6px; border-radius: 1px; background: currentColor; display: inline-block; }
+  .status-running { color: var(--signal); background: rgba(232,196,104,0.12); border-color: rgba(232,196,104,0.32); }
+  .status-running::before { animation: pulse-dot 1.6s ease-in-out infinite; }
+  .status-verified { color: var(--pass); background: rgba(127,166,107,0.12); border-color: rgba(127,166,107,0.3); }
+  .status-halted { color: var(--warn); background: rgba(184,134,61,0.12); border-color: rgba(184,134,61,0.3); }
   @keyframes pulse-dot { 50% { opacity: 0.35; } }
-  .run-card .agents { font-size: 12px; color: var(--ink); margin-bottom: 4px; }
-  .run-card .meta { font: 11px var(--mono); color: var(--ink-dim); }
+  .run-card .agents { font-size: 11.5px; color: var(--ink-dim); margin-bottom: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .run-card .stats { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .run-card .stats .num { font: 11.5px var(--mono); font-variant-numeric: tabular-nums; color: var(--ink-dim); }
+  .run-card .stats .num b { color: var(--ink); font-weight: 500; }
+  .run-card .updated { font: 10.5px var(--mono); color: var(--ink-faint); margin-top: 8px; }
   #empty-state {
     padding: 60px 20px; text-align: center; color: var(--ink-dim); max-width: 520px; margin: 0 auto;
   }
@@ -102,18 +117,27 @@ export function buildMissionControlPage(): string {
 </style>
 </head>
 <body>
-<header>
-  <h1>looprail mission control</h1>
-  <span id="run-count"></span>
-</header>
-<main>
-  <div id="empty-state" style="display:none"></div>
-  <div id="grid"></div>
-  <section id="sessions-section" style="display:none">
-    <h2 id="sessions-heading">Recent Claude Code activity</h2>
-    <div id="sessions-grid"></div>
-  </section>
-</main>
+<div class="wrap">
+  <div class="masthead">
+    <div class="wordmark"><span class="dot"></span> LOOPRAIL MISSION CONTROL</div>
+    <span id="run-count"></span>
+  </div>
+  <div class="usage-strip">
+    <div class="usage-item"><span class="label">Workspaces</span><span class="value" id="usage-workspaces">0</span></div>
+    <div class="usage-item"><span class="label">Runs</span><span class="value" id="usage-runs">0</span></div>
+    <div class="usage-item"><span class="label">Running now</span><span class="value" id="usage-running">0</span></div>
+    <div class="usage-item"><span class="label">Total cost</span><span class="value" id="usage-cost">$0.00</span></div>
+    <div class="usage-item"><span class="label">Total tokens</span><span class="value" id="usage-tokens">0</span></div>
+  </div>
+  <main>
+    <div id="empty-state" style="display:none"></div>
+    <div id="grid"></div>
+    <section id="sessions-section" style="display:none">
+      <h2 id="sessions-heading">Recent Claude Code activity</h2>
+      <div id="sessions-grid"></div>
+    </section>
+  </main>
+</div>
 <script>
 (function () {
   var STATUS_CLASS = { running: 'status-running', verified: 'status-verified', halted: 'status-halted' };
@@ -125,28 +149,63 @@ export function buildMissionControlPage(): string {
     return e;
   }
 
+  function formatTokens(n) {
+    return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+  }
+
   function runCard(run) {
     var a = el('a', 'run-card');
     a.href = '/run/' + run.workspaceHash + '/' + run.runId + '/';
+    var top = el('div', 'top');
+    top.appendChild(el('span', 'name', run.name || run.runId));
+    top.appendChild(el('span', 'status-pill ' + (STATUS_CLASS[run.status] || 'status-running'), run.status));
+    a.appendChild(top);
     a.appendChild(el('div', 'workspace', run.workspaceName));
-    a.appendChild(el('div', 'run-id', run.runId));
-    a.appendChild(el('span', 'status-pill ' + (STATUS_CLASS[run.status] || 'status-running'), run.status));
     a.appendChild(el('div', 'agents', run.agents.length ? run.agents.join(', ') : 'no agents recorded'));
-    a.appendChild(el('div', 'meta', 'iter ' + run.iteration + ' · $' + run.costUsd.toFixed(2)));
+    var stats = el('div', 'stats');
+    var iter = el('span', 'num');
+    iter.innerHTML = 'iter <b>' + run.iteration + '</b>';
+    stats.appendChild(iter);
+    var cost = el('span', 'num');
+    cost.innerHTML = '$<b>' + run.costUsd.toFixed(2) + '</b>';
+    stats.appendChild(cost);
+    if (typeof run.tokens === 'number') {
+      var tok = el('span', 'num');
+      tok.innerHTML = '<b>' + formatTokens(run.tokens) + '</b> tok';
+      stats.appendChild(tok);
+    }
+    a.appendChild(stats);
     if (run.lastEventAt) {
-      a.appendChild(el('div', 'meta', 'updated ' + new Date(run.lastEventAt).toLocaleString()));
+      a.appendChild(el('div', 'updated', 'updated ' + new Date(run.lastEventAt).toLocaleString()));
     }
     return a;
+  }
+
+  function renderUsage(runs) {
+    var workspaces = {};
+    var totalCost = 0, totalTokens = 0, running = 0;
+    runs.forEach(function (r) {
+      workspaces[r.workspaceName] = true;
+      totalCost += r.costUsd || 0;
+      totalTokens += r.tokens || 0;
+      if (r.status === 'running') running += 1;
+    });
+    document.getElementById('usage-workspaces').textContent = String(Object.keys(workspaces).length);
+    document.getElementById('usage-runs').textContent = String(runs.length);
+    document.getElementById('usage-running').textContent = String(running);
+    document.getElementById('usage-cost').textContent = '$' + totalCost.toFixed(2);
+    document.getElementById('usage-tokens').textContent = formatTokens(totalTokens);
   }
 
   function renderRuns(runs) {
     var grid = document.getElementById('grid');
     var empty = document.getElementById('empty-state');
     document.getElementById('run-count').textContent = runs.length + ' run' + (runs.length === 1 ? '' : 's');
+    renderUsage(runs);
     grid.innerHTML = '';
     if (runs.length === 0) {
       empty.style.display = 'block';
-      empty.textContent = 'no runs yet — register a workspace with looprail workspace add, or just run looprail run in a project (it registers itself), then start a loop.';
+      empty.textContent = 'no runs yet - register a workspace with looprail workspace add, or just run looprail run in a project (it registers itself), then start a loop.';
       return;
     }
     empty.style.display = 'none';
