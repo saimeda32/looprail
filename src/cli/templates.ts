@@ -9,6 +9,19 @@ export interface Template {
 
 const REVIEWER_COMMENT = '# independent reviewer — a different model catches what the worker\'s own model misses'
 
+// Model names are Claude-specific (haiku/sonnet/opus), so only set model: when
+// the adapter actually is claude-code -- codex/aider/copilot-cli/shell/mock
+// have different or no model-tier concept, and should keep deferring to their
+// own default. 'strong' tier is for real generative/judgment work (building,
+// fixing, or catching a genuinely hard-to-spot problem like an unsupported
+// claim). 'cheap' tier is for narrow, mechanical checks (did a test get
+// deleted, does this look more readable) where a smaller model is just as
+// effective and meaningfully faster/cheaper.
+function modelTier(adapter: string, tier: 'strong' | 'cheap'): string {
+  if (adapter !== 'claude-code') return ''
+  return `, model: ${tier === 'strong' ? 'sonnet' : 'haiku'}`
+}
+
 export const TEMPLATES: Record<string, Template> = {
   'fix-tests': {
     description: 'make a failing test suite pass, with an anti-gaming critic',
@@ -18,8 +31,8 @@ goal: |
   confirms no test was deleted, skipped, or weakened to force a pass.
 
 agents:
-  worker:  { adapter: ${worker} }
-  checker: { adapter: ${reviewer} }  ${REVIEWER_COMMENT}
+  worker:  { adapter: ${worker}${modelTier(worker, 'strong')} }
+  checker: { adapter: ${reviewer}${modelTier(reviewer, 'cheap')} }  ${REVIEWER_COMMENT}
 
 graph:
   fix:   { role: executor, agent: worker }
@@ -49,8 +62,11 @@ goal: |
   the sentence above describing the subject with your own topic.
 
 agents:
-  worker:  { adapter: ${worker} }
-  checker: { adapter: ${reviewer} }  ${REVIEWER_COMMENT}
+  worker:  { adapter: ${worker}${modelTier(worker, 'strong')} }
+  checker: { adapter: ${reviewer}${modelTier(reviewer, 'strong')} }  ${REVIEWER_COMMENT}
+  # checker is 'strong', not the usual cheap critic default: catching an
+  # unsupported or hallucinated claim requires real understanding of the
+  # domain claim, not a mechanical pattern check.
 
 graph:
   plan:      { role: planner, agent: worker }
@@ -84,9 +100,9 @@ goal: |
   "the largest or most complex file under src/" above with its path.
 
 agents:
-  worker:      { adapter: ${worker} }
-  correctness: { adapter: ${reviewer} }  ${REVIEWER_COMMENT}
-  quality:     { adapter: ${reviewer} }
+  worker:      { adapter: ${worker}${modelTier(worker, 'strong')} }
+  correctness: { adapter: ${reviewer}${modelTier(reviewer, 'cheap')} }  ${REVIEWER_COMMENT}
+  quality:     { adapter: ${reviewer}${modelTier(reviewer, 'cheap')} }
 
 graph:
   refactor:     { role: executor, agent: worker }
@@ -117,15 +133,19 @@ goal: |
   instead, replace the sentence above describing the subject.
 
 agents:
-  worker: { adapter: ${worker} }
-  editor: { adapter: ${reviewer} }  ${REVIEWER_COMMENT}
+  worker: { adapter: ${worker}${modelTier(worker, 'strong')} }
+  editor: { adapter: ${reviewer}${modelTier(reviewer, 'cheap')} }  ${REVIEWER_COMMENT}
+  # facts gets its own agent key with a 'strong' model tier — fact-checking
+  # needs real reasoning (same logic as research-report's critics) — while
+  # style stays 'cheap' since tone/clarity judgment is bounded.
+  fact-editor: { adapter: ${reviewer}${modelTier(reviewer, 'strong')} }
 
 graph:
   outline: { role: planner, agent: worker }
   draft:   { role: executor, agent: worker, after: outline }
   style:   { role: critic, agent: editor, of: draft, after: draft, weight: 1,
              prompt: Critique clarity, tone, and structure. }
-  facts:   { role: critic, agent: editor, of: draft, after: draft, weight: 2,
+  facts:   { role: critic, agent: fact-editor, of: draft, after: draft, weight: 2,
              prompt: Fail on any claim you cannot verify. }
   approve: { role: gate, after: [style, facts], weight: 2 }  # gate = pauses for human approval (y/n) before the loop can finish
 
@@ -151,8 +171,10 @@ goal: |
   finds nothing the review missed and nothing it wrongly flagged.
 
 agents:
-  worker:   { adapter: ${worker} }
-  reviewer: { adapter: ${reviewer} }  ${REVIEWER_COMMENT}
+  worker:   { adapter: ${worker}${modelTier(worker, 'strong')} }
+  reviewer: { adapter: ${reviewer}${modelTier(reviewer, 'strong')} }  ${REVIEWER_COMMENT}
+  # critic is 'strong', not the usual cheap default: code review requires
+  # real judgment, not mechanical pattern-matching.
 
 graph:
   review: { role: executor, agent: worker,
@@ -165,6 +187,41 @@ rails:
   max_cost_usd: 8
   stall_after: 2
   replan_limit: 1
+
+verdict: { policy: all-pass }
+`,
+  },
+
+  'build-app': {
+    description: 'build a new app, website, or feature from a spec, with its own tests',
+    yaml: (worker, reviewer) => `name: build-app
+goal: |
+  Build SPEC (edit this line: describe the app, website, or feature you
+  want, including your language/framework if you have one). Done means:
+  the code builds, its own tests pass, and a critic confirms the result
+  actually satisfies the spec, not just that something runs.
+
+agents:
+  worker:  { adapter: ${worker}${modelTier(worker, 'strong')} }
+  checker: { adapter: ${reviewer}${modelTier(reviewer, 'strong')} }  ${REVIEWER_COMMENT}
+  # critic is 'strong', not the usual cheap default: checking "does this
+  # actually satisfy the spec" requires real understanding, not a
+  # mechanical check.
+
+graph:
+  plan:  { role: planner, agent: worker }
+  build: { role: executor, agent: worker, after: plan,
+           prompt: Build the app described in the goal above and write its own tests — there is no pre-existing test suite to run. }
+  tests: { role: tester, after: build, run: npm test, expect: exit 0 }  # swap "npm test" for your stack's real test command if different, e.g. pytest, go test ./..., or cargo test
+  crit:  { role: critic, agent: checker, of: build, after: tests,
+           prompt: Fail if the result doesn't actually satisfy the spec above, even if its own tests pass — this catches the case where the agent wrote weak tests for weak work. }
+
+rails:
+  max_iterations: 10
+  max_cost_usd: 20
+  max_wall_minutes: 60
+  stall_after: 3
+  replan_limit: 2
 
 verdict: { policy: all-pass }
 `,
