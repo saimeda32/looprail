@@ -29,6 +29,23 @@ export function parseCodexJsonl(stdout: string): ParsedResponse {
   return output ? { output, tokens } : { output: stdout.trim() }
 }
 
+// `codex exec --json` emits one line per completed item as the turn
+// progresses, not one blob at the end - the same items parseCodexJsonl scans
+// for above arrive live, so surfacing them as they land is a genuine
+// incremental improvement, not just a re-announcement of the final output.
+export function codexStreamLine(line: string): string | null {
+  let e: CodexEvent
+  try {
+    e = JSON.parse(line) as CodexEvent
+  } catch {
+    return null
+  }
+  if (e.type !== 'item.completed' || !e.item?.text) return null
+  if (e.item.type === 'agent_message') return e.item.text
+  if (e.item.type === 'reasoning') return `[reasoning] ${e.item.text}`
+  return null
+}
+
 export function createCodexAdapter(
   opts: { exec?: ExecFn; cwd?: string } = {},
 ): Adapter {
@@ -37,6 +54,7 @@ export function createCodexAdapter(
     command: 'codex exec --json {prompt}',
     extraArgs: (req: AgentRequest) => (req.model ? ['-m', req.model] : []),
     parser: parseCodexJsonl,
+    streamHandler: codexStreamLine,
     exec: opts.exec,
     cwd: opts.cwd,
   })
