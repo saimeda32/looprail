@@ -32,6 +32,13 @@ export function parseLoopfile(text: string): LoopDef {
   if (raw.concurrency !== undefined && !isPositiveNumber(raw.concurrency)) {
     problems.push('concurrency must be a positive number')
   }
+  // Stall detection compares trailing fingerprints for repetition, which needs
+  // at least two iterations to have happened. stall_after: 1 would "stall" after
+  // the first iteration, before any repetition could exist — reject it.
+  if (rawRails.stall_after !== undefined
+      && !(typeof rawRails.stall_after === 'number' && rawRails.stall_after >= 2)) {
+    problems.push('rails.stall_after must be at least 2 (stall detection needs two iterations to compare)')
+  }
   for (const [id, n] of Object.entries(graph)) {
     if (!VALID_ROLES.includes(n.role as Role)) {
       problems.push(`node "${id}": missing or invalid role "${n.role}"`)

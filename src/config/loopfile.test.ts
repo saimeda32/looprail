@@ -98,6 +98,16 @@ test('rejects a weighted threshold outside (0, 1]', () => {
     .toThrow(/weighted/)
 })
 
+test('rejects stall_after below 2', () => {
+  expect(() => parseLoopfile(SAMPLE.replace('stall_after: 3', 'stall_after: 1')))
+    .toThrow(/stall_after must be at least 2/)
+})
+
+test('accepts stall_after of exactly 2', () => {
+  const def = parseLoopfile(SAMPLE.replace('stall_after: 3', 'stall_after: 2'))
+  expect(def.rails.stallAfter).toBe(2)
+})
+
 test('rejects a non-numeric concurrency', () => {
   expect(() => parseLoopfile(`${SAMPLE}\nconcurrency: fast`))
     .toThrow(/concurrency must be a positive number/)
