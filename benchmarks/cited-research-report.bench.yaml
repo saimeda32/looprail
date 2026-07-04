@@ -1,0 +1,8 @@
+name: cited-research-report
+task: Produce a short research report where every factual claim is cited to a real, checkable source.
+repeat: 5
+configs:
+  - id: baseline
+    loopfile: cited-research-report/baseline.yaml
+  - id: looprail
+    loopfile: cited-research-report/looprail.yaml

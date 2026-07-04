@@ -1,0 +1,14 @@
+name: data-pipeline-fix-baseline
+goal: |
+  Repair the broken transform step so the nightly pipeline job succeeds
+  end to end. (Naive baseline: one executor, one critic, same model
+  grading its own work, one retry.)
+agents:
+  worker: { adapter: mock }
+graph:
+  repair: { role: executor, agent: worker }
+  crit:   { role: critic, agent: worker, of: repair, after: repair }
+rails:
+  max_iterations: 2
+  max_cost_usd: 5
+verdict: { policy: all-pass }

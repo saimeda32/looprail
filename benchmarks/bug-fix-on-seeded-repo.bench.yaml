@@ -1,0 +1,8 @@
+name: bug-fix-on-seeded-repo
+task: Fix the one failing test in a seeded repo without touching unrelated files. Done means the full test suite passes.
+repeat: 5
+configs:
+  - id: baseline
+    loopfile: bug-fix-on-seeded-repo/baseline.yaml
+  - id: looprail
+    loopfile: bug-fix-on-seeded-repo/looprail.yaml

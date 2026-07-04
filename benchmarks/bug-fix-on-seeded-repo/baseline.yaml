@@ -1,0 +1,14 @@
+name: bug-fix-on-seeded-repo-baseline
+goal: |
+  Fix the one failing test in the seeded repo. Done means the full test
+  suite passes. (Naive baseline: one executor, one critic, same model
+  grading its own work, one retry.)
+agents:
+  worker: { adapter: mock }
+graph:
+  fix:  { role: executor, agent: worker }
+  crit: { role: critic, agent: worker, of: fix, after: fix }
+rails:
+  max_iterations: 2
+  max_cost_usd: 5
+verdict: { policy: all-pass }

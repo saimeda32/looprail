@@ -1,0 +1,20 @@
+name: bug-fix-on-seeded-repo-looprail
+goal: |
+  Fix the one failing test in the seeded repo. Done means the full test
+  suite passes. (Looprail: a plan reviewed up front, a two-model critic
+  panel reviews the fix.)
+agents:
+  worker:  { adapter: mock }
+  checker: { adapter: mock }
+  skeptic: { adapter: mock }
+graph:
+  plan:      { role: planner, agent: worker }
+  plan-crit: { role: critic, agent: checker, of: plan, after: plan }
+  fix:       { role: executor, agent: worker, after: plan-crit }
+  crit:      { role: critic, of: fix, after: fix, panel: [checker, skeptic] }
+  merge:     { role: synthesizer, agent: checker, after: crit }
+rails:
+  max_iterations: 4
+  max_cost_usd: 5
+  stall_after: 3
+verdict: { policy: all-pass }

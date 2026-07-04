@@ -1,0 +1,20 @@
+name: data-pipeline-fix-looprail
+goal: |
+  Repair the broken transform step so the nightly pipeline job succeeds
+  end to end. (Looprail: a plan reviewed up front, a two-model critic
+  panel reviews the repair.)
+agents:
+  worker:  { adapter: mock }
+  checker: { adapter: mock }
+  skeptic: { adapter: mock }
+graph:
+  plan:      { role: planner, agent: worker }
+  plan-crit: { role: critic, agent: checker, of: plan, after: plan }
+  repair:    { role: executor, agent: worker, after: plan-crit }
+  crit:      { role: critic, of: repair, after: repair, panel: [checker, skeptic] }
+  merge:     { role: synthesizer, agent: checker, after: crit }
+rails:
+  max_iterations: 4
+  max_cost_usd: 5
+  stall_after: 3
+verdict: { policy: all-pass }

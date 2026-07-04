@@ -1,0 +1,14 @@
+name: cited-research-report-baseline
+goal: |
+  Produce a short research report where every factual claim is cited to a
+  real, checkable source. (Naive baseline: one executor, one critic, same
+  model grading its own work, one retry.)
+agents:
+  worker: { adapter: mock }
+graph:
+  draft: { role: executor, agent: worker }
+  crit:  { role: critic, agent: worker, of: draft, after: draft }
+rails:
+  max_iterations: 2
+  max_cost_usd: 5
+verdict: { policy: all-pass }

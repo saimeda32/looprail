@@ -1,0 +1,8 @@
+name: data-pipeline-fix
+task: Repair the broken transform step so the nightly pipeline job succeeds end to end.
+repeat: 5
+configs:
+  - id: baseline
+    loopfile: data-pipeline-fix/baseline.yaml
+  - id: looprail
+    loopfile: data-pipeline-fix/looprail.yaml
