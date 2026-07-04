@@ -180,15 +180,22 @@ export function discoverClaudeCodeSessions(
       const projectDir = join(homedir, '.claude', 'projects', claudeCodeProjectSlug(workspace))
       if (!existsSync(projectDir)) continue
       for (const file of readdirSync(projectDir)) {
-        if (!file.endsWith('.jsonl')) continue
-        const mtimeMs = statSync(join(projectDir, file)).mtimeMs
-        if (mtimeMs < cutoff) continue
-        entries.push({
-          workspace,
-          workspaceName: basename(workspace),
-          sessionId: file.slice(0, -'.jsonl'.length),
-          lastActiveAt: mtimeMs,
-        })
+        try {
+          if (!file.endsWith('.jsonl')) continue
+          const mtimeMs = statSync(join(projectDir, file)).mtimeMs
+          if (mtimeMs < cutoff) continue
+          entries.push({
+            workspace,
+            workspaceName: basename(workspace),
+            sessionId: file.slice(0, -'.jsonl'.length),
+            lastActiveAt: mtimeMs,
+          })
+        } catch (err) {
+          // A single file's statSync throwing (e.g. a TOCTOU deletion between
+          // readdirSync and statSync) must skip only that entry, not blank out
+          // every other session in this workspace.
+          console.error(`discoverClaudeCodeSessions: skipping unreadable session ${file} in ${workspace}`, err)
+        }
       }
     } catch (err) {
       console.error(`discoverClaudeCodeSessions: skipping unreadable workspace ${workspace}`, err)

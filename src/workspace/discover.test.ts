@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
@@ -222,6 +222,31 @@ test('discoverClaudeCodeSessions skips a workspace whose Claude Code project pat
   }).not.toThrow()
   expect(sessions).toHaveLength(1)
   expect(sessions[0].workspace).toBe(healthy)
+})
+
+test('discoverClaudeCodeSessions skips one session whose statSync throws but still returns the healthy ones in the SAME workspace', () => {
+  const homedir = mkdtempSync(join(tmpdir(), 'lr-claude-home-'))
+  const workspace = '/projects/mixed'
+  const dir = join(homedir, '.claude', 'projects', claudeCodeProjectSlug(workspace))
+  mkdirSync(dir, { recursive: true })
+
+  // A dangling symlink ending in .jsonl: it survives readdirSync (the entry
+  // exists) but statSync follows it and throws ENOENT, standing in for a
+  // TOCTOU deletion between the two calls. This must NOT drop the good session.
+  symlinkSync(join(dir, 'nonexistent-target'), join(dir, 'dead-session.jsonl'))
+
+  const goodFile = join(dir, 'good-session.jsonl')
+  writeFileSync(goodFile, '{}')
+  const now = 5_000_000_000_000
+  const mtime = new Date(now - 60 * 1000)
+  utimesSync(goodFile, mtime, mtime)
+
+  let sessions: ReturnType<typeof discoverClaudeCodeSessions> = []
+  expect(() => {
+    sessions = discoverClaudeCodeSessions([workspace], { homedir, now: () => now })
+  }).not.toThrow()
+  expect(sessions).toHaveLength(1)
+  expect(sessions[0].sessionId).toBe('good-session')
 })
 
 test('discoverClaudeCodeSessions never reads file content — a corrupt jsonl file is still detected by mtime alone', () => {
