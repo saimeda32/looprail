@@ -95,6 +95,7 @@ dollars, whichever comes first.
 | --- | --- |
 | `looprail init` | Detect installed agents and scaffold a `looprail.yaml` |
 | `looprail run [file]` | Run the loop with live progress and a cost report |
+| `looprail bench [file]` | A/B two or more named loop configs against the same task and report measured deltas (`benchmarks/`) |
 | `looprail run --ui` | Same, and open a live dashboard for this run |
 | `looprail ui [runId]` | Open the dashboard for a run (defaults to the latest) |
 | `looprail ui --all` | Open mission control: every run, across every registered project |
@@ -209,6 +210,24 @@ misconfigured loop (a critic pointed at work that doesn't exist, an
 unregistered agent) halts loudly and immediately instead of quietly burning
 iterations trying to recover from something that will never fix itself.
 
+### Benchmarks
+
+`looprail bench <benchfile>` runs two or more named loop configs against the
+same task, N times each, and reports pass rate, iterations to verified, cost,
+wall time, and a wasted-work estimate per config, plus a one-line verdict:
+
+```bash
+looprail bench benchmarks/bug-fix-on-seeded-repo.bench.yaml
+```
+
+A benchfile names a task and points at ordinary loopfiles, one per config, so
+nothing about a loop's definition changes to be benchmarked. Every report
+labels each config's numbers `mock` or `real` based on which adapters
+actually ran, and the three benchmarks committed under `benchmarks/` are
+mock-backed, so `npm test` proves the whole harness end to end for free. See
+[benchmarks/README.md](benchmarks/README.md) for reading the report and
+running the same fixtures against real agents.
+
 ### Verdict policies
 
 How the checks combine into a pass or fail:
@@ -279,13 +298,14 @@ anything the CLI can run, the SDK can too. See
 
 ## Status
 
-The engine, the CLI, the adapters, and the Loopfile format are here and
-tested. The dashboard is here too, with live streaming output, in both a
-single-run view (`looprail ui`) and a mission-control view across every
-registered project (`looprail ui --all`). `looprail mcp` runs looprail as an
-MCP server for Claude Desktop, Cursor, and VS Code's Copilot Chat. A
-benchmarking harness for comparing loop designs with real numbers is still
-on the roadmap.
+The engine, the CLI, the adapters, the Loopfile format, and the `bench` A/B
+harness are here and tested. The dashboard is here too, with live streaming
+output, in both a single-run view (`looprail ui`) and a mission-control view
+across every registered project (`looprail ui --all`). `looprail mcp` runs
+looprail as an MCP server for Claude Desktop, Cursor, and VS Code's Copilot
+Chat. See `benchmarks/` for three mock-backed benchmarks comparing a naive
+prompting baseline against an engineered looprail config, and
+`benchmarks/README.md` for running the same comparison against real agents.
 
 ## Contributing
 
