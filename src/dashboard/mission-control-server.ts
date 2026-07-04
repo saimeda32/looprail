@@ -8,7 +8,7 @@ import {
 } from '../workspace/discover.js'
 import { defaultRegistryPath, listWorkspaces } from '../workspace/registry.js'
 import { buildMissionControlPage } from './mission-control-page.js'
-import { serveEvents, serveIndexPage, serveModel } from './server.js'
+import { serveControl, serveEvents, serveIndexPage, serveModel } from './server.js'
 import { fsWatcher, type Watcher } from './tail.js'
 
 // See discover.ts (Task 8) for why this is a small, deliberate duplicate of
@@ -64,15 +64,15 @@ export interface MissionControlServer {
   close(): Promise<void>
 }
 
-interface RunRoute { hash: string; runId: string; sub: 'index' | 'model' | 'events' }
+interface RunRoute { hash: string; runId: string; sub: 'index' | 'model' | 'events' | 'control' }
 
-// Pure: parses /run/<hash>/<runId>[/model|/events]. Plain segment splitting
-// instead of a regex - easier to read and to unit test in isolation.
+// Pure: parses /run/<hash>/<runId>[/model|/events|/control]. Plain segment
+// splitting instead of a regex - easier to read and to unit test in isolation.
 export function matchRunRoute(pathname: string): RunRoute | null {
   const parts = pathname.split('/').filter((p) => p.length > 0)
   if (parts[0] !== 'run' || !parts[1] || !parts[2]) return null
   if (parts.length === 3) return { hash: parts[1], runId: parts[2], sub: 'index' }
-  if (parts.length === 4 && (parts[3] === 'model' || parts[3] === 'events')) {
+  if (parts.length === 4 && (parts[3] === 'model' || parts[3] === 'events' || parts[3] === 'control')) {
     return { hash: parts[1], runId: parts[2], sub: parts[3] }
   }
   return null
@@ -162,7 +162,7 @@ export function startMissionControlServer(opts: MissionControlServerOptions = {}
       return
     }
 
-    const route = req.method === 'GET' ? matchRunRoute(path) : null
+    const route = req.method === 'GET' || req.method === 'POST' ? matchRunRoute(path) : null
     if (route) {
       const workspace = listWorkspaces(registryPath).find((w) => workspaceHash(w) === route.hash)
       if (!workspace) {
@@ -171,25 +171,34 @@ export function startMissionControlServer(opts: MissionControlServerOptions = {}
         return
       }
       const journalPath = join(runsRootOf(workspace), route.runId, 'journal.jsonl')
-      if (route.sub === 'model') {
+      if (req.method === 'GET' && route.sub === 'model') {
         serveModel(res, { journalPath, def: bestEffortLoopDef(workspace) })
         return
       }
-      if (route.sub === 'events') {
+      if (req.method === 'GET' && route.sub === 'events') {
         serveEvents(req, res, { journalPath }, watch)
         return
       }
-      // The page's own client fetches 'model'/'events' as relative URLs, so
-      // they only resolve correctly when this page's own address ends in a
-      // slash (see page.ts). Canonicalize it here rather than trusting every
-      // caller (a run card's href, a bookmark, someone typing it by hand) to
-      // already have one.
-      if (!path.endsWith('/')) {
-        res.writeHead(301, { location: path + '/' })
-        res.end()
+      if (req.method === 'POST' && route.sub === 'control') {
+        void serveControl(req, res, { journalPath })
         return
       }
-      serveIndexPage(res)
+      if (req.method === 'GET' && route.sub === 'index') {
+        // The page's own client fetches 'model'/'events' as relative URLs, so
+        // they only resolve correctly when this page's own address ends in a
+        // slash (see page.ts). Canonicalize it here rather than trusting every
+        // caller (a run card's href, a bookmark, someone typing it by hand) to
+        // already have one.
+        if (!path.endsWith('/')) {
+          res.writeHead(301, { location: path + '/' })
+          res.end()
+          return
+        }
+        serveIndexPage(res)
+        return
+      }
+      res.writeHead(404, { 'content-type': 'text/plain' })
+      res.end('not found')
       return
     }
 

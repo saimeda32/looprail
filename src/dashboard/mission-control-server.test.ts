@@ -26,8 +26,9 @@ function fakeRun(overrides: Partial<RunListEntry> = {}): RunListEntry {
   const workspace = overrides.workspace ?? '/projects/demo'
   return {
     workspace, workspaceName: 'demo', workspaceHash: workspaceHash(workspace),
-    runId: 'run-1', status: 'running', agents: ['worker'],
-    iteration: 1, costUsd: 0.1, startedAt: 1, lastEventAt: 2, journalPath: '/irrelevant',
+    runId: 'run-1', name: 'fake-loop', goal: 'a fake goal for tests',
+    status: 'running', agents: ['worker'],
+    iteration: 1, costUsd: 0.1, tokens: 100, startedAt: 1, lastEventAt: 2, journalPath: '/irrelevant',
     ...overrides,
   }
 }
@@ -139,6 +140,32 @@ test('GET /run/<hash>/<runId>/ serves the shared per-run dashboard page, and /mo
   const model = await get(`${dashboard.url}/run/${hash}/run-1/model`)
   const payload = JSON.parse(model.body) as { name: string }
   expect(payload.name).toBe('demo')
+})
+
+test('POST /run/<hash>/<runId>/control routes to serveControl, scoped to that workspace', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'lr-mc-ctrl-'))
+  const runDir = join(runsRoot(workspace), 'run-1')
+  mkdirSync(runDir, { recursive: true })
+  writeFileSync(join(runDir, 'journal.jsonl'), JSON.stringify({
+    ts: 1, type: 'run_start', data: { runId: 'run-1', name: 'demo', goal: 'g' },
+  }) + '\n')
+  // no pid file recorded - proves the route reaches serveControl's own
+  // 404 rather than mission-control-server crashing or 405-ing the method
+  const hash = workspaceHash(workspace)
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-mc-reg-')), 'workspaces.json')
+  writeFileSync(registryPath, JSON.stringify({ workspaces: [workspace] }))
+
+  dashboard = await startMissionControlServer({ registryPath })
+  const res = await new Promise<{ status: number }>((resolve, reject) => {
+    const req = http.request(
+      `${dashboard!.url}/run/${hash}/run-1/control`,
+      { method: 'POST', headers: { 'content-type': 'application/json' } },
+      (r) => { r.on('data', () => {}); r.on('end', () => resolve({ status: r.statusCode ?? 0 })) },
+    )
+    req.on('error', reject)
+    req.end(JSON.stringify({ action: 'pause' }))
+  })
+  expect(res.status).toBe(404)
 })
 
 test('GET /run/<hash>/<runId> without a trailing slash redirects to the slash form, not a 404', async () => {

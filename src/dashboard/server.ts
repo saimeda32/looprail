@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { LoopDef } from '../core/types.js'
 import { readJournal } from '../journal/journal.js'
 import { buildDashboardPayload } from './layout.js'
@@ -61,14 +61,131 @@ export function serveIndexPage(res: ServerResponse): void {
   res.end(PAGE)
 }
 
+// A run's own process id (recorded by run-cmd.ts as it starts) and a
+// pause marker (written/removed by serveControl below) both live next to
+// its journal, not inside it - they describe the OS process, not the loop's
+// own history, so they do not belong in the journal or in buildViewModel's
+// pure event-derived model. The dashboard client only needs to know
+// whether controls apply at all (pid), whether the paused marker is
+// currently present, and whether pausing is even safe to offer - not the
+// raw pid value itself.
+function controlState(
+  journalPath: string,
+): { controllable: boolean; paused: boolean; pauseUnsafe: boolean } {
+  const runDir = dirname(journalPath)
+  const pidPath = join(runDir, 'pid')
+  const controllable = existsSync(pidPath)
+  // See serveControl's own comment on the same check: pausing the process
+  // that is serving this exact dashboard (looprail run --ui) freezes the
+  // server answering this very request, with no way to resume from inside
+  // it. The client uses this to grey out Pause specifically, not the whole
+  // control set - Cancel stays safe and available either way.
+  const pauseUnsafe = controllable && Number(readFileSync(pidPath, 'utf8').trim()) === process.pid
+  return { controllable, paused: existsSync(join(runDir, 'paused')), pauseUnsafe }
+}
+
 export function serveModel(res: ServerResponse, opts: { journalPath: string; def?: LoopDef }): void {
   try {
     const payload = buildDashboardPayload(readEvents(opts.journalPath), opts.def)
     res.writeHead(200, { 'content-type': 'application/json' })
-    res.end(JSON.stringify(payload))
+    res.end(JSON.stringify({ ...payload, ...controlState(opts.journalPath) }))
   } catch (err) {
     sendReadError(res, '/model failed to read journal', err)
   }
+}
+
+function readRequestBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let body = ''
+    req.on('data', (chunk: Buffer) => { body += chunk })
+    req.on('end', () => resolve(body))
+    req.on('error', reject)
+  })
+}
+
+const CONTROL_SIGNALS = { pause: 'SIGSTOP', resume: 'SIGCONT', cancel: 'SIGTERM' } as const
+type ControlAction = keyof typeof CONTROL_SIGNALS
+
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { 'content-type': 'application/json' })
+  res.end(JSON.stringify(body))
+}
+
+// Pause/resume/cancel a run's own process - scoped strictly to runs looprail
+// itself started and recorded a pid for (run-cmd.ts writes <runDir>/pid on
+// startup); there is no path from here to any other process on the machine.
+// A run's own reported status is the safety gate against a stale or reused
+// pid: once a run's journal shows verified/halted, this refuses to signal
+// anything at all, regardless of what the pid file still says.
+export async function serveControl(
+  req: IncomingMessage, res: ServerResponse, opts: { journalPath: string },
+): Promise<void> {
+  let action: string | undefined
+  try {
+    const body = await readRequestBody(req)
+    action = (JSON.parse(body || '{}') as { action?: string }).action
+  } catch {
+    sendJson(res, 400, { error: 'invalid request body' })
+    return
+  }
+  if (action !== 'pause' && action !== 'resume' && action !== 'cancel') {
+    sendJson(res, 400, { error: `unknown action "${String(action)}"` })
+    return
+  }
+
+  let status: string
+  try {
+    status = buildDashboardPayload(readEvents(opts.journalPath)).status
+  } catch (err) {
+    sendReadError(res, '/control failed to read journal', err)
+    return
+  }
+  if (status !== 'running') {
+    sendJson(res, 409, { error: `run is ${status}, not running - nothing to ${action}` })
+    return
+  }
+
+  const runDir = dirname(opts.journalPath)
+  const pidPath = join(runDir, 'pid')
+  if (!existsSync(pidPath)) {
+    sendJson(res, 404, { error: 'no recorded process for this run' })
+    return
+  }
+  const pid = Number(readFileSync(pidPath, 'utf8').trim())
+
+  // `looprail run --ui` serves this exact dashboard from inside the run's
+  // own process. SIGSTOP has no app-level handler - the kernel freezes the
+  // whole process, including the HTTP server answering this very request,
+  // with nothing left able to accept the eventual "resume" click. Verified
+  // empirically: paused this way, the dashboard stops answering ANY request
+  // at all, not just this one - there is no recovery from inside it.
+  // Refuse specifically the action that creates that trap; cancel (SIGTERM)
+  // has a real handler (run-cmd.ts's installCancelHandler) that finishes
+  // writing this very response before the process exits on its own terms,
+  // so it stays safe to self-target.
+  if (pid === process.pid && action === 'pause') {
+    sendJson(res, 400, {
+      error: 'cannot pause the process serving this dashboard - it would freeze the '
+        + 'dashboard itself with no way to resume from here. Open this run from '
+        + '`looprail ui --all` instead, which runs as a separate process and can '
+        + 'safely pause and resume it.',
+    })
+    return
+  }
+
+  try {
+    process.kill(pid, CONTROL_SIGNALS[action as ControlAction])
+  } catch {
+    sendJson(res, 409, { error: 'process is no longer running' })
+    return
+  }
+  const pausedMarker = join(runDir, 'paused')
+  if (action === 'pause') {
+    writeFileSync(pausedMarker, '')
+  } else {
+    try { unlinkSync(pausedMarker) } catch { /* was not paused */ }
+  }
+  sendJson(res, 200, { ok: true })
 }
 
 export function serveEvents(
@@ -139,6 +256,11 @@ export function startDashboardServer(opts: DashboardServerOptions): Promise<Dash
 
     if (req.method === 'GET' && url.pathname === '/events') {
       serveEvents(req, res, opts, watch)
+      return
+    }
+
+    if (req.method === 'POST' && url.pathname === '/control') {
+      void serveControl(req, res, opts)
       return
     }
 

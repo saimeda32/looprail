@@ -1,16 +1,51 @@
-import { mkdtempSync, writeFileSync, appendFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, writeFileSync, appendFileSync } from 'node:fs'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { afterEach, expect, test } from 'vitest'
+import { dirname, join } from 'node:path'
+import { spawn, type ChildProcess } from 'node:child_process'
+import { afterEach, expect, test, vi } from 'vitest'
 import { startDashboardServer, type DashboardServer } from './server.js'
 
 let dashboard: DashboardServer | undefined
+let spawned: ChildProcess[] = []
 
 afterEach(async () => {
   if (dashboard) await dashboard.close()
   dashboard = undefined
+  for (const p of spawned) { try { p.kill('SIGKILL') } catch { /* already gone */ } }
+  spawned = []
 })
+
+// A real, disposable, harmless child process to stand in for "the run
+// process" - real enough that real signals (SIGSTOP/SIGCONT/SIGTERM) have
+// real, observable effects, killed unconditionally in afterEach either way.
+function spawnDummyProcess(): ChildProcess {
+  const p = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'])
+  spawned.push(p)
+  return p
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function post(url: string, body: unknown): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(body)
+    const req = http.request(url, { method: 'POST', headers: { 'content-type': 'application/json' } }, (res) => {
+      let resBody = ''
+      res.on('data', (chunk) => { resBody += chunk })
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: resBody }))
+    })
+    req.on('error', reject)
+    req.end(data)
+  })
+}
 
 function get(url: string): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
   return new Promise((resolve, reject) => {
@@ -152,4 +187,118 @@ test('the dashboard never writes to the journal file (read-only)', async () => {
   await get(dashboard.url + '/model')
   const after = require('node:fs').readFileSync(journalPath, 'utf8')
   expect(after).toBe(before)
+})
+
+// --- POST /control: pause/resume/cancel a run's own process ---
+
+test('POST /control refuses to pause the process serving this exact dashboard (looprail run --ui, same-process trap)', async () => {
+  // Reproduces the real bug: pausing the process that is ALSO answering
+  // this HTTP request would freeze the dashboard itself, with no way to
+  // ever send a resume request to it again. Verified by hand before this
+  // fix existed - a real `run --ui` process paused this way stopped
+  // answering ANY request at all, not just future ones.
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  writeFileSync(join(dirname(journalPath), 'pid'), String(process.pid))
+  dashboard = await startDashboardServer({ journalPath })
+
+  const res = await post(dashboard.url + '/control', { action: 'pause' })
+  expect(res.status).toBe(400)
+  expect(JSON.parse(res.body).error).toMatch(/ui --all/i)
+  expect(existsSync(join(dirname(journalPath), 'paused'))).toBe(false)
+
+  // cancel must stay available for the exact same pid - it is not the
+  // same trap (run-cmd.ts's SIGTERM handler finishes this very response
+  // before the process exits on its own terms), so refusing it too would
+  // be over-broad, not just cautious.
+  const model = await get(dashboard.url + '/model')
+  expect(JSON.parse(model.body).pauseUnsafe).toBe(true)
+})
+
+test('POST /control pause stops a real running process without killing it, and /model reflects paused', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const child = spawnDummyProcess()
+  await new Promise((r) => setTimeout(r, 50)) // let it actually start
+  writeFileSync(join(dirname(journalPath), 'pid'), String(child.pid))
+  dashboard = await startDashboardServer({ journalPath })
+
+  const res = await post(dashboard.url + '/control', { action: 'pause' })
+  expect(res.status).toBe(200)
+  expect(isAlive(child.pid!)).toBe(true)
+  expect(existsSync(join(dirname(journalPath), 'paused'))).toBe(true)
+
+  const model = await get(dashboard.url + '/model')
+  expect(JSON.parse(model.body).paused).toBe(true)
+})
+
+test('POST /control resume clears the paused marker', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const child = spawnDummyProcess()
+  await new Promise((r) => setTimeout(r, 50))
+  writeFileSync(join(dirname(journalPath), 'pid'), String(child.pid))
+  dashboard = await startDashboardServer({ journalPath })
+
+  await post(dashboard.url + '/control', { action: 'pause' })
+  const res = await post(dashboard.url + '/control', { action: 'resume' })
+  expect(res.status).toBe(200)
+  expect(isAlive(child.pid!)).toBe(true)
+  expect(existsSync(join(dirname(journalPath), 'paused'))).toBe(false)
+})
+
+test('POST /control cancel actually terminates the real process', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const child = spawnDummyProcess()
+  await new Promise((r) => setTimeout(r, 50))
+  writeFileSync(join(dirname(journalPath), 'pid'), String(child.pid))
+  dashboard = await startDashboardServer({ journalPath })
+
+  const res = await post(dashboard.url + '/control', { action: 'cancel' })
+  expect(res.status).toBe(200)
+  await vi.waitFor(() => expect(isAlive(child.pid!)).toBe(false), { timeout: 2000 })
+})
+
+test('POST /control refuses to act once the run is no longer running, regardless of the pid file', async () => {
+  const journalPath = journalWith([
+    '{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}',
+    '{"ts":2,"type":"verified","data":{"reason":"ok","costUsd":0}}',
+  ])
+  const child = spawnDummyProcess()
+  await new Promise((r) => setTimeout(r, 50))
+  writeFileSync(join(dirname(journalPath), 'pid'), String(child.pid))
+  dashboard = await startDashboardServer({ journalPath })
+
+  const res = await post(dashboard.url + '/control', { action: 'cancel' })
+  expect(res.status).toBe(409)
+  expect(isAlive(child.pid!)).toBe(true) // never touched
+})
+
+test('POST /control 404s cleanly when no pid was ever recorded for this run', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  dashboard = await startDashboardServer({ journalPath })
+  const res = await post(dashboard.url + '/control', { action: 'pause' })
+  expect(res.status).toBe(404)
+})
+
+test('POST /control 409s cleanly when the recorded pid is already gone', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  writeFileSync(join(dirname(journalPath), 'pid'), '999999') // almost certainly unused
+  dashboard = await startDashboardServer({ journalPath })
+  const res = await post(dashboard.url + '/control', { action: 'pause' })
+  expect(res.status).toBe(409)
+})
+
+test('POST /control rejects an unknown action with 400', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  dashboard = await startDashboardServer({ journalPath })
+  const res = await post(dashboard.url + '/control', { action: 'nuke' })
+  expect(res.status).toBe(400)
+})
+
+test('GET /model reports controllable:false when no pid file exists, true once one does', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  dashboard = await startDashboardServer({ journalPath })
+  const before = await get(dashboard.url + '/model')
+  expect(JSON.parse(before.body).controllable).toBe(false)
+  writeFileSync(join(dirname(journalPath), 'pid'), String(process.pid))
+  const after = await get(dashboard.url + '/model')
+  expect(JSON.parse(after.body).controllable).toBe(true)
 })

@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import type { Command } from 'commander'
 import {
-  createDefaultRegistry, expandPanels, lintLoop, parseLoopfile, readJournal, runLoop,
+  createDefaultRegistry, expandPanels, JournalWriter, lintLoop, parseLoopfile, readJournal, runLoop,
+  summarizeJournal,
   type AdapterRegistry, type GateHandler, type JournalEvent, type LoopDef,
   type NodeOutcome, type Rails, type RunReport,
 } from '../index.js'
@@ -193,6 +194,62 @@ function autoRegisterWorkspace(cwd: string, registryPath: string): void {
   }
 }
 
+// The dashboard's pause/resume/cancel controls (server.ts's serveControl)
+// need this process's own pid to signal it later - recorded once, up front,
+// same best-effort posture as the registry write above.
+function writeRunPid(runDir: string): void {
+  try {
+    writeFileSync(join(runDir, 'pid'), String(process.pid))
+  } catch {
+    // swallowed - a run must never fail just because it couldn't record its own pid
+  }
+}
+
+// Once this process is done with a run - however it ends, verified, halted,
+// or canceled - its pid file must not outlive it. A pid is only ever
+// meaningful while the exact process that wrote it is still alive: left in
+// place, it would tell a later `looprail resume`/`replay` on this same run
+// directory (which does not write its own pid) that there is still
+// something here to pause or cancel, and after enough real time passes,
+// that stale pid can be reassigned by the OS to a completely unrelated
+// process - making "cancel" a real risk of signaling the wrong thing
+// entirely, not just a no-op on an already-finished run.
+function removeRunPid(runDir: string): void {
+  try {
+    unlinkSync(join(runDir, 'pid'))
+  } catch {
+    // swallowed - already gone, or never written; either way nothing to clean up
+  }
+}
+
+// SIGTERM is how the dashboard's "cancel" control (server.ts's serveControl)
+// asks this specific process to stop. Node's default SIGTERM behavior is an
+// immediate, silent exit, which would leave the journal permanently showing
+// "running" (there is no terminal verified/halt event to say otherwise) even
+// though the process is long gone - so this writes one before exiting,
+// using the cost the journal already knows about since there is no live
+// engine state reachable from here. Returns an uninstall function: this
+// must never leak past the run it belongs to, since runAction can run
+// many times in one process (every test in run-cmd.test.ts does exactly
+// that) and each installation is only ever meant to answer for its own run.
+function installCancelHandler(runDir: string, journalPath: string): () => void {
+  const onSigterm = (): void => {
+    try {
+      const costUsd = existsSync(journalPath) ? summarizeJournal(readJournal(journalPath)).costUsd : 0
+      new JournalWriter(runDir).write('halt', { reason: 'canceled by user request', costUsd })
+    } catch {
+      // best-effort - the process exits either way
+    }
+    // process.exit() skips any pending finally block (runAction's own
+    // cleanup never runs after this), so the pid removal that would
+    // otherwise happen there has to happen here instead.
+    removeRunPid(runDir)
+    process.exit(2)
+  }
+  process.once('SIGTERM', onSigterm)
+  return () => process.removeListener('SIGTERM', onSigterm)
+}
+
 export async function runAction(
   file: string | undefined,
   opts: { cwd: string; json?: boolean; yes?: boolean; ui?: boolean },
@@ -220,16 +277,20 @@ export async function runAction(
   const runId = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
   const runDir = join(runsRoot(opts.cwd), runId)
 
+  // Create the run directory up front (used to be gated behind --ui; now
+  // unconditional so the pid file below always lands, whether or not a
+  // dashboard was opened for this specific invocation - the user might
+  // start a plain `run` and only later open `looprail ui` in another
+  // terminal to check on and control it). Also means /events' parent-dir-
+  // watch fallback always has something real to watch immediately when
+  // --ui is used. JournalWriter's later mkdirSync on this same path is a
+  // safe no-op (recursive: true).
+  mkdirSync(runDir, { recursive: true })
+  writeRunPid(runDir)
+  const uninstallCancelHandler = installCancelHandler(runDir, join(runDir, 'journal.jsonl'))
+
   let dashboard: DashboardServer | undefined
   if (opts.ui) {
-    // Create the run directory before the dashboard starts listening, so its
-    // /events parent-dir-watch fallback always has a real directory to watch
-    // from the first connection onward - otherwise a client connecting
-    // before executeRun creates the directory (via JournalWriter's own
-    // mkdirSync) gets no watcher at all and live updates never start until a
-    // manual refresh. JournalWriter's later mkdirSync on this same path is a
-    // safe no-op (recursive: true).
-    mkdirSync(runDir, { recursive: true })
     // panel-expand up front so node ids in the dashboard match the ids the
     // engine will actually journal (runLoop does this same expansion
     // internally - see splitRegions/expandPanels in engine/runner.ts)
@@ -253,6 +314,8 @@ export async function runAction(
       gate: deps.gate ?? makeGate(loaded.def.rails, io, !!opts.yes),
     })
   } finally {
+    uninstallCancelHandler()
+    removeRunPid(runDir)
     if (dashboard) await dashboard.close()
   }
 }

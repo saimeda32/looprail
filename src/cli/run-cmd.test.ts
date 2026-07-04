@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -83,6 +83,67 @@ test('verified run exits 0, renders progress and report, writes a journal', asyn
   const runs = readdirSync(runsRoot(cwd))
   expect(runs).toHaveLength(1)
   expect(readdirSync(join(runsRoot(cwd), runs[0]))).toContain('journal.jsonl')
+})
+
+test('a run records its own pid while active, then removes it once the run finishes', async () => {
+  // A stale pid left behind after the process that owned it exits is a real
+  // safety issue, not just clutter: `looprail resume`/`replay` on this same
+  // run directory does not write its own pid, so a leftover one would tell
+  // the dashboard there is still something here to pause or cancel - and
+  // after enough real time, that pid can be reassigned by the OS to a
+  // completely unrelated process. Uses the gated fixture so there is a real
+  // point mid-run to check the pid file exists, not just before/after.
+  const { cwd, io } = setup(GATED)
+  let pidDuringRun: string | undefined
+  await runAction(undefined, { cwd }, {
+    io,
+    gate: async () => {
+      const runs = readdirSync(runsRoot(cwd))
+      pidDuringRun = readFileSync(join(runsRoot(cwd), runs[0], 'pid'), 'utf8').trim()
+      return true
+    },
+  })
+  expect(Number(pidDuringRun)).toBe(process.pid)
+  const runs = readdirSync(runsRoot(cwd))
+  expect(existsSync(join(runsRoot(cwd), runs[0], 'pid'))).toBe(false)
+})
+
+test('canceling a run (SIGTERM) also removes its pid file, not just process.exit paths', async () => {
+  const { cwd, io } = setup(GATED)
+  const done = runAction(undefined, { cwd }, {
+    io,
+    gate: () => new Promise(() => {}), // never resolves - the run stays open until canceled
+  })
+  await new Promise((r) => setTimeout(r, 20)) // let runAction reach the pid-writing point
+  const runs = readdirSync(runsRoot(cwd))
+  const pidPath = join(runsRoot(cwd), runs[0], 'pid')
+  expect(existsSync(pidPath)).toBe(true)
+
+  const realExit = process.exit
+  // capture, but do not actually let it terminate the test worker
+  process.exit = ((code?: number) => { throw new ProcessExitStub(code) }) as never
+  try {
+    process.emit('SIGTERM')
+  } catch (e) {
+    expect(e).toBeInstanceOf(ProcessExitStub)
+  } finally {
+    process.exit = realExit
+  }
+  expect(existsSync(pidPath)).toBe(false)
+  void done.catch(() => {}) // this run never naturally completes; avoid an unhandled rejection warning
+})
+
+class ProcessExitStub extends Error {
+  constructor(public code?: number) { super(`process.exit(${code})`) }
+}
+
+test('running many times in one process never leaks a SIGTERM listener past its own run', async () => {
+  const before = process.listenerCount('SIGTERM')
+  for (let i = 0; i < 5; i++) {
+    const { cwd, io } = setup(FIXTURE)
+    await runAction(undefined, { cwd }, { io })
+  }
+  expect(process.listenerCount('SIGTERM')).toBe(before)
 })
 
 test('halted run exits 2 with the rail reason', async () => {
