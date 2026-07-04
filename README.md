@@ -45,9 +45,11 @@ looprail run --ui        # same, but opens a live dashboard alongside it
 
 `init` picks a template for you (`fix-tests`, `research-report`, `refactor`,
 `content-pipeline`, `review-diff`, or `build-app`) and fills in whichever
-agent CLIs it found. Pass
-`--yes` for zero prompts, or `--template <name> --agent <adapter>` to skip
-detection entirely.
+agent CLIs it found. For each role in the template it asks which tier to run
+on, strong, medium, or cheap, with a sensible default already highlighted, so
+you decide the cost/quality tradeoff per role instead of guessing at YAML by
+hand. Pass `--yes` to accept every recommended default with zero prompts, or
+`--template <name> --agent <adapter>` to skip detection entirely.
 
 ### Writing a Loopfile
 
@@ -111,11 +113,11 @@ dollars, whichever comes first.
 | `looprail workspace remove <path>` | Stop tracking a project |
 | `looprail mcp` | Start looprail as an MCP server for Claude Desktop, Cursor, or VS Code |
 
-You rarely need `workspace add` yourself — `looprail run` registers its own
+You rarely need `workspace add` yourself - `looprail run` registers its own
 project the first time you use it there.
 
-`looprail mcp` lets you do the same things — lint a loopfile, start a run,
-check on it — from inside Claude Desktop, Cursor, or VS Code's Copilot Chat
+`looprail mcp` lets you do the same things - lint a loopfile, start a run,
+check on it - from inside Claude Desktop, Cursor, or VS Code's Copilot Chat
 instead of a terminal. See [docs/MCP.md](docs/MCP.md) for the config
 snippet each host needs and the full list of tools it exposes.
 
@@ -186,7 +188,7 @@ Looprail doesn't drive every agent tool the same way. Claude Code, Codex,
 aider, and GitHub Copilot each have a real command-line mode looprail can
 shell out to and parse output from, so any of them can run any node. Cursor
 doesn't have that (it's an IDE, not a scriptable process), so it can't be
-assigned a node — the only way Cursor or Claude Desktop connect to looprail is
+assigned a node - the only way Cursor or Claude Desktop connect to looprail is
 the other direction, as an MCP client calling into looprail's own tools via
 `looprail mcp` (see [docs/MCP.md](docs/MCP.md)).
 
@@ -244,7 +246,7 @@ which is what `status`, `logs`, `resume`, `replay`, and the dashboard all read
 from. `looprail run --ui` (or `looprail ui` for a past run) opens a local page
 showing the DAG live: which node is running, which have passed or failed, and
 a per-node output panel you can click into. When a node is still running, its
-output streams into that panel as the agent produces it — no "please wait,"
+output streams into that panel as the agent produces it - no "please wait,"
 you watch it write. If more than one node is running at once (a critic panel,
 say), a tab switcher lets you flip between watching each one live. Cost and
 iteration count show as running totals against your rails, broken down per
