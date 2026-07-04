@@ -106,6 +106,28 @@ test('discoverRuns skips a workspace whose run journal path is a directory inste
   expect(entries[0].runId).toBe('run-2')
 })
 
+test('discoverRuns skips one broken run but still returns the healthy runs in the SAME workspace', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'lr-discover-mixed-'))
+  const runsDir = join(workspace, '.looprail', 'runs')
+
+  // A broken run: its journal.jsonl is a directory, not a file, so reading it
+  // throws (EISDIR). This must NOT take down the healthy run beside it.
+  mkdirSync(join(runsDir, 'run-broken', 'journal.jsonl'), { recursive: true })
+
+  // A healthy run in the very same workspace.
+  const goodDir = join(runsDir, 'run-good')
+  mkdirSync(goodDir, { recursive: true })
+  writeFileSync(
+    join(goodDir, 'journal.jsonl'),
+    JSON.stringify(ev('run_start', { runId: 'run-good', name: 'n', goal: 'g' })) + '\n',
+  )
+
+  let entries: ReturnType<typeof discoverRuns> = []
+  expect(() => { entries = discoverRuns([workspace]) }).not.toThrow()
+  expect(entries).toHaveLength(1)
+  expect(entries[0].runId).toBe('run-good')
+})
+
 // --- Claude Code raw-session presence detection ---
 
 test('claudeCodeProjectSlug replaces every slash with a dash', () => {

@@ -87,13 +87,16 @@ export function buildRunListEntry(
 // request/poll tick, never on a timer of its own (see Global Constraints:
 // no daemon).
 //
-// Each workspace's work is wrapped in its own try/catch: a registered
-// workspace can go bad in ways outside our control between registration and
-// scan time (its journal file replaced by a directory, the workspace
-// deleted, a permissions error, a TOCTOU race between readdirSync and the
-// read) and any of those is a synchronous throw. One bad workspace must
-// never zero out or crash the scan for every OTHER registered workspace, so
-// we skip and log rather than let it propagate.
+// Two nested guards, each doing a distinct job. The outer try/catch handles a
+// registered workspace going bad in ways outside our control between
+// registration and scan time (the workspace deleted, its runs root replaced by
+// a file, a permissions error on readdirSync) — any of those is a synchronous
+// throw, and one bad workspace must never zero out or crash the scan for every
+// OTHER registered workspace. The inner try/catch does the same at run
+// granularity: a single run's journal going bad (its journal.jsonl replaced by
+// a directory, truncated, or a TOCTOU race between readdirSync and the read)
+// must skip only that run, not blank out every OTHER healthy run in the same
+// workspace.
 export function discoverRuns(workspaces: string[]): RunListEntry[] {
   const entries: RunListEntry[] = []
   for (const workspace of workspaces) {
@@ -102,10 +105,14 @@ export function discoverRuns(workspaces: string[]): RunListEntry[] {
       if (!existsSync(root)) continue
       const def = bestEffortLoopDef(workspace)
       for (const runId of readdirSync(root)) {
-        const journalPath = join(root, runId, 'journal.jsonl')
-        if (!existsSync(journalPath)) continue
-        const events = readJournal(journalPath)
-        entries.push(buildRunListEntry(workspace, runId, journalPath, events, def))
+        try {
+          const journalPath = join(root, runId, 'journal.jsonl')
+          if (!existsSync(journalPath)) continue
+          const events = readJournal(journalPath)
+          entries.push(buildRunListEntry(workspace, runId, journalPath, events, def))
+        } catch (err) {
+          console.error(`discoverRuns: skipping unreadable run ${runId} in ${workspace}`, err)
+        }
       }
     } catch (err) {
       console.error(`discoverRuns: skipping unreadable workspace ${workspace}`, err)
