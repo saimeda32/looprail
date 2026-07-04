@@ -60,6 +60,17 @@ describe('validateGraph', () => {
       expect(validateGraph(def)).toContain('node "do": panel must be >= 1')
     }
   })
+
+  test('rejects a numeric panel on a non-agent role', () => {
+    for (const role of ['tester', 'gate'] as const) {
+      const def = base([
+        { id: 'do', role: 'executor', agent: 'a' },
+        { id: 'v', role, run: 'true', panel: 3, after: ['do'] },
+      ])
+      expect(validateGraph(def).some((e) => e.includes(`node "v" (${role})`) && e.includes('panel')))
+        .toBe(true)
+    }
+  })
 })
 
 describe('topoLayers', () => {

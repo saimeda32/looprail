@@ -22,6 +22,12 @@ export function validateGraph(def: LoopDef): string[] {
     if (typeof n.panel === 'number' && (!Number.isInteger(n.panel) || n.panel < 1)) {
       errors.push(`node "${n.id}": panel must be >= 1`)
     }
+    // A numeric panel clones the node N times reusing its `agent`. On a
+    // non-agent role (tester, gate) `agent` is undefined/ignored, so this
+    // silently produces N identical clones with a meaningless agent — reject it.
+    if (typeof n.panel === 'number' && !AGENT_ROLES.has(n.role)) {
+      errors.push(`node "${n.id}" (${n.role}): a numeric panel fans out over an agent, which a ${n.role} node has none of`)
+    }
     const needsAgent = AGENT_ROLES.has(n.role) && !Array.isArray(n.panel)
     if (needsAgent && !n.agent) errors.push(`node "${n.id}" (${n.role}) has no agent`)
     if (n.agent && !def.agents[n.agent]) {
