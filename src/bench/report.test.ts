@@ -70,6 +70,16 @@ test('renderTable omits the scripted-cost banner when every config is real', () 
   expect(renderTable(r)).not.toContain('SCRIPTED')
 })
 
+test('renderTable shows the scripted-cost banner with mixed real and mock configs', () => {
+  const r = result({
+    configs: [
+      { id: 'baseline', mode: 'real', runs: [], stats: stats({ id: 'baseline' }) },
+      { id: 'looprail', mode: 'mock', runs: [], stats: stats({ id: 'looprail' }) },
+    ],
+  })
+  expect(renderTable(r)).toContain('SCRIPTED')
+})
+
 test('renderJson is a plain object with per-config stats and a verdict line', () => {
   const json = renderJson(result())
   expect(json.name).toBe('demo')
