@@ -34,14 +34,19 @@ function isAlive(pid: number): boolean {
   }
 }
 
-function post(url: string, body: unknown): Promise<{ status: number; body: string }> {
+function post(
+  url: string, body: unknown, extraHeaders: Record<string, string> = {},
+): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const data = JSON.stringify(body)
-    const req = http.request(url, { method: 'POST', headers: { 'content-type': 'application/json' } }, (res) => {
-      let resBody = ''
-      res.on('data', (chunk) => { resBody += chunk })
-      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: resBody }))
-    })
+    const req = http.request(
+      url, { method: 'POST', headers: { 'content-type': 'application/json', ...extraHeaders } },
+      (res) => {
+        let resBody = ''
+        res.on('data', (chunk) => { resBody += chunk })
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body: resBody }))
+      },
+    )
     req.on('error', reject)
     req.end(data)
   })
@@ -291,6 +296,41 @@ test('POST /control rejects an unknown action with 400', async () => {
   dashboard = await startDashboardServer({ journalPath })
   const res = await post(dashboard.url + '/control', { action: 'nuke' })
   expect(res.status).toBe(400)
+})
+
+test('POST /control rejects a cross-origin request (CSRF): a malicious page open in another tab cannot pause/cancel a run just by knowing it runs on localhost', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const child = spawnDummyProcess()
+  await new Promise((r) => setTimeout(r, 50))
+  writeFileSync(join(dirname(journalPath), 'pid'), String(child.pid))
+  dashboard = await startDashboardServer({ journalPath })
+
+  const res = await post(dashboard.url + '/control', { action: 'cancel' }, { origin: 'https://evil.example.com' })
+  expect(res.status).toBe(403)
+  expect(isAlive(child.pid!)).toBe(true) // never touched
+})
+
+test('POST /control allows a same-origin request (the real dashboard page calling its own server)', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const child = spawnDummyProcess()
+  await new Promise((r) => setTimeout(r, 50))
+  writeFileSync(join(dirname(journalPath), 'pid'), String(child.pid))
+  dashboard = await startDashboardServer({ journalPath })
+  const host = new URL(dashboard.url).host
+
+  const res = await post(dashboard.url + '/control', { action: 'cancel' }, { origin: `http://${host}` })
+  expect(res.status).toBe(200)
+})
+
+test('POST /control allows a request with no Origin or Referer at all (a script or curl call, not a browser CSRF)', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const child = spawnDummyProcess()
+  await new Promise((r) => setTimeout(r, 50))
+  writeFileSync(join(dirname(journalPath), 'pid'), String(child.pid))
+  dashboard = await startDashboardServer({ journalPath })
+
+  const res = await post(dashboard.url + '/control', { action: 'cancel' })
+  expect(res.status).toBe(200)
 })
 
 test('GET /model reports controllable:false when no pid file exists, true once one does', async () => {

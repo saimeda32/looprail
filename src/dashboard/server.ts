@@ -111,6 +111,29 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body))
 }
 
+// This endpoint pauses, resumes, or kills a real process - reachable by any
+// page open in the same browser, not just this dashboard's own tab, since
+// browsers do not scope a fetch() to "only pages the user meant to load
+// this from." A malicious site the user has open in another tab could
+// otherwise POST here blind (no response needed, no user interaction) and
+// cancel or pause a run just by knowing it runs on localhost - a classic
+// CSRF pattern that plain content-type checking does not fully close (a
+// text/plain form POST needs no CORS preflight at all). Reject any request
+// whose Origin (or, failing that, Referer) does not match the host this
+// server itself is answering as; allow requests with neither header, since
+// a real browser CSRF attempt always sends at least one and a bare
+// script/curl call from the user's own terminal has no ambient session to
+// forge in the first place.
+function isSameOrigin(req: IncomingMessage): boolean {
+  const host = req.headers.host
+  if (!host) return false
+  const origin = req.headers.origin
+  if (origin) return origin === `http://${host}`
+  const referer = req.headers.referer
+  if (referer) return referer === `http://${host}` || referer.startsWith(`http://${host}/`)
+  return true
+}
+
 // Pause/resume/cancel a run's own process - scoped strictly to runs looprail
 // itself started and recorded a pid for (run-cmd.ts writes <runDir>/pid on
 // startup); there is no path from here to any other process on the machine.
@@ -120,6 +143,10 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 export async function serveControl(
   req: IncomingMessage, res: ServerResponse, opts: { journalPath: string },
 ): Promise<void> {
+  if (!isSameOrigin(req)) {
+    sendJson(res, 403, { error: 'cross-origin request rejected' })
+    return
+  }
   let action: string | undefined
   try {
     const body = await readRequestBody(req)
