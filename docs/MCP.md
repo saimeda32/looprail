@@ -51,18 +51,7 @@ Edit Claude Desktop's config file:
 
 If `looprail` isn't on Claude Desktop's `PATH` (it spawns servers with a
 minimal environment), point `command` at the absolute path from `which
-looprail`, or run it through `npx`:
-
-```json
-{
-  "mcpServers": {
-    "looprail": {
-      "command": "npx",
-      "args": ["-y", "looprail", "mcp"]
-    }
-  }
-}
-```
+looprail` instead.
 
 Restart Claude Desktop after saving. Look for the tools icon in the chat box
 to confirm looprail's tools loaded.
