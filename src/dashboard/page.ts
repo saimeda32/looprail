@@ -440,13 +440,19 @@ export function buildPage(): string {
   }
 
   function refresh() {
-    fetch('/model').then(function (r) { return r.json(); }).then(render).catch(function (err) {
+    // Relative, not '/model': this same page is served both standalone at
+    // '/' (looprail ui) and nested at '/run/<hash>/<runId>/' (mission
+    // control), and a leading slash would always hit the site root's route,
+    // 404ing under mission control. The server enforces a trailing slash on
+    // this page's own URL (see startMissionControlServer) specifically so
+    // this relative resolution is reliable either way.
+    fetch('model').then(function (r) { return r.json(); }).then(render).catch(function (err) {
       console.error('failed to refresh dashboard model', err);
     });
   }
 
   refresh();
-  var es = new EventSource('/events');
+  var es = new EventSource('events');
   es.onmessage = function () { refresh(); };
 })();
 </script>

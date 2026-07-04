@@ -179,6 +179,16 @@ export function startMissionControlServer(opts: MissionControlServerOptions = {}
         serveEvents(req, res, { journalPath }, watch)
         return
       }
+      // The page's own client fetches 'model'/'events' as relative URLs, so
+      // they only resolve correctly when this page's own address ends in a
+      // slash (see page.ts). Canonicalize it here rather than trusting every
+      // caller (a run card's href, a bookmark, someone typing it by hand) to
+      // already have one.
+      if (!path.endsWith('/')) {
+        res.writeHead(301, { location: path + '/' })
+        res.end()
+        return
+      }
       serveIndexPage(res)
       return
     }

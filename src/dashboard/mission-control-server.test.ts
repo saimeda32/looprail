@@ -141,6 +141,28 @@ test('GET /run/<hash>/<runId>/ serves the shared per-run dashboard page, and /mo
   expect(payload.name).toBe('demo')
 })
 
+test('GET /run/<hash>/<runId> without a trailing slash redirects to the slash form, not a 404', async () => {
+  // The served page's client fetches 'model'/'events' as URLs relative to
+  // its own address - that only resolves to /run/<hash>/<runId>/model
+  // (not /run/<hash>/model) when the page's own URL ends in a slash. A run
+  // card always links with one, but a bookmark or a hand-typed URL might
+  // not, so the server has to make the slash canonical itself.
+  const workspace = mkdtempSync(join(tmpdir(), 'lr-mc-noslash-'))
+  const runDir = join(runsRoot(workspace), 'run-1')
+  mkdirSync(runDir, { recursive: true })
+  writeFileSync(join(runDir, 'journal.jsonl'), JSON.stringify({
+    ts: 1, type: 'run_start', data: { runId: 'run-1', name: 'demo', goal: 'g' },
+  }) + '\n')
+  const hash = workspaceHash(workspace)
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-mc-reg-')), 'workspaces.json')
+  writeFileSync(registryPath, JSON.stringify({ workspaces: [workspace] }))
+
+  dashboard = await startMissionControlServer({ registryPath })
+  const res = await get(`${dashboard.url}/run/${hash}/run-1`)
+  expect(res.status).toBe(301)
+  expect(res.headers.location).toBe(`/run/${hash}/run-1/`)
+})
+
 test('an unknown workspace hash 404s instead of crashing', async () => {
   dashboard = await startMissionControlServer({ scan: () => ({ runs: [], sessions: [] }) })
   const res = await get(dashboard.url + '/run/nonexistent12/run-1/model')

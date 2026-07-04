@@ -35,10 +35,14 @@ test('the self-containment check still catches a real external-URL violation', (
   expect(maliciousEventSource).toMatch(/new\s+(XMLHttpRequest|WebSocket|EventSource)\(\s*['"]https?:/i)
 })
 
-test('the inline client wires EventSource(\'/events\') and fetch(\'/model\')', () => {
+test('the inline client wires EventSource(\'events\') and fetch(\'model\') as relative URLs', () => {
+  // Deliberately relative, not '/events'/'/model': this same page is served
+  // both standalone at '/' and nested under mission control's
+  // '/run/<hash>/<runId>/' - an absolute path would always hit the site
+  // root and 404 under mission control.
   const html = buildPage()
-  expect(html).toContain(`new EventSource('/events')`)
-  expect(html).toContain(`fetch('/model')`)
+  expect(html).toContain(`new EventSource('events')`)
+  expect(html).toContain(`fetch('model')`)
 })
 
 test('the page renders an empty-state message container for a run with no events yet', () => {
