@@ -22,11 +22,7 @@ of CLI subcommands.
 | `run_status` | Read a run's current status/iteration/cost from its journal |
 | `list_runs` | List runs under a directory's `.looprail/runs`, most recent first |
 | `explain_node` | Dry-run what context a node would receive, without running anything |
-| `list_workspaces`\* | List every project registered with looprail mission control |
-
-\* Only present once mission control's workspace registry has shipped
-(`looprail workspace add`). If your build doesn't have it yet, every other
-tool still works — `list_runs` just stays scoped to one directory at a time.
+| `list_workspaces` | List every project registered with looprail mission control (`looprail workspace add`) |
 
 A run started through `run_loop` keeps running for as long as the `looprail
 mcp` process the host started stays alive, which is for as long as you keep
@@ -112,11 +108,13 @@ looprail's tools appear alongside VS Code's built-in ones.
 
 ## Working directory
 
-Every tool takes an optional `cwd` argument; when omitted, it defaults to
-the directory `looprail mcp` was started in (for all three hosts above,
-that's wherever the host itself launched the process — usually your open
-project's root). Pass `cwd` explicitly to ask about a different project than
-the one the host started looprail in.
+Every per-project tool takes an optional `cwd` argument; when omitted, it
+defaults to the directory `looprail mcp` was started in (for all three hosts
+above, that's wherever the host itself launched the process — usually your
+open project's root). Pass `cwd` explicitly to ask about a different project
+than the one the host started looprail in. The one exception is
+`list_workspaces`, which takes no `cwd`: it reads the global workspace
+registry (`~/.looprail/workspaces.json`), not any single project directory.
 
 ## Human gates and agent permissions
 
