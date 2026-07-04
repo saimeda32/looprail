@@ -117,3 +117,36 @@ the directory `looprail mcp` was started in (for all three hosts above,
 that's wherever the host itself launched the process — usually your open
 project's root). Pass `cwd` explicitly to ask about a different project than
 the one the host started looprail in.
+
+## Human gates and agent permissions
+
+These are two different things, worth telling apart.
+
+**A `gate` node in your loopfile** is a checkpoint you put there on purpose,
+where the loop pauses until a person says yes or no. When a run started with
+`run_loop` reaches a gate, it pauses (it does not fail or halt) and
+`run_status` reports a `waitingOnGate` field naming the node and its
+question. Call `approve_gate` with the run id, the node id, and `true` or
+`false` to let it continue. If the loopfile sets `gate_timeout`, an
+unanswered gate halts after that many seconds, the same as it would from the
+CLI.
+
+**The agent's own tool permissions** (a coding agent asking to run a shell
+command, edit a file, and so on) are a separate matter, and looprail does
+not intercept or answer them. Looprail invokes each agent CLI in its
+non-interactive mode (`claude -p`, and the equivalent for other adapters),
+the same mode you'd use to script it from anywhere else. We tested this
+directly rather than assume it: in that mode, `claude -p` did not pause
+waiting for a yes or no on an ordinary tool call (a shell command ran
+immediately, no prompt, no denial). Asking it to do something genuinely
+risky did not trigger a permission prompt either — the model declined the
+request itself, on its own judgement, and still returned a normal
+completed response. So on a default setup, there's no confirmation gate to
+answer at all; whatever guardrails apply come from the model's own
+alignment, or from permission settings you've configured for that CLI
+yourself (an allowlist, a settings file, a flag). If you want a loop to run
+unattended, set that up on the agent CLI directly, the same way you would
+for any other headless or CI use of it, before pointing looprail at it. We
+verified this for Claude Code specifically; other adapters may behave
+differently in their own non-interactive modes and are worth checking the
+same way if it matters for your setup.
