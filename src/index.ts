@@ -22,6 +22,7 @@ export type {
   BenchConfigRef, BenchConfigResult, BenchDef, BenchResult, BenchRunResult, ConfigStats,
 } from './bench/types.js'
 export { aggregateConfig, percentile, redoIterations, wastedExecutorCostUsd } from './bench/metrics.js'
+export { runBench, type BenchDeps } from './bench/bench-runner.js'
 export { lintLoop, type LintFinding } from './config/lint.js'
 export {
   CliAdapter, defaultExec,
