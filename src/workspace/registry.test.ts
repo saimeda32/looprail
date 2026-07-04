@@ -38,6 +38,27 @@ test('addWorkspace dedupes an already-registered path', () => {
   expect(listWorkspaces(path)).toEqual(['/projects/scrumlo'])
 })
 
+test('addWorkspace treats /foo and /foo/ as the same workspace, not two', () => {
+  const path = tmpRegistryPath()
+  addWorkspace(path, '/projects/scrumlo')
+  addWorkspace(path, '/projects/scrumlo/')
+  addWorkspace(path, '/projects/scrumlo/sub/..')
+  expect(listWorkspaces(path)).toEqual(['/projects/scrumlo'])
+})
+
+test('removeWorkspace matches a non-normalized spelling of a stored path', () => {
+  const path = tmpRegistryPath()
+  addWorkspace(path, '/projects/scrumlo')
+  removeWorkspace(path, '/projects/scrumlo/')
+  expect(listWorkspaces(path)).toEqual([])
+})
+
+test('readRegistry normalizes and dedupes near-duplicate stored entries', () => {
+  const path = tmpRegistryPath()
+  writeFileSync(path, JSON.stringify({ workspaces: ['/a', '/a/', '/b//', '/a'] }))
+  expect(readRegistry(path).workspaces).toEqual(['/a', '/b'])
+})
+
 test('addWorkspace rejects a relative path', () => {
   const path = tmpRegistryPath()
   expect(() => addWorkspace(path, 'relative/dir')).toThrow(/absolute/)

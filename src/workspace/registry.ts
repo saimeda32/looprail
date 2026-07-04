@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, join } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 export interface WorkspaceRegistry {
   workspaces: string[]
@@ -21,13 +21,33 @@ function emptyRegistry(): WorkspaceRegistry {
   return { workspaces: [] }
 }
 
+// Collapse the many spellings of one path (a trailing slash, a `..` segment, a
+// doubled separator) to a single canonical form, so `/foo` and `/foo/` are not
+// listed as two distinct workspaces. resolve() normalizes and strips the
+// trailing slash; inputs here are already absolute, so it never injects cwd.
+function normalizeWorkspacePath(workspacePath: string): string {
+  return resolve(workspacePath)
+}
+
+function dedupeNormalized(paths: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const p of paths) {
+    const norm = normalizeWorkspacePath(p)
+    if (seen.has(norm)) continue
+    seen.add(norm)
+    out.push(norm)
+  }
+  return out
+}
+
 export function readRegistry(path: string): WorkspaceRegistry {
   if (!existsSync(path)) return emptyRegistry()
   try {
     const parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<WorkspaceRegistry>
     return {
       workspaces: Array.isArray(parsed.workspaces)
-        ? parsed.workspaces.filter((w): w is string => typeof w === 'string')
+        ? dedupeNormalized(parsed.workspaces.filter((w): w is string => typeof w === 'string'))
         : [],
     }
   } catch {
@@ -98,9 +118,10 @@ function requireAbsolute(workspacePath: string): void {
 
 export function addWorkspace(path: string, workspacePath: string): WorkspaceRegistry {
   requireAbsolute(workspacePath)
+  const normalized = normalizeWorkspacePath(workspacePath)
   return withRegistryLock(path, () => {
     const reg = readRegistry(path)
-    if (!reg.workspaces.includes(workspacePath)) reg.workspaces.push(workspacePath)
+    if (!reg.workspaces.includes(normalized)) reg.workspaces.push(normalized)
     writeRegistry(path, reg)
     return reg
   })
@@ -108,9 +129,10 @@ export function addWorkspace(path: string, workspacePath: string): WorkspaceRegi
 
 export function removeWorkspace(path: string, workspacePath: string): WorkspaceRegistry {
   requireAbsolute(workspacePath)
+  const normalized = normalizeWorkspacePath(workspacePath)
   return withRegistryLock(path, () => {
     const reg = readRegistry(path)
-    reg.workspaces = reg.workspaces.filter((w) => w !== workspacePath)
+    reg.workspaces = reg.workspaces.filter((w) => w !== normalized)
     writeRegistry(path, reg)
     return reg
   })
