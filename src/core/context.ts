@@ -4,6 +4,12 @@ export interface RunState {
   plan: string | null
   iteration: number
   feedback: string | null
+  // A human's own note, submitted from the dashboard while the run is live
+  // (see journal/human-feedback.ts). Distinct from `feedback` (the critic's
+  // evidence) so the executor can tell the two apart in its prompt, and
+  // one-shot: it applies to the single iteration right after it's read,
+  // not carried forward silently.
+  humanFeedback?: string | null
 }
 
 const VERDICT_FORMAT = [
@@ -44,6 +50,7 @@ export function composeContext(
   const parts: string[] = [`# Goal\n${def.goal}`]
   if (state.plan) parts.push(`# Current plan\n${state.plan}`)
   if (state.feedback) parts.push(`# Feedback from last iteration\n${state.feedback}`)
+  if (state.humanFeedback) parts.push(`# Feedback from a human reviewer\n${state.humanFeedback}`)
 
   if (node.of) {
     const target = outcomes.get(node.of)

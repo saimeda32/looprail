@@ -13,9 +13,11 @@ export { runIteration } from './engine/scheduler.js'
 export { runLoop, contextHash, type RunOptions } from './engine/runner.js'
 export { JournalWriter, readJournal } from './journal/journal.js'
 export {
-  runsRoot, latestRunId, listRunIds, summarizeJournal, type RunSummary,
+  runsRoot, latestRunId, listRunIds, summarizeJournal, reconstructRunState,
+  type RunSummary, type ReconstructedState,
 } from './journal/runs.js'
 export { loadCache } from './journal/cache.js'
+export { queueHumanFeedback, drainHumanFeedback } from './journal/human-feedback.js'
 export { parseLoopfile } from './config/loopfile.js'
 export { parseBenchfile } from './bench/benchfile.js'
 export type {

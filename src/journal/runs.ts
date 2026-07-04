@@ -76,3 +76,48 @@ export function summarizeJournal(events: JournalEvent[]): RunSummary {
   }
   return s
 }
+
+export interface ReconstructedState {
+  plan: string | null
+  feedback: string | null
+}
+
+// Resuming a halted run in place (resume-cmd.ts) starts a fresh in-memory
+// RunState in a new process - without this, it would silently drop the plan
+// the planner already produced and the critic's evidence for exactly why
+// the run halted, both of which belong in the next iteration's prompt
+// (see core/context.ts). Reconstructing state.feedback also matters for a
+// second, less obvious reason: with it blank, the resumed iteration's
+// prompt would be byte-identical to the halted run's own last iteration,
+// so the cache (which keys on that exact prompt) would silently replay the
+// same stale failing verdict for free instead of giving the executor a
+// genuinely fresh attempt.
+export function reconstructRunState(events: JournalEvent[]): ReconstructedState {
+  let plan: string | null = null
+  let lastIteration = 0
+  const verdictsByIteration = new Map<number, { nodeId: string; evidence: string; status: string }[]>()
+  for (const e of events) {
+    const d = e.data as Record<string, unknown>
+    if (e.type === 'node_end' && d.role === 'planner') {
+      plan = String(d.output ?? '')
+    }
+    if (e.type === 'iteration_end') {
+      lastIteration = Number(d.iteration ?? lastIteration)
+    }
+    if (e.type === 'node_end' && d.verdict) {
+      const v = d.verdict as { status: string; evidence: string }
+      const iteration = Number(d.iteration ?? 0)
+      const list = verdictsByIteration.get(iteration) ?? []
+      list.push({ nodeId: String(d.nodeId), evidence: v.evidence, status: v.status })
+      verdictsByIteration.set(iteration, list)
+    }
+  }
+  // mirrors core/router.ts's composeFeedback exactly, so the reconstructed
+  // prompt matches what the original process would have built for this
+  // same next iteration had it not halted
+  const failing = (verdictsByIteration.get(lastIteration) ?? []).filter((v) => v.status !== 'pass')
+  const feedback = failing.length > 0
+    ? failing.map((v) => `[${v.nodeId}] ${v.evidence}`).join('\n')
+    : null
+  return { plan, feedback }
+}

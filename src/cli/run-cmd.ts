@@ -105,6 +105,13 @@ export interface ExecCtx {
   gate: GateHandler
   json: boolean
   cache?: Map<string, NodeOutcome>
+  // Set by resumeAction when this invocation continues a run that already
+  // executed some iterations in an earlier process (see runner.ts's
+  // RunOptions fields of the same names for why each matters).
+  startIteration?: number
+  initialPlan?: string | null
+  initialFeedback?: string | null
+  skipPlanning?: boolean
 }
 
 export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
@@ -143,6 +150,8 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
     report = await runLoop(def, {
       registry: ctx.registry, gate: ctx.gate, cwd: ctx.cwd,
       runDir: ctx.runDir, runId: ctx.runId, cache: ctx.cache, onEvent,
+      startIteration: ctx.startIteration,
+      initialPlan: ctx.initialPlan, initialFeedback: ctx.initialFeedback, skipPlanning: ctx.skipPlanning,
     })
   } catch (e) {
     ctx.io.out(err(e instanceof Error ? e.message : String(e)))
@@ -205,8 +214,11 @@ function autoRegisterWorkspace(cwd: string, registryPath: string): void {
 
 // The dashboard's pause/resume/cancel controls (server.ts's serveControl)
 // need this process's own pid to signal it later - recorded once, up front,
-// same best-effort posture as the registry write above.
-function writeRunPid(runDir: string): void {
+// same best-effort posture as the registry write above. Exported so
+// resume-cmd.ts's resumeAction can give a resumed run the same pid file
+// and cancel-on-SIGTERM behavior a fresh `run` gets - it is a real,
+// controllable process too, not a fire-and-forget script.
+export function writeRunPid(runDir: string): void {
   try {
     writeFileSync(join(runDir, 'pid'), String(process.pid))
   } catch {
@@ -223,7 +235,7 @@ function writeRunPid(runDir: string): void {
 // that stale pid can be reassigned by the OS to a completely unrelated
 // process - making "cancel" a real risk of signaling the wrong thing
 // entirely, not just a no-op on an already-finished run.
-function removeRunPid(runDir: string): void {
+export function removeRunPid(runDir: string): void {
   try {
     unlinkSync(join(runDir, 'pid'))
   } catch {
@@ -241,7 +253,7 @@ function removeRunPid(runDir: string): void {
 // must never leak past the run it belongs to, since runAction can run
 // many times in one process (every test in run-cmd.test.ts does exactly
 // that) and each installation is only ever meant to answer for its own run.
-function installCancelHandler(runDir: string, journalPath: string): () => void {
+export function installCancelHandler(runDir: string, journalPath: string): () => void {
   const onSigterm = (): void => {
     try {
       const costUsd = existsSync(journalPath) ? summarizeJournal(readJournal(journalPath)).costUsd : 0

@@ -342,3 +342,111 @@ test('GET /model reports controllable:false when no pid file exists, true once o
   const after = await get(dashboard.url + '/model')
   expect(JSON.parse(after.body).controllable).toBe(true)
 })
+
+test('POST /control feedback queues a human note readable by drainHumanFeedback, while the run is running', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  dashboard = await startDashboardServer({ journalPath })
+  const res = await post(dashboard.url + '/control', { action: 'feedback', text: 'check the empty-list case' })
+  expect(res.status).toBe(200)
+  const { drainHumanFeedback } = await import('../journal/human-feedback.js')
+  expect(drainHumanFeedback(dirname(journalPath))).toBe('check the empty-list case')
+})
+
+test('POST /control feedback rejects an empty or missing note with 400', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  dashboard = await startDashboardServer({ journalPath })
+  const empty = await post(dashboard.url + '/control', { action: 'feedback', text: '   ' })
+  expect(empty.status).toBe(400)
+  const missing = await post(dashboard.url + '/control', { action: 'feedback' })
+  expect(missing.status).toBe(400)
+})
+
+test('POST /control feedback refuses to act once the run is no longer running', async () => {
+  const journalPath = journalWith([
+    '{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}',
+    '{"ts":2,"type":"verified","data":{"reason":"all verifiers passed","costUsd":0}}',
+  ])
+  dashboard = await startDashboardServer({ journalPath })
+  const res = await post(dashboard.url + '/control', { action: 'feedback', text: 'too late' })
+  expect(res.status).toBe(409)
+})
+
+test('POST /resume 501s cleanly when this dashboard has no onResume wired up', async () => {
+  const journalPath = journalWith([
+    '{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}',
+    '{"ts":2,"type":"halt","data":{"reason":"rail breached (iterations): iteration 2 exceeds max 1","costUsd":0}}',
+  ])
+  dashboard = await startDashboardServer({ journalPath })
+  const res = await post(dashboard.url + '/resume', {})
+  expect(res.status).toBe(501)
+})
+
+test('POST /resume 409s when the run is not halted (still running, or already verified)', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const onResume = vi.fn(async () => {})
+  dashboard = await startDashboardServer({ journalPath, onResume })
+  const res = await post(dashboard.url + '/resume', {})
+  expect(res.status).toBe(409)
+  expect(onResume).not.toHaveBeenCalled()
+})
+
+test('POST /resume validates maxIterations/maxCostUsd before calling onResume', async () => {
+  const journalPath = journalWith([
+    '{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}',
+    '{"ts":2,"type":"halt","data":{"reason":"rail breached (iterations): iteration 2 exceeds max 1","costUsd":0}}',
+  ])
+  const onResume = vi.fn(async () => {})
+  dashboard = await startDashboardServer({ journalPath, onResume })
+  const badIterations = await post(dashboard.url + '/resume', { maxIterations: -1 })
+  expect(badIterations.status).toBe(400)
+  const badCost = await post(dashboard.url + '/resume', { maxCostUsd: 'nope' })
+  expect(badCost.status).toBe(400)
+  expect(onResume).not.toHaveBeenCalled()
+})
+
+test('POST /resume on a halted run calls onResume with the parsed overrides and responds before it resolves', async () => {
+  const journalPath = journalWith([
+    '{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}',
+    '{"ts":2,"type":"halt","data":{"reason":"rail breached (iterations): iteration 2 exceeds max 1","costUsd":0}}',
+  ])
+  let resolveResume: () => void = () => {}
+  const resumeStarted = new Promise<void>((resolve) => { resolveResume = resolve })
+  const onResume = vi.fn(async (overrides: { maxIterations?: number; maxCostUsd?: number }) => {
+    resolveResume()
+    expect(overrides).toEqual({ maxIterations: 5, maxCostUsd: 2 })
+  })
+  dashboard = await startDashboardServer({ journalPath, onResume })
+  const res = await post(dashboard.url + '/resume', { maxIterations: 5, maxCostUsd: 2 })
+  expect(res.status).toBe(200)
+  await resumeStarted
+  expect(onResume).toHaveBeenCalledTimes(1)
+})
+
+test('POST /resume rejects a cross-origin request (same CSRF protection as /control)', async () => {
+  const journalPath = journalWith([
+    '{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}',
+    '{"ts":2,"type":"halt","data":{"reason":"halted","costUsd":0}}',
+  ])
+  const onResume = vi.fn(async () => {})
+  dashboard = await startDashboardServer({ journalPath, onResume })
+  const res = await post(dashboard.url + '/resume', {}, { origin: 'https://evil.example.com' })
+  expect(res.status).toBe(403)
+  expect(onResume).not.toHaveBeenCalled()
+})
+
+test('GET /model reports totals.maxIterations/maxCostUsd from the loopfile and resumable only when halted with onResume wired up', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const def = {
+    name: 'n', goal: 'g', agents: {}, nodes: [],
+    rails: { maxIterations: 4, maxCostUsd: 1.5 }, verdictPolicy: { kind: 'all-pass' as const },
+  }
+  dashboard = await startDashboardServer({ journalPath, def, onResume: async () => {} })
+  const runningPayload = JSON.parse((await get(dashboard.url + '/model')).body)
+  expect(runningPayload.totals.maxIterations).toBe(4)
+  expect(runningPayload.totals.maxCostUsd).toBe(1.5)
+  expect(runningPayload.resumable).toBe(false) // still running - nothing to resume yet
+
+  appendFileSync(journalPath, '{"ts":2,"type":"halt","data":{"reason":"halted","costUsd":0}}\n')
+  const haltedPayload = JSON.parse((await get(dashboard.url + '/model')).body)
+  expect(haltedPayload.resumable).toBe(true)
+})

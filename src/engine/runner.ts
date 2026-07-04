@@ -9,6 +9,7 @@ import { routeIteration } from '../core/router.js'
 import { verdictFingerprint } from '../core/fingerprint.js'
 import { buildFallbackReport, buildReportPrompt, parseReport, pickReportingAgentKey } from '../core/report.js'
 import { JournalWriter } from '../journal/journal.js'
+import { drainHumanFeedback } from '../journal/human-feedback.js'
 import type { AdapterRegistry } from '../adapters/registry.js'
 import { runIteration } from './scheduler.js'
 import type { EngineDeps } from './nodes.js'
@@ -24,6 +25,26 @@ export interface RunOptions {
   sleep?: (ms: number) => Promise<void>
   retries?: number
   onEvent?: (event: JournalEvent) => void  // live observer (CLI progress); mirrors the journal
+  // Set when this invocation continues a run that already executed some
+  // iterations in an earlier process (dashboard "resume in place" and the
+  // `resume` CLI command both reuse the source run's own runId/runDir and
+  // append to its existing journal, rather than starting a fresh one -
+  // see cli/resume-cmd.ts). Without this, a resumed run's in-memory
+  // iteration counter would restart at 1, making its rails check
+  // (max_iterations) meaningless against a budget bumped to cover work
+  // already done in the earlier process.
+  startIteration?: number
+  // Reconstructed from the source run's own journal (journal/runs.ts's
+  // reconstructRunState) - the plan the planner already produced and the
+  // critic's evidence for why the run halted, both of which belong in the
+  // resumed iteration's prompt. Set together with startIteration and
+  // skipPlanning by resume-cmd.ts; a fresh `run` never sets these.
+  initialPlan?: string | null
+  initialFeedback?: string | null
+  // A resumed run continues execution iterations - re-running the planning
+  // phase from scratch would discard the plan already reconstructed above
+  // and restart the planner-critic revision dance pointlessly.
+  skipPlanning?: boolean
 }
 
 export function contextHash(nodeId: string, prompt: string): string {
@@ -98,7 +119,12 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   const shouldContinue = () => guard.check(state.iteration) === null
 
   const { planning, execution } = splitRegions(expanded.nodes)
-  const state: RunState = { plan: null, iteration: 0, feedback: null }
+  const state: RunState = {
+    plan: opts.initialPlan ?? null,
+    iteration: opts.startIteration ?? 0,
+    feedback: opts.initialFeedback ?? null,
+    humanFeedback: null,
+  }
   let outcomes: NodeOutcome[] = []
   let replans = 0
   const fingerprints: string[] = []
@@ -151,11 +177,17 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     }
   }
 
-  await runPlanning()
-  state.feedback = null
+  if (!opts.skipPlanning) {
+    await runPlanning()
+    state.feedback = null
+  }
 
   while (true) {
     state.iteration += 1
+    // One-shot: applies to this iteration's prompts only. A stale note from
+    // an iteration where nobody submitted anything must not keep re-injecting
+    // forever, so this always resets before checking for a fresh one.
+    state.humanFeedback = opts.runDir ? drainHumanFeedback(opts.runDir) ?? null : null
     const breachBefore = guard.check(state.iteration)
     if (breachBefore) return await finish('halted', `rail breached (${breachBefore.rail}): ${breachBefore.detail}`)
 

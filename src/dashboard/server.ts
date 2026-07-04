@@ -3,15 +3,29 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { dirname, join } from 'node:path'
 import type { LoopDef } from '../core/types.js'
 import { readJournal } from '../journal/journal.js'
+import { queueHumanFeedback } from '../journal/human-feedback.js'
 import { buildDashboardPayload } from './layout.js'
 import { buildPage } from './page.js'
 import { buildReplay, encodeSseFrame } from './sse.js'
 import { fsWatcher, readNewEvents, type Watcher } from './tail.js'
 
+export interface ResumeOverrides {
+  maxIterations?: number
+  maxCostUsd?: number
+}
+
 export interface DashboardServerOptions {
   journalPath: string
   def?: LoopDef
   watcher?: Watcher
+  // Continues a halted run in place with optionally-raised rails. Injected
+  // by the CLI layer (ui-cmd.ts wraps cli/resume-cmd.ts's resumeAction) so
+  // this module never needs to know how a run is actually continued, only
+  // that the dashboard's "resume" control should trigger it - keeping the
+  // dependency direction cli -> dashboard intact (dashboard/ never imports
+  // from cli/). Undefined means this dashboard has no way to resume a run
+  // (e.g. mission control views a workspace with no loadable loopfile).
+  onResume?: (overrides: ResumeOverrides) => Promise<void>
 }
 
 export interface DashboardServer {
@@ -70,8 +84,8 @@ export function serveIndexPage(res: ServerResponse): void {
 // currently present, and whether pausing is even safe to offer - not the
 // raw pid value itself.
 function controlState(
-  journalPath: string,
-): { controllable: boolean; paused: boolean; pauseUnsafe: boolean } {
+  journalPath: string, resumable: boolean,
+): { controllable: boolean; paused: boolean; pauseUnsafe: boolean; resumable: boolean } {
   const runDir = dirname(journalPath)
   const pidPath = join(runDir, 'pid')
   const controllable = existsSync(pidPath)
@@ -81,14 +95,21 @@ function controlState(
   // it. The client uses this to grey out Pause specifically, not the whole
   // control set - Cancel stays safe and available either way.
   const pauseUnsafe = controllable && Number(readFileSync(pidPath, 'utf8').trim()) === process.pid
-  return { controllable, paused: existsSync(join(runDir, 'paused')), pauseUnsafe }
+  return { controllable, paused: existsSync(join(runDir, 'paused')), pauseUnsafe, resumable }
 }
 
-export function serveModel(res: ServerResponse, opts: { journalPath: string; def?: LoopDef }): void {
+export function serveModel(
+  res: ServerResponse,
+  opts: { journalPath: string; def?: LoopDef; onResume?: (overrides: ResumeOverrides) => Promise<void> },
+): void {
   try {
+    // payload.totals.maxIterations/maxCostUsd already carry the run's own
+    // rails (view-model.ts derives them from the same def) - the resume
+    // form prefills from those, nothing extra to compute here.
     const payload = buildDashboardPayload(readEvents(opts.journalPath), opts.def)
+    const resumable = payload.status === 'halted' && !!opts.onResume
     res.writeHead(200, { 'content-type': 'application/json' })
-    res.end(JSON.stringify({ ...payload, ...controlState(opts.journalPath) }))
+    res.end(JSON.stringify({ ...payload, ...controlState(opts.journalPath, resumable) }))
   } catch (err) {
     sendReadError(res, '/model failed to read journal', err)
   }
@@ -148,14 +169,17 @@ export async function serveControl(
     return
   }
   let action: string | undefined
+  let text: string | undefined
   try {
     const body = await readRequestBody(req)
-    action = (JSON.parse(body || '{}') as { action?: string }).action
+    const parsed = JSON.parse(body || '{}') as { action?: string; text?: string }
+    action = parsed.action
+    text = parsed.text
   } catch {
     sendJson(res, 400, { error: 'invalid request body' })
     return
   }
-  if (action !== 'pause' && action !== 'resume' && action !== 'cancel') {
+  if (action !== 'pause' && action !== 'resume' && action !== 'cancel' && action !== 'feedback') {
     sendJson(res, 400, { error: `unknown action "${String(action)}"` })
     return
   }
@@ -173,6 +197,21 @@ export async function serveControl(
   }
 
   const runDir = dirname(opts.journalPath)
+
+  // A human's note for the executor's next attempt - pure file drop, no
+  // pid or OS signal involved (runner.ts polls for it at the top of each
+  // iteration), so it works identically whether this dashboard is the
+  // run's own process or a separate viewer/mission-control watching it.
+  if (action === 'feedback') {
+    if (typeof text !== 'string' || text.trim().length === 0) {
+      sendJson(res, 400, { error: 'feedback text must be a non-empty string' })
+      return
+    }
+    queueHumanFeedback(runDir, text)
+    sendJson(res, 200, { ok: true })
+    return
+  }
+
   const pidPath = join(runDir, 'pid')
   if (!existsSync(pidPath)) {
     sendJson(res, 404, { error: 'no recorded process for this run' })
@@ -213,6 +252,65 @@ export async function serveControl(
     try { unlinkSync(pausedMarker) } catch { /* was not paused */ }
   }
   sendJson(res, 200, { ok: true })
+}
+
+function isPositiveFiniteNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && v > 0
+}
+
+// Continues a halted run in place - the runId and journal stay the same
+// (see cli/resume-cmd.ts's resumeAction, which opts.onResume wraps), so
+// unlike serveControl there is no pid to check: a halted run's process has
+// already exited, resuming means starting a new one, not signaling an old
+// one. Responds as soon as the request is validated and handed off, not
+// once the whole continued run finishes - the browser watches it progress
+// the same way it watches any other live run, through /model and /events.
+export async function serveResume(
+  req: IncomingMessage, res: ServerResponse,
+  opts: { journalPath: string; onResume?: (overrides: ResumeOverrides) => Promise<void> },
+): Promise<void> {
+  if (!isSameOrigin(req)) {
+    sendJson(res, 403, { error: 'cross-origin request rejected' })
+    return
+  }
+  if (!opts.onResume) {
+    sendJson(res, 501, { error: 'this dashboard has no way to resume this run (no loopfile found for its workspace)' })
+    return
+  }
+  let overrides: ResumeOverrides
+  try {
+    const body = await readRequestBody(req)
+    const parsed = JSON.parse(body || '{}') as { maxIterations?: unknown; maxCostUsd?: unknown }
+    if (parsed.maxIterations !== undefined && !isPositiveFiniteNumber(parsed.maxIterations)) {
+      sendJson(res, 400, { error: 'maxIterations must be a positive number' })
+      return
+    }
+    if (parsed.maxCostUsd !== undefined && !isPositiveFiniteNumber(parsed.maxCostUsd)) {
+      sendJson(res, 400, { error: 'maxCostUsd must be a positive number' })
+      return
+    }
+    overrides = { maxIterations: parsed.maxIterations as number | undefined, maxCostUsd: parsed.maxCostUsd as number | undefined }
+  } catch {
+    sendJson(res, 400, { error: 'invalid request body' })
+    return
+  }
+
+  let status: string
+  try {
+    status = buildDashboardPayload(readEvents(opts.journalPath)).status
+  } catch (err) {
+    sendReadError(res, '/resume failed to read journal', err)
+    return
+  }
+  if (status !== 'halted') {
+    sendJson(res, 409, { error: `run is ${status}, not halted - nothing to resume` })
+    return
+  }
+
+  sendJson(res, 200, { ok: true })
+  opts.onResume(overrides).catch((err: unknown) => {
+    console.error('dashboard: resume failed', err)
+  })
 }
 
 export function serveEvents(
@@ -288,6 +386,11 @@ export function startDashboardServer(opts: DashboardServerOptions): Promise<Dash
 
     if (req.method === 'POST' && url.pathname === '/control') {
       void serveControl(req, res, opts)
+      return
+    }
+
+    if (req.method === 'POST' && url.pathname === '/resume') {
+      void serveResume(req, res, opts)
       return
     }
 

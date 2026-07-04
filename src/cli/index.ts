@@ -8,6 +8,7 @@ import { registerExplain } from './explain-cmd.js'
 import { registerInit } from './init-cmd.js'
 import { registerLint } from './lint-cmd.js'
 import { registerReplay } from './replay-cmd.js'
+import { registerResume } from './resume-cmd.js'
 import { registerRun } from './run-cmd.js'
 import { registerLogs, registerStatus } from './status-cmd.js'
 import { registerMcp } from './mcp-cmd.js'
@@ -30,6 +31,7 @@ export function buildProgram(): Command {
   registerRun(program)
   registerBench(program)
   registerReplay(program)
+  registerResume(program)
   registerStatus(program)
   registerLogs(program)
   registerExplain(program)

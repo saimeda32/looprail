@@ -6,6 +6,7 @@ import { afterEach, expect, test } from 'vitest'
 import { runAction } from './run-cmd.js'
 import { loadExpandedLoopDef, uiAction, uiAllAction } from './ui-cmd.js'
 import { addWorkspace } from '../workspace/registry.js'
+import { MockAdapter, createRegistry } from '../index.js'
 
 const FIXTURE = `
 name: ui-fixture
@@ -66,6 +67,46 @@ test('uiAction with no runs exits 1 and starts nothing', async () => {
   expect(result.code).toBe(1)
   expect(result.dashboard).toBeUndefined()
   expect(lines.join('\n')).toContain('no runs')
+})
+
+test('POST /resume on a run served via uiAction actually continues that same halted run in place', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-ui-resume-'))
+  writeFileSync(join(cwd, 'looprail.yaml'), FIXTURE)
+  const failing = createRegistry()
+  failing.register(new MockAdapter([
+    { match: /EXECUTOR/, output: 'still working', costUsd: 0.1 },
+    { match: /CRITIC/, output: 'VERDICT: fail\nEVIDENCE: not done yet', costUsd: 0.1 },
+    { match: /EXECUTOR/, output: 'still working', costUsd: 0.1 },
+    { match: /CRITIC/, output: 'VERDICT: fail\nEVIDENCE: not done yet', costUsd: 0.1 },
+  ]))
+  const runCode = await runAction(undefined, { cwd, json: true }, { io: capture().io, registry: failing })
+  expect(runCode).toBe(2) // max_iterations: 2 in FIXTURE, halts without ever passing
+
+  const { io, lines } = capture()
+  const result = await uiAction(undefined, { cwd }, io)
+  cleanup = () => result.dashboard!.close()
+  expect(result.code).toBe(0)
+
+  const before = JSON.parse((await get(result.dashboard!.url + '/model')).body)
+  expect(before.status).toBe('halted')
+  expect(before.resumable).toBe(true)
+
+  await new Promise<{ status: number }>((resolve, reject) => {
+    const req = http.request(
+      result.dashboard!.url + '/resume', { method: 'POST', headers: { 'content-type': 'application/json' } },
+      (r) => { r.on('data', () => {}); r.on('end', () => resolve({ status: r.statusCode ?? 0 })) },
+    )
+    req.on('error', reject)
+    req.end(JSON.stringify({ maxIterations: 5 }))
+  })
+  await new Promise((r) => setTimeout(r, 100)) // resume runs in-process, fire-and-forget
+
+  const after = JSON.parse((await get(result.dashboard!.url + '/model')).body)
+  expect(after.runId).toBe(before.runId) // same run, not a new one
+  // the resumed run falls back to the default registry's always-passing
+  // mock adapter (no custom registry was threaded through the dashboard),
+  // so with the extra budget it verifies almost immediately
+  expect(after.status).toBe('verified')
 })
 
 test('uiAction with an unknown explicit runId exits 1', async () => {

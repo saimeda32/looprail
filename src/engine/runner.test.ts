@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
@@ -129,6 +129,44 @@ test('journals run lifecycle when runDir is set', async () => {
   expect(types).toContain('node_end')
   expect(types.at(-1)).toBe('verified')
   expect(report.runId).toBe('r1')
+})
+
+test('startIteration continues counting instead of restarting at 1, for a rails check that means what a resumed run needs it to mean', async () => {
+  const mock = new MockAdapter([
+    { match: /PLANNER/, output: 'plan' },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok' },
+    { match: /EXECUTOR/, output: 'DONE' },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok' },
+  ])
+  // simulates continuing a run that already spent 3 iterations in an
+  // earlier process, against a rails.maxIterations of 4 - only one more
+  // iteration is left in budget, and it must be reported as iteration 4,
+  // not iteration 1
+  const def = loop({ rails: { maxIterations: 4, maxCostUsd: 5 } })
+  const report = await runLoop(def, { registry: reg(mock), startIteration: 3 })
+  expect(report.status).toBe('verified')
+  expect(report.iterations).toBe(4)
+})
+
+test('human feedback queued via the runDir is injected into the very next iteration and then cleared', async () => {
+  const mock = new MockAdapter([
+    { match: /PLANNER/, output: 'plan' },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok' },
+    { match: /EXECUTOR/, output: 'half done' },
+    { match: /CRITIC/, output: 'VERDICT: fail\nEVIDENCE: missing DONE' },
+    { match: /EXECUTOR/, output: 'DONE' },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok now' },
+  ])
+  const runDir = join(mkdtempSync(join(tmpdir(), 'lr-')), 'run')
+  const { queueHumanFeedback } = await import('../journal/human-feedback.js')
+  mkdirSync(runDir, { recursive: true })
+  queueHumanFeedback(runDir, 'check the edge case with an empty list')
+  const report = await runLoop(loop(), { registry: reg(mock), runDir, runId: 'r1' })
+  expect(report.status).toBe('verified')
+  const execCalls = mock.calls.filter((c) => c.prompt.includes('EXECUTOR'))
+  expect(execCalls[0].prompt).toContain('check the edge case with an empty list')
+  // one-shot: the second executor call must not still carry the same note
+  expect(execCalls[1].prompt).not.toContain('check the edge case with an empty list')
 })
 
 test('planner with "after" pointing at an execution node runs without crashing', async () => {

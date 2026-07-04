@@ -48,10 +48,12 @@ export async function replayAction(
   })
 }
 
-function register(program: Command, name: 'resume' | 'replay', description: string): void {
+export function registerReplay(program: Command): void {
   program
-    .command(`${name} [runId]`)
-    .description(description)
+    .command('replay [runId]')
+    .description(
+      're-run a past run with cached node results - edit one prompt, re-execute only downstream, '
+        + 'always as a new run (latest run by default)')
     .option('--file <file>', 'loopfile to use (default ./looprail.yaml)')
     .option('--json', 'machine-readable summary on stdout')
     .option('--yes', 'auto-approve human gates')
@@ -63,11 +65,4 @@ function register(program: Command, name: 'resume' | 'replay', description: stri
       const { cwd } = cmd.optsWithGlobals<{ cwd: string }>()
       process.exitCode = await replayAction(runId, { cwd, ...opts })
     })
-}
-
-export function registerReplay(program: Command): void {
-  register(program, 'replay',
-    're-run a past run with cached node results - edit one prompt, re-execute only downstream (latest run by default; v1: replay semantics)')
-  register(program, 'resume',
-    'continue an interrupted run: completed nodes replay from cache for free, the remainder runs live (v1: replay semantics)')
 }

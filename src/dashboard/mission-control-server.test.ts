@@ -40,10 +40,11 @@ function fakeSession(overrides: Partial<SessionEntry> = {}): SessionEntry {
   }
 }
 
-test('matchRunRoute parses index/model/events sub-routes and rejects non-run paths', () => {
+test('matchRunRoute parses index/model/events/resume sub-routes and rejects non-run paths', () => {
   expect(matchRunRoute('/run/abc123/run-1')).toEqual({ hash: 'abc123', runId: 'run-1', sub: 'index' })
   expect(matchRunRoute('/run/abc123/run-1/model')).toEqual({ hash: 'abc123', runId: 'run-1', sub: 'model' })
   expect(matchRunRoute('/run/abc123/run-1/events')).toEqual({ hash: 'abc123', runId: 'run-1', sub: 'events' })
+  expect(matchRunRoute('/run/abc123/run-1/resume')).toEqual({ hash: 'abc123', runId: 'run-1', sub: 'resume' })
   expect(matchRunRoute('/run/abc123/run-1/junk')).toBeNull()
   expect(matchRunRoute('/api/runs')).toBeNull()
 })
@@ -166,6 +167,54 @@ test('POST /run/<hash>/<runId>/control routes to serveControl, scoped to that wo
     req.end(JSON.stringify({ action: 'pause' }))
   })
   expect(res.status).toBe(404)
+})
+
+test('POST /run/<hash>/<runId>/resume routes to serveResume, calling the injected resumeFor with the right workspace and runId', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'lr-mc-resume-'))
+  const runDir = join(runsRoot(workspace), 'run-1')
+  mkdirSync(runDir, { recursive: true })
+  writeFileSync(join(runDir, 'journal.jsonl'), [
+    JSON.stringify({ ts: 1, type: 'run_start', data: { runId: 'run-1', name: 'demo', goal: 'g' } }),
+    JSON.stringify({ ts: 2, type: 'halt', data: { reason: 'halted', costUsd: 0 } }),
+  ].join('\n') + '\n')
+  const hash = workspaceHash(workspace)
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-mc-reg-')), 'workspaces.json')
+  writeFileSync(registryPath, JSON.stringify({ workspaces: [workspace] }))
+
+  const calls: { workspace: string; runId: string }[] = []
+  const resumeFor = (ws: string, runId: string) => {
+    calls.push({ workspace: ws, runId })
+    return async () => {}
+  }
+  dashboard = await startMissionControlServer({ registryPath, resumeFor })
+  const res = await new Promise<{ status: number }>((resolve, reject) => {
+    const req = http.request(
+      `${dashboard!.url}/run/${hash}/run-1/resume`,
+      { method: 'POST', headers: { 'content-type': 'application/json' } },
+      (r) => { r.on('data', () => {}); r.on('end', () => resolve({ status: r.statusCode ?? 0 })) },
+    )
+    req.on('error', reject)
+    req.end(JSON.stringify({}))
+  })
+  expect(res.status).toBe(200)
+  expect(calls).toEqual([{ workspace, runId: 'run-1' }])
+})
+
+test('GET /run/<hash>/<runId>/model reports resumable:true only when resumeFor returns a callback for a halted run', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'lr-mc-resumable-'))
+  const runDir = join(runsRoot(workspace), 'run-1')
+  mkdirSync(runDir, { recursive: true })
+  writeFileSync(join(runDir, 'journal.jsonl'), [
+    JSON.stringify({ ts: 1, type: 'run_start', data: { runId: 'run-1', name: 'demo', goal: 'g' } }),
+    JSON.stringify({ ts: 2, type: 'halt', data: { reason: 'halted', costUsd: 0 } }),
+  ].join('\n') + '\n')
+  const hash = workspaceHash(workspace)
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-mc-reg-')), 'workspaces.json')
+  writeFileSync(registryPath, JSON.stringify({ workspaces: [workspace] }))
+
+  dashboard = await startMissionControlServer({ registryPath, resumeFor: () => async () => {} })
+  const payload = JSON.parse((await get(`${dashboard.url}/run/${hash}/run-1/model`)).body)
+  expect(payload.resumable).toBe(true)
 })
 
 test('GET /run/<hash>/<runId> without a trailing slash redirects to the slash form, not a 404', async () => {

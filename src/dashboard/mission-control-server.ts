@@ -8,7 +8,7 @@ import {
 } from '../workspace/discover.js'
 import { defaultRegistryPath, listWorkspaces } from '../workspace/registry.js'
 import { buildMissionControlPage } from './mission-control-page.js'
-import { serveControl, serveEvents, serveIndexPage, serveModel } from './server.js'
+import { serveControl, serveEvents, serveIndexPage, serveModel, serveResume, type ResumeOverrides } from './server.js'
 import { fsWatcher, type Watcher } from './tail.js'
 
 // See discover.ts (Task 8) for why this is a small, deliberate duplicate of
@@ -56,6 +56,13 @@ export interface MissionControlServerOptions {
   scan?: () => ScanResult
   poller?: Poller
   pollMs?: number
+  // Builds the per-run resume callback lazily, given the workspace path a
+  // run's hash resolved to and its runId. Injected by the CLI layer
+  // (ui-cmd.ts wraps cli/resume-cmd.ts's resumeAction) for the same reason
+  // server.ts's DashboardServerOptions.onResume is: this module must not
+  // import from cli/. Returns undefined for a workspace with no loadable
+  // loopfile, same as bestEffortLoopDef above.
+  resumeFor?: (workspace: string, runId: string) => ((overrides: ResumeOverrides) => Promise<void>) | undefined
 }
 
 export interface MissionControlServer {
@@ -64,15 +71,17 @@ export interface MissionControlServer {
   close(): Promise<void>
 }
 
-interface RunRoute { hash: string; runId: string; sub: 'index' | 'model' | 'events' | 'control' }
+interface RunRoute { hash: string; runId: string; sub: 'index' | 'model' | 'events' | 'control' | 'resume' }
 
-// Pure: parses /run/<hash>/<runId>[/model|/events|/control]. Plain segment
-// splitting instead of a regex - easier to read and to unit test in isolation.
+// Pure: parses /run/<hash>/<runId>[/model|/events|/control|/resume]. Plain
+// segment splitting instead of a regex - easier to read and to unit test
+// in isolation.
 export function matchRunRoute(pathname: string): RunRoute | null {
   const parts = pathname.split('/').filter((p) => p.length > 0)
   if (parts[0] !== 'run' || !parts[1] || !parts[2]) return null
   if (parts.length === 3) return { hash: parts[1], runId: parts[2], sub: 'index' }
-  if (parts.length === 4 && (parts[3] === 'model' || parts[3] === 'events' || parts[3] === 'control')) {
+  if (parts.length === 4
+    && (parts[3] === 'model' || parts[3] === 'events' || parts[3] === 'control' || parts[3] === 'resume')) {
     return { hash: parts[1], runId: parts[2], sub: parts[3] }
   }
   return null
@@ -172,7 +181,9 @@ export function startMissionControlServer(opts: MissionControlServerOptions = {}
       }
       const journalPath = join(runsRootOf(workspace), route.runId, 'journal.jsonl')
       if (req.method === 'GET' && route.sub === 'model') {
-        serveModel(res, { journalPath, def: bestEffortLoopDef(workspace) })
+        serveModel(res, {
+          journalPath, def: bestEffortLoopDef(workspace), onResume: opts.resumeFor?.(workspace, route.runId),
+        })
         return
       }
       if (req.method === 'GET' && route.sub === 'events') {
@@ -181,6 +192,10 @@ export function startMissionControlServer(opts: MissionControlServerOptions = {}
       }
       if (req.method === 'POST' && route.sub === 'control') {
         void serveControl(req, res, { journalPath })
+        return
+      }
+      if (req.method === 'POST' && route.sub === 'resume') {
+        void serveResume(req, res, { journalPath, onResume: opts.resumeFor?.(workspace, route.runId) })
         return
       }
       if (req.method === 'GET' && route.sub === 'index') {

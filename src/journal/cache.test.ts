@@ -40,6 +40,26 @@ test('replay with loaded cache skips agent calls and costs nothing', async () =>
   expect(replay.costUsd).toBe(0)
 })
 
+test('loadCache with excludeIteration drops that iteration\'s outcomes but keeps every other iteration cached', async () => {
+  const runDir = join(mkdtempSync(join(tmpdir(), 'lr-')), 'run')
+  const registry = createRegistry()
+  registry.register(new MockAdapter([
+    { match: /EXECUTOR/, output: 'attempt 1' },
+    { match: /CRITIC/, output: 'VERDICT: fail\nEVIDENCE: no' },
+    { match: /EXECUTOR/, output: 'attempt 2' },
+    { match: /CRITIC/, output: 'VERDICT: fail\nEVIDENCE: still no' },
+  ]))
+  const first = await runLoop(loop, { registry, runDir })
+  expect(first.status).toBe('halted')
+
+  const fullCache = loadCache(join(runDir, 'journal.jsonl'))
+  const withoutIteration2 = loadCache(join(runDir, 'journal.jsonl'), { excludeIteration: 2 })
+  expect(withoutIteration2.size).toBe(fullCache.size - 2) // do + crit from iteration 2 dropped
+  for (const [hash, outcome] of fullCache) {
+    if (outcome.output === 'attempt 1') expect(withoutIteration2.get(hash)).toEqual(outcome)
+  }
+})
+
 test('editing the goal invalidates the cache (different context hash)', async () => {
   const runDir = join(mkdtempSync(join(tmpdir(), 'lr-')), 'run')
   const registry = createRegistry()

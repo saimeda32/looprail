@@ -2,10 +2,11 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Command } from 'commander'
 import { expandPanels, validateGraph, type LoopDef } from '../index.js'
-import { startDashboardServer, type DashboardServer } from '../dashboard/server.js'
+import { startDashboardServer, type DashboardServer, type ResumeOverrides } from '../dashboard/server.js'
 import { startMissionControlServer, type MissionControlServer } from '../dashboard/mission-control-server.js'
 import { defaultRegistryPath, listWorkspaces } from '../workspace/registry.js'
 import { loadLoop } from './run-cmd.js'
+import { resumeAction } from './resume-cmd.js'
 import { latestRunId, runsRoot } from './status-cmd.js'
 import { defaultIo, dim, err, heading, type CliIo } from './ui.js'
 
@@ -47,7 +48,13 @@ export async function uiAction(
   }
 
   const def = loadExpandedLoopDef(opts.file, opts.cwd)
-  const dashboard = await startDashboardServer({ journalPath, def })
+  // Silent io: the dashboard's own /model and /events already surface every
+  // node/iteration/verdict live, so resumeAction's terminal-oriented
+  // progress lines and final summary have no one to print to here.
+  const onResume = async (overrides: ResumeOverrides): Promise<void> => {
+    await resumeAction(id, { cwd: opts.cwd, file: opts.file, json: true, ...overrides }, { io: { out: () => {} } })
+  }
+  const dashboard = await startDashboardServer({ journalPath, def, onResume })
 
   io.out(heading(`looprail dashboard - ${id}`))
   io.out(`  ${dashboard.url}`)
@@ -80,7 +87,13 @@ export async function uiAllAction(
   io: CliIo = defaultIo,
 ): Promise<{ code: number; dashboard?: MissionControlServer }> {
   const registryPath = opts.registryPath ?? defaultRegistryPath()
-  const dashboard = await startMissionControlServer({ registryPath })
+  const resumeFor = (workspace: string, runId: string) => {
+    if (!loadExpandedLoopDef(undefined, workspace)) return undefined
+    return async (overrides: ResumeOverrides): Promise<void> => {
+      await resumeAction(runId, { cwd: workspace, json: true, ...overrides }, { io: { out: () => {} } })
+    }
+  }
+  const dashboard = await startMissionControlServer({ registryPath, resumeFor })
 
   io.out(heading('looprail mission control'))
   io.out(`  ${dashboard.url}`)

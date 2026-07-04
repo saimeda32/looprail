@@ -154,6 +154,24 @@ export function buildPage(): string {
   .control-btn:disabled { opacity: 0.5; cursor: default; }
   #control-error { font-size: 11.5px; color: var(--fail); }
 
+  .feedback-row, .resume-row {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 10px 18px; border-bottom: 1px solid var(--line); font-size: 12px;
+  }
+  .feedback-row input[type="text"] {
+    flex: 1; min-width: 200px; font: 12px var(--mono); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 3px; color: var(--ink); padding: 6px 9px;
+  }
+  .feedback-row input[type="text"]:focus, .resume-row input[type="number"]:focus { outline: 1px solid var(--signal-dim); border-color: var(--line-bright); }
+  .resume-row label { display: flex; align-items: center; gap: 6px; color: var(--ink-dim); font: 11px var(--sans); }
+  .resume-row input[type="number"] {
+    width: 72px; font: 12px var(--mono); font-variant-numeric: tabular-nums; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 3px; color: var(--ink); padding: 5px 7px;
+  }
+  #feedback-status, #resume-status { font-size: 11px; color: var(--ink-faint); }
+  #feedback-status.ok, #resume-status.ok { color: var(--pass); }
+  #feedback-status.err, #resume-status.err { color: var(--fail); }
+
   #detail-panel { white-space: pre-wrap; font: 12px/1.55 var(--mono); background: var(--panel); border: 1px solid var(--line); border-radius: 3px; color: var(--ink); padding: 14px 16px; max-height: 260px; overflow: auto; }
   .plan-version { border-left: 2px solid var(--line-bright); padding: 4px 0 4px 12px; margin-bottom: 10px; font-size: 12px; color: var(--ink-dim); }
   .plan-version pre { white-space: pre-wrap; margin: 4px 0 0; color: var(--ink); font-family: var(--mono); }
@@ -197,6 +215,17 @@ export function buildPage(): string {
       </div>
     </div>
     <div class="run-goal" id="run-goal"></div>
+    <div class="feedback-row" id="feedback-row" style="display:none">
+      <input type="text" id="feedback-input" placeholder="Add a note for the next attempt…" maxlength="2000" />
+      <button class="control-btn" id="btn-feedback" type="button">Send</button>
+      <span id="feedback-status"></span>
+    </div>
+    <div class="resume-row" id="resume-row" style="display:none">
+      <label>Iterations <input type="number" id="resume-iterations" min="1" step="1" /></label>
+      <label>Cost budget $ <input type="number" id="resume-cost" min="0" step="0.01" /></label>
+      <button class="control-btn" id="btn-resume" type="button">Resume with these limits</button>
+      <span id="resume-status"></span>
+    </div>
     <div class="gauges">
       <div class="gauge">
         <span class="label">Iteration</span>
@@ -523,6 +552,8 @@ export function buildPage(): string {
     if (selected && byId[selected]) renderDetail(byId[selected]);
     renderLiveOutput(model);
     renderControls(model);
+    renderFeedbackRow(model);
+    renderResumeRow(model);
   }
 
   function renderControls(model) {
@@ -585,6 +616,110 @@ export function buildPage(): string {
     if (!confirm('Cancel this run? It will halt immediately and cannot be resumed.')) return;
     sendControl('cancel');
   });
+
+  // Shown only while the run is actually running (see renderFeedbackRow) -
+  // a note dropped here is read once at the top of the very next iteration
+  // (runner.ts drains journal/human-feedback.js) and never repeats after.
+  function renderFeedbackRow(model) {
+    document.getElementById('feedback-row').style.display =
+      model.status === 'running' && model.controllable ? 'flex' : 'none';
+  }
+
+  function sendFeedback() {
+    var input = document.getElementById('feedback-input');
+    var statusEl = document.getElementById('feedback-status');
+    var btn = document.getElementById('btn-feedback');
+    var text = input.value.trim();
+    if (!text) return;
+    statusEl.className = '';
+    statusEl.textContent = '';
+    btn.disabled = true;
+    fetch('control', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'feedback', text: text }),
+    }).then(function (r) {
+      if (r.ok) {
+        statusEl.className = 'ok';
+        statusEl.textContent = 'queued for the next iteration';
+        input.value = '';
+        return;
+      }
+      return r.json().then(function (body) {
+        throw new Error(body.error || ('request failed (' + r.status + ')'));
+      });
+    }).catch(function (err) {
+      statusEl.className = 'err';
+      statusEl.textContent = err.message;
+    }).then(function () {
+      btn.disabled = false;
+    });
+  }
+
+  document.getElementById('btn-feedback').addEventListener('click', sendFeedback);
+  document.getElementById('feedback-input').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') sendFeedback();
+  });
+
+  // Prefilled once, the first time this halted run is seen as resumable -
+  // repeated SSE-driven renders while the user is mid-edit must not stomp
+  // on values they are actively typing.
+  var resumeFormInitialized = false;
+
+  function renderResumeRow(model) {
+    var row = document.getElementById('resume-row');
+    if (model.status !== 'halted' || !model.resumable) {
+      row.style.display = 'none';
+      resumeFormInitialized = false; // a later, different halted run starts fresh
+      return;
+    }
+    row.style.display = 'flex';
+    if (!resumeFormInitialized) {
+      document.getElementById('resume-iterations').value =
+        model.totals.maxIterations != null ? model.totals.maxIterations : '';
+      document.getElementById('resume-cost').value =
+        model.totals.maxCostUsd != null ? model.totals.maxCostUsd : '';
+      // a stale "resuming…" from a previous click must not linger once this
+      // is a fresh halted state (the run genuinely halted again, or for the
+      // first time) - only sendResume() itself sets this text, nothing else
+      // ever clears it otherwise.
+      var statusEl = document.getElementById('resume-status');
+      statusEl.className = '';
+      statusEl.textContent = '';
+      resumeFormInitialized = true;
+    }
+  }
+
+  function sendResume() {
+    var statusEl = document.getElementById('resume-status');
+    var btn = document.getElementById('btn-resume');
+    var iterations = Number(document.getElementById('resume-iterations').value);
+    var cost = Number(document.getElementById('resume-cost').value);
+    statusEl.className = '';
+    statusEl.textContent = '';
+    btn.disabled = true;
+    fetch('resume', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ maxIterations: iterations, maxCostUsd: cost }),
+    }).then(function (r) {
+      if (r.ok) {
+        statusEl.className = 'ok';
+        statusEl.textContent = 'resuming…';
+        return refresh();
+      }
+      return r.json().then(function (body) {
+        throw new Error(body.error || ('request failed (' + r.status + ')'));
+      });
+    }).catch(function (err) {
+      statusEl.className = 'err';
+      statusEl.textContent = err.message;
+    }).then(function () {
+      btn.disabled = false;
+    });
+  }
+
+  document.getElementById('btn-resume').addEventListener('click', sendResume);
 
   function refresh() {
     // Relative, not '/model': this same page is served both standalone at
