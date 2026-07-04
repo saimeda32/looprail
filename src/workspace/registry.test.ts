@@ -1,6 +1,6 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { expect, test } from 'vitest'
 import { addWorkspace, listWorkspaces, readRegistry, removeWorkspace, writeRegistry } from './registry.js'
 
@@ -49,4 +49,20 @@ test('removeWorkspace drops exactly the matching path and leaves the rest', () =
   addWorkspace(path, '/projects/finch')
   removeWorkspace(path, '/projects/scrumlo')
   expect(listWorkspaces(path)).toEqual(['/projects/finch'])
+})
+
+test('two concurrent addWorkspace calls both survive — neither registration is lost', async () => {
+  const path = tmpRegistryPath()
+  await Promise.all([
+    Promise.resolve().then(() => addWorkspace(path, '/projects/scrumlo')),
+    Promise.resolve().then(() => addWorkspace(path, '/projects/finch')),
+  ])
+  expect(listWorkspaces(path).sort()).toEqual(['/projects/finch', '/projects/scrumlo'])
+})
+
+test('writeRegistry leaves no stray temp or lock artifacts behind', () => {
+  const path = tmpRegistryPath()
+  addWorkspace(path, '/projects/scrumlo')
+  const dirEntries = readdirSync(dirname(path))
+  expect(dirEntries).toEqual(['workspaces.json'])
 })

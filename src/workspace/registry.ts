@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 
@@ -36,9 +37,57 @@ export function readRegistry(path: string): WorkspaceRegistry {
   }
 }
 
+// Atomic: write to a temp file in the same directory, then renameSync over the
+// target. rename is atomic on the same filesystem, so a concurrent reader (e.g.
+// a `looprail ui --all` poll tick) always observes either the old file or the
+// fully-written new one, never a half-written target mid-write.
 export function writeRegistry(path: string, reg: WorkspaceRegistry): void {
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, JSON.stringify(reg, null, 2) + '\n')
+  const tmp = `${path}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`
+  writeFileSync(tmp, JSON.stringify(reg, null, 2) + '\n')
+  renameSync(tmp, path)
+}
+
+// Sub-millisecond-friendly synchronous sleep for the lock retry loop, without
+// pulling in a dependency: block this thread for `ms` on a throwaway shared
+// buffer nothing ever notifies.
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+// A dependency-free, best-effort exclusive lock around a read-modify-write.
+// mkdirSync of the lock dir is atomic and throws EEXIST if another process
+// already holds it, so two `looprail run` invocations starting within the same
+// second serialize instead of each reading the registry, mutating its own copy,
+// and clobbering the other's registration (a lost update). This is not
+// distributed-systems-grade: after a timeout we assume the holder crashed and
+// left a stale lock, and proceed anyway rather than deadlock forever.
+function withRegistryLock<T>(path: string, fn: () => T): T {
+  const lockDir = `${path}.lock`
+  mkdirSync(dirname(path), { recursive: true })
+  const deadline = Date.now() + 2000
+  let held = false
+  while (Date.now() < deadline) {
+    try {
+      mkdirSync(lockDir)
+      held = true
+      break
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+      sleepSync(20)
+    }
+  }
+  try {
+    return fn()
+  } finally {
+    if (held) {
+      try {
+        rmdirSync(lockDir)
+      } catch {
+        // best-effort release: if the lock dir is already gone, nothing to do.
+      }
+    }
+  }
 }
 
 function requireAbsolute(workspacePath: string): void {
@@ -49,18 +98,22 @@ function requireAbsolute(workspacePath: string): void {
 
 export function addWorkspace(path: string, workspacePath: string): WorkspaceRegistry {
   requireAbsolute(workspacePath)
-  const reg = readRegistry(path)
-  if (!reg.workspaces.includes(workspacePath)) reg.workspaces.push(workspacePath)
-  writeRegistry(path, reg)
-  return reg
+  return withRegistryLock(path, () => {
+    const reg = readRegistry(path)
+    if (!reg.workspaces.includes(workspacePath)) reg.workspaces.push(workspacePath)
+    writeRegistry(path, reg)
+    return reg
+  })
 }
 
 export function removeWorkspace(path: string, workspacePath: string): WorkspaceRegistry {
   requireAbsolute(workspacePath)
-  const reg = readRegistry(path)
-  reg.workspaces = reg.workspaces.filter((w) => w !== workspacePath)
-  writeRegistry(path, reg)
-  return reg
+  return withRegistryLock(path, () => {
+    const reg = readRegistry(path)
+    reg.workspaces = reg.workspaces.filter((w) => w !== workspacePath)
+    writeRegistry(path, reg)
+    return reg
+  })
 }
 
 export function listWorkspaces(path: string): string[] {
