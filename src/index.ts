@@ -42,3 +42,4 @@ export {
   addWorkspace, defaultRegistryPath, listWorkspaces, removeWorkspace, type WorkspaceRegistry,
 } from './workspace/registry.js'
 export { discoverRuns, type RunListEntry } from './workspace/discover.js'
+export { renderJson, renderTable, renderVerdict } from './bench/report.js'
