@@ -100,7 +100,7 @@ goal: |
 agents:
   worker:  ${agentSpec(adapters, models, 'worker')}
   checker: ${agentSpec(adapters, models, 'checker')}  ${REVIEWER_COMMENT}
-  # checker defaults to 'medium', not the usual cheap critic default:
+  # recommended tier for the checker is 'medium' rather than a cheap critic:
   # catching an unsupported or hallucinated claim requires real
   # understanding of the domain claim, not a mechanical pattern check.
 
@@ -181,10 +181,10 @@ goal: |
 agents:
   worker: ${agentSpec(adapters, models, 'worker')}
   editor: ${agentSpec(adapters, models, 'editor')}  ${REVIEWER_COMMENT}
-  # fact-editor gets its own agent key with a 'medium' recommended tier —
-  # fact-checking needs real reasoning (same logic as research-report's
-  # critics) — while style stays 'cheap' since tone/clarity judgment is
-  # bounded.
+  # fact-editor gets its own agent key; its recommended tier is 'medium'
+  # because fact-checking needs real reasoning (same logic as research-report's
+  # critics), while style's recommended tier stays 'cheap' since tone/clarity
+  # judgment is bounded.
   fact-editor: ${agentSpec(adapters, models, 'fact-editor')}
 
 graph:
@@ -224,8 +224,8 @@ goal: |
 agents:
   worker:   ${agentSpec(adapters, models, 'worker')}
   reviewer: ${agentSpec(adapters, models, 'reviewer')}  ${REVIEWER_COMMENT}
-  # critic defaults to 'medium', not the usual cheap default: code review
-  # requires real judgment, not mechanical pattern-matching.
+  # recommended tier for the critic is 'medium' rather than a cheap default:
+  # code review requires real judgment, not mechanical pattern-matching.
 
 graph:
   review: { role: executor, agent: worker,
@@ -259,9 +259,9 @@ goal: |
 agents:
   worker:  ${agentSpec(adapters, models, 'worker')}
   checker: ${agentSpec(adapters, models, 'checker')}  ${REVIEWER_COMMENT}
-  # critic defaults to 'medium', not the usual cheap default: checking
-  # "does this actually satisfy the spec" requires real understanding,
-  # not a mechanical check.
+  # recommended tier for the critic is 'medium' rather than a cheap default:
+  # checking "does this actually satisfy the spec" requires real
+  # understanding, not a mechanical check.
 
 graph:
   plan:  { role: planner, agent: worker }
