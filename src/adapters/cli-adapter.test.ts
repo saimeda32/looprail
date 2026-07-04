@@ -75,4 +75,45 @@ describe('CliAdapter', () => {
     expect(res.output).toBe('raw output')
     expect(calls[0]).toMatchObject({ file: 'mytool', args: ['p'] })
   })
+
+  test('a streamHandler turns each raw stdout line into live-output text via handleLine', async () => {
+    const chunks: string[] = []
+    const exec: ExecFn = async (_file, _args, opts = {}) => {
+      opts.onChunk?.('{"n":1}\n{"n":2}\n')
+      opts.onChunk?.('{"n":3}\n')
+      return { stdout: '', stderr: '', exitCode: 0 }
+    }
+    const streamHandler = (line: string) => {
+      const n = (JSON.parse(line) as { n: number }).n
+      return n % 2 === 0 ? null : `line ${n}`
+    }
+    const a = new CliAdapter({ name: 'x', command: 'mytool {prompt}', exec, streamHandler })
+    await a.invoke({ prompt: 'p' }, (c) => chunks.push(c))
+    expect(chunks).toEqual(['line 1', 'line 3'])
+  })
+
+  test('a streamHandler buffers a line split across two raw chunks', async () => {
+    const chunks: string[] = []
+    const exec: ExecFn = async (_file, _args, opts = {}) => {
+      opts.onChunk?.('{"te')
+      opts.onChunk?.('xt":"hi"}\n')
+      return { stdout: '', stderr: '', exitCode: 0 }
+    }
+    const streamHandler = (line: string) => (JSON.parse(line) as { text: string }).text
+    const a = new CliAdapter({ name: 'x', command: 'mytool {prompt}', exec, streamHandler })
+    await a.invoke({ prompt: 'p' }, (c) => chunks.push(c))
+    expect(chunks).toEqual(['hi'])
+  })
+
+  test('without onChunk, a streamHandler is never invoked (no wasted parsing)', async () => {
+    let called = false
+    const exec: ExecFn = async (_file, _args, opts = {}) => {
+      expect(opts.onChunk).toBeUndefined()
+      return { stdout: 'raw output', stderr: '', exitCode: 0 }
+    }
+    const streamHandler = (line: string) => { called = true; return line }
+    const a = new CliAdapter({ name: 'x', command: 'mytool {prompt}', exec, streamHandler })
+    await a.invoke({ prompt: 'p' })
+    expect(called).toBe(false)
+  })
 })

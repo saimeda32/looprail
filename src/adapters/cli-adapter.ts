@@ -16,6 +16,13 @@ export type ExecFn = (
 export const defaultExec: ExecFn = async (file, args, opts = {}) => {
   const subprocess = execa(file, args, {
     input: opts.input, timeout: opts.timeoutMs, cwd: opts.cwd, reject: false,
+    // Without an explicit input, leave stdin closed rather than an open,
+    // unfed pipe - a CLI that auto-detects piped input (claude -p does)
+    // can stall for several seconds waiting to see if anything arrives on
+    // an ambiguous open pipe, then fail. There is never anything to pipe
+    // when opts.input is unset (every adapter using {prompt}-substitution
+    // instead of stdin mode), so there is nothing lost by closing it.
+    stdin: opts.input === undefined ? 'ignore' : undefined,
   })
   // Streaming is best-effort: execa's own stdout stream is available on the
   // in-flight subprocess handle before it resolves. A caller that never
@@ -42,11 +49,38 @@ export interface ParsedResponse {
 
 export type ResponseParser = (stdout: string) => ParsedResponse
 
+// Turns one complete line of a CLI's own wire format into text worth showing
+// a person, or null to show nothing for that line. Needed because raw stdout
+// bytes are rarely readable on their own: claude-code and codex both emit
+// newline-delimited JSON (a structured event per line, not prose), so
+// forwarding raw chunks straight to a live-output pane just prints unparsed
+// JSON. A line handler is what makes streaming mean something.
+export type LineHandler = (line: string) => string | null
+
+// Chunk boundaries rarely land on line boundaries, so raw pieces are buffered
+// until a full line is available before handleLine ever sees one.
+export function lineBufferedTransform(
+  handleLine: LineHandler, onChunk: (text: string) => void,
+): (raw: string) => void {
+  let buffer = ''
+  return (raw: string) => {
+    buffer += raw
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.trim()) continue
+      const text = handleLine(line)
+      if (text) onChunk(text)
+    }
+  }
+}
+
 export interface CliAdapterOptions {
   name: string
   command: string     // whitespace-tokenized argv template; the token {prompt} becomes one arg
   stdin?: boolean     // pipe the prompt to stdin instead of substituting {prompt}
   parser?: ResponseParser
+  streamHandler?: LineHandler  // turns each raw stdout line into live-output text, if the CLI's format needs it
   exec?: ExecFn
   cwd?: string
   extraArgs?: (req: AgentRequest) => string[]  // per-request args appended after the template
@@ -71,11 +105,14 @@ export class CliAdapter implements Adapter {
     const tokens = this.opts.command.split(/\s+/).filter(Boolean)
     const [file, ...args] = tokens.map((t) => (t === '{prompt}' ? req.prompt : t))
     if (this.opts.extraArgs) args.push(...this.opts.extraArgs(req))
+    const wrappedOnChunk = onChunk && this.opts.streamHandler
+      ? lineBufferedTransform(this.opts.streamHandler, onChunk)
+      : onChunk
     const res = await this.exec(file, args, {
       input: this.opts.stdin ? req.prompt : undefined,
       timeoutMs: req.timeoutMs,
       cwd: this.opts.cwd,
-      onChunk,
+      onChunk: wrappedOnChunk,
     })
     if (res.exitCode !== 0) {
       throw new Error(
