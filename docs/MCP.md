@@ -125,11 +125,14 @@ These are two different things, worth telling apart.
 **A `gate` node in your loopfile** is a checkpoint you put there on purpose,
 where the loop pauses until a person says yes or no. When a run started with
 `run_loop` reaches a gate, it pauses (it does not fail or halt) and
-`run_status` reports a `waitingOnGate` field naming the node and its
-question. Call `approve_gate` with the run id, the node id, and `true` or
-`false` to let it continue. If the loopfile sets `gate_timeout`, an
-unanswered gate halts after that many seconds, the same as it would from the
-CLI.
+`run_status` reports a `waitingOnGates` array, one entry per gate currently
+paused, each naming its node and question. The array can hold more than one
+entry at once: independent gate nodes with no edge between them run
+concurrently, so several can be paused simultaneously (the field is an array,
+not a single gate, for exactly this reason). Call `approve_gate` with the run
+id, one gate's node id, and `true` or `false` to let that gate continue, once
+per paused gate. If the loopfile sets `gate_timeout`, an unanswered gate halts
+after that many seconds, the same as it would from the CLI.
 
 **The agent's own tool permissions** (a coding agent asking to run a shell
 command, edit a file, and so on) are a separate matter, and looprail does
