@@ -67,7 +67,11 @@ harness ever reports a mock number as if it were a real one, or the reverse.
   over all runs and over the verified subset respectively.
 - **wasted $ / wasted %** — executor spend that did not belong to the
   iteration that actually landed (see `src/bench/metrics.ts` for the exact
-  formula); a halted run counts as 100% wasted, since nothing landed.
+  formula); a halted run counts as 100% wasted executor spend once execution
+  has begun, since nothing landed. A run that halts before any executor node
+  runs (e.g. an aggressive `max_cost_usd` breached during planning)
+  contributes zero to this metric, since no executor spend means no executor
+  waste.
 - **the one-line verdict** — compares every config against `baseline` (or
   the first config, if none is named `baseline`) on pass rate, breaking
   ties on mean iterations to verified.
