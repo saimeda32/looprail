@@ -258,3 +258,31 @@ test('a node_end with no tokens field does not break accumulation for other node
   expect(m.nodes.find((n) => n.id === 'check')!.tokens).toBe(75)
   expect(m.totals.tokens).toBe(75)
 })
+
+test('a halt reclassifies any still-running node as interrupted, instead of leaving it running forever', () => {
+  // Reproduces a real bug: canceling a run while two nodes were still in
+  // flight (started, no node_end) left the dashboard showing a live,
+  // flowing edge and "waiting for output" on an already-halted run,
+  // because nothing ever demoted those nodes off "running".
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('node_start', { nodeId: 'do', role: 'executor', iteration: 1 }),
+    ev('node_end', { nodeId: 'do', role: 'executor', iteration: 1, costUsd: 0.1, verdict: null, output: 'done' }),
+    ev('node_start', { nodeId: 'check', role: 'tester', iteration: 1 }),
+    ev('node_start', { nodeId: 'crit', role: 'critic', iteration: 1 }),
+    ev('halt', { reason: 'canceled by user request', costUsd: 0.1 }),
+  ])
+  expect(m.status).toBe('halted')
+  expect(m.nodes.find((n) => n.id === 'do')!.status).toBe('done') // already finished - untouched
+  expect(m.nodes.find((n) => n.id === 'check')!.status).toBe('interrupted')
+  expect(m.nodes.find((n) => n.id === 'crit')!.status).toBe('interrupted')
+})
+
+test('verified also reclassifies any still-running node as interrupted (defensive, same guard as halt)', () => {
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('node_start', { nodeId: 'stray', role: 'critic', iteration: 1 }),
+    ev('verified', { reason: 'all verifiers passed', costUsd: 0 }),
+  ])
+  expect(m.nodes.find((n) => n.id === 'stray')!.status).toBe('interrupted')
+})

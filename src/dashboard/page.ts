@@ -71,6 +71,8 @@ export function buildPage(): string {
   .run-title .name { font-size: 14px; font-weight: 600; }
   .run-title .id { font: 11px var(--mono); color: var(--ink-faint); }
   #reason { font-size: 12px; color: var(--ink-dim); }
+  .run-goal { padding: 12px 18px; border-bottom: 1px solid var(--line); font-size: 12.5px; line-height: 1.5; color: var(--ink-dim); white-space: pre-wrap; }
+  .run-goal:empty { display: none; }
 
   .status-pill {
     display: inline-flex; align-items: center; gap: 6px; font: 600 10.5px/1.4 var(--mono);
@@ -103,6 +105,7 @@ export function buildPage(): string {
   .node-plate.node-fail, .node-plate.node-error { stroke: var(--fail); }
   .node-plate.node-stall { stroke: var(--warn); }
   .node-plate.node-skipped { stroke: var(--line); stroke-dasharray: 4 3; }
+  .node-plate.node-interrupted { stroke: var(--ink-faint); stroke-dasharray: 4 3; }
   .node-label { fill: var(--ink); font: 12px var(--mono); pointer-events: none; }
   .node-sub { fill: var(--ink-faint); font: 8.5px var(--sans); letter-spacing: 0.05em; text-transform: uppercase; pointer-events: none; }
   .node-dot { pointer-events: none; }
@@ -110,7 +113,7 @@ export function buildPage(): string {
   .node-dot.node-pass, .node-dot.node-done { fill: var(--pass); }
   .node-dot.node-fail, .node-dot.node-error { fill: var(--fail); }
   .node-dot.node-stall { fill: var(--warn); }
-  .node-dot.node-pending, .node-dot.node-skipped { fill: var(--line-bright); }
+  .node-dot.node-pending, .node-dot.node-skipped, .node-dot.node-interrupted { fill: var(--line-bright); }
   .trace { stroke: var(--line-bright); stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
   .arrow-head { fill: var(--line-bright); }
   .trace.edge-live { stroke: var(--signal-dim); stroke-dasharray: 4 5; animation: flow 1.1s linear infinite; marker-end: url(#arrow-live); }
@@ -141,6 +144,16 @@ export function buildPage(): string {
   .agent-row .role { color: var(--ink-dim); }
   @media (max-width: 560px) { .agent-row { grid-template-columns: 1fr 60px 70px; } .agent-row span:nth-child(2) { display: none; } }
 
+  .run-controls { display: flex; gap: 8px; align-items: center; }
+  .control-btn {
+    font: 11px var(--mono); padding: 5px 10px; border-radius: 3px; border: 1px solid var(--line);
+    background: var(--panel-raised); color: var(--ink-dim); cursor: pointer;
+  }
+  .control-btn:hover { color: var(--ink); border-color: var(--line-bright); }
+  .control-btn.danger:hover { color: var(--fail); border-color: rgba(196,87,74,0.4); }
+  .control-btn:disabled { opacity: 0.5; cursor: default; }
+  #control-error { font-size: 11.5px; color: var(--fail); }
+
   #detail-panel { white-space: pre-wrap; font: 12px/1.55 var(--mono); background: var(--panel); border: 1px solid var(--line); border-radius: 3px; color: var(--ink); padding: 14px 16px; max-height: 260px; overflow: auto; }
   .plan-version { border-left: 2px solid var(--line-bright); padding: 4px 0 4px 12px; margin-bottom: 10px; font-size: 12px; color: var(--ink-dim); }
   .plan-version pre { white-space: pre-wrap; margin: 4px 0 0; color: var(--ink); font-family: var(--mono); }
@@ -167,7 +180,13 @@ export function buildPage(): string {
         <span class="id" id="run-id"></span>
       </div>
       <span id="reason"></span>
+      <div class="run-controls" id="run-controls" style="display:none">
+        <span id="control-error"></span>
+        <button class="control-btn" id="btn-pause" type="button">Pause</button>
+        <button class="control-btn danger" id="btn-cancel" type="button">Cancel</button>
+      </div>
     </div>
+    <div class="run-goal" id="run-goal"></div>
     <div class="gauges">
       <div class="gauge">
         <span class="label">Iteration</span>
@@ -235,6 +254,7 @@ export function buildPage(): string {
   var STATUS_CLASS = {
     pending: 'node-pending', running: 'node-running', pass: 'node-pass', done: 'node-done',
     fail: 'node-fail', error: 'node-error', stall: 'node-stall', skipped: 'node-skipped',
+    interrupted: 'node-interrupted',
   };
   var selected = null;
   var selectedTab = null; // nodeId of the tab the user is viewing; null = default to the first running node
@@ -398,6 +418,7 @@ export function buildPage(): string {
     document.getElementById('run-panel').style.display = model.nodes.length === 0 ? 'none' : 'block';
     document.getElementById('run-title').textContent = model.name || 'looprail dashboard';
     document.getElementById('run-id').textContent = model.runId ? 'RUN ' + model.runId : '';
+    document.getElementById('run-goal').textContent = model.goal ? model.goal.trim() : '';
     var pill = document.getElementById('status-pill');
     pill.textContent = model.status;
     pill.className = 'status-pill status-' + model.status;
@@ -457,7 +478,69 @@ export function buildPage(): string {
     renderPlans(model.plans);
     if (selected && byId[selected]) renderDetail(byId[selected]);
     renderLiveOutput(model);
+    renderControls(model);
   }
+
+  function renderControls(model) {
+    var controls = document.getElementById('run-controls');
+    // controllable comes from the server (server.ts's controlState): it
+    // reflects whether run-cmd.ts recorded a pid for this run at all, not
+    // just whether the run is still going - an older run, or one started by
+    // a different tool entirely, has nothing here to pause or cancel.
+    if (model.status !== 'running' || !model.controllable) {
+      controls.style.display = 'none';
+      return;
+    }
+    controls.style.display = 'flex';
+    var pauseBtn = document.getElementById('btn-pause');
+    var cancelBtn = document.getElementById('btn-cancel');
+    // render() is the only place either button's disabled state is decided
+    // once a request settles - sendControl only disables both up front, to
+    // block a double-click while one is in flight.
+    cancelBtn.disabled = false;
+    pauseBtn.textContent = model.paused ? 'Resume' : 'Pause';
+    // pauseUnsafe means this exact dashboard is served by the same process
+    // pausing would freeze - looprail run --ui, not mission control. Resume
+    // is unaffected: it only ever applies to an already-paused run, and a
+    // process cannot pause itself and serve this page at the same time.
+    pauseBtn.disabled = model.pauseUnsafe && !model.paused;
+    pauseBtn.title = pauseBtn.disabled
+      ? 'Open this run from looprail ui --all (mission control) to pause it - pausing it here would freeze this dashboard too'
+      : '';
+  }
+
+  function sendControl(action) {
+    var errorEl = document.getElementById('control-error');
+    var pauseBtn = document.getElementById('btn-pause');
+    var cancelBtn = document.getElementById('btn-cancel');
+    errorEl.textContent = '';
+    pauseBtn.disabled = true;
+    cancelBtn.disabled = true;
+    fetch('control', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: action }),
+    }).then(function (r) {
+      if (r.ok) return refresh(); // refresh()'s render() sets each button's correct state - nothing else needed on success
+      return r.json().then(function (body) {
+        throw new Error(body.error || ('request failed (' + r.status + ')'));
+      });
+    }).catch(function (err) {
+      errorEl.textContent = err.message;
+      // only the failure path needs to manually restore both buttons -
+      // render() never ran to set their real state for us
+      pauseBtn.disabled = false;
+      cancelBtn.disabled = false;
+    });
+  }
+
+  document.getElementById('btn-pause').addEventListener('click', function () {
+    sendControl(this.textContent === 'Resume' ? 'resume' : 'pause');
+  });
+  document.getElementById('btn-cancel').addEventListener('click', function () {
+    if (!confirm('Cancel this run? It will halt immediately and cannot be resumed.')) return;
+    sendControl('cancel');
+  });
 
   function refresh() {
     // Relative, not '/model': this same page is served both standalone at
@@ -466,7 +549,7 @@ export function buildPage(): string {
     // 404ing under mission control. The server enforces a trailing slash on
     // this page's own URL (see startMissionControlServer) specifically so
     // this relative resolution is reliable either way.
-    fetch('model').then(function (r) { return r.json(); }).then(render).catch(function (err) {
+    return fetch('model').then(function (r) { return r.json(); }).then(render).catch(function (err) {
       console.error('failed to refresh dashboard model', err);
     });
   }

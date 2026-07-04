@@ -1,6 +1,7 @@
 import type { JournalEvent, LoopDef, Role, Verdict } from '../core/types.js'
 
-export type NodeStatus = 'pending' | 'running' | 'pass' | 'fail' | 'stall' | 'error' | 'done' | 'skipped'
+export type NodeStatus =
+  | 'pending' | 'running' | 'pass' | 'fail' | 'stall' | 'error' | 'done' | 'skipped' | 'interrupted'
 
 export interface NodeIterationRecord {
   iteration: number
@@ -167,6 +168,15 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
         status = e.type === 'verified' ? 'verified' : 'halted'
         reason = String(d.reason)
         costUsd = Math.max(costUsd, Number(d.costUsd ?? costUsd))
+        // A node that started but never got its own node_end (a rail
+        // breach or a user cancel while it was still in flight - the whole
+        // point of the cancel control) would otherwise show "running"
+        // forever: nothing else ever demotes it once the run itself is
+        // over, which is exactly what left the dashboard showing a live,
+        // flowing edge and "waiting for output" on an already-halted run.
+        for (const n of nodes.values()) {
+          if (n.status === 'running') n.status = 'interrupted'
+        }
         break
       default:
         break
