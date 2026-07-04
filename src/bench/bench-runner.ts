@@ -28,8 +28,9 @@ export async function runBench(def: BenchDef, benchfileDir: string, deps: BenchD
 
   for (const ref of def.configs) {
     const { def: loop } = loadLoop(ref.loopfile, benchfileDir)
-    const mode: 'mock' | 'real' = Object.values(loop.agents).every((a) => a.adapter === 'mock')
-      ? 'mock' : 'real'
+    const mode: 'mock' | 'real' =
+      Object.keys(loop.agents).length > 0 && Object.values(loop.agents).every((a) => a.adapter === 'mock')
+        ? 'mock' : 'real'
 
     const runs: BenchRunResult[] = []
     for (let i = 0; i < def.repeat; i++) {

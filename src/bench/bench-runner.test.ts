@@ -80,6 +80,25 @@ test('detects real mode when any agent uses a non-mock adapter', async () => {
   expect(result.configs[0].mode).toBe('real')
 })
 
+test('detects real mode for a lint-clean loop with an empty agents map (tester-only, no agent-backed nodes)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'looprail-bench-runner-'))
+  writeFileSync(join(dir, 'x.yaml'), `
+name: fixture
+goal: produce DONE
+agents: {}
+graph:
+  do: { role: tester, run: 'true', expect: 'exit 0' }
+rails:
+  max_iterations: 1
+  max_cost_usd: 5
+verdict: { policy: all-pass }
+`)
+  const runsRoot = mkdtempSync(join(tmpdir(), 'looprail-bench-runs-'))
+  const registry = createRegistry()
+  const result = await runBench(benchDef({ configs: [{ id: 'only', loopfile: 'x.yaml' }] }), dir, { registry, runsRoot })
+  expect(result.configs[0].mode).toBe('real')
+})
+
 test('passes a fresh registry per run via registryFor, keyed by config id and run index', async () => {
   const dir = scaffold()
   const runsRoot = mkdtempSync(join(tmpdir(), 'looprail-bench-runs-'))
