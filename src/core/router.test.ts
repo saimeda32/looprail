@@ -73,7 +73,7 @@ test('transient error verdict routes like a failure (iterate with feedback)', ()
 
 test('infra-tagged error verdict halts with the evidence', () => {
   const d = routeIteration({
-    outcomes: [outcome('j', 'error', 'infra: 401 unauthorized — run `looprail doctor`')],
+    outcomes: [outcome('j', 'error', 'infra: 401 unauthorized - run `looprail doctor`')],
     policy: { kind: 'all-pass' },
     fingerprints: [], rails, replansUsed: 0, breach: null,
   })
@@ -81,12 +81,12 @@ test('infra-tagged error verdict halts with the evidence', () => {
     action: 'halt', reason: expect.stringContaining('infrastructure'),
   })
   // verify the prefix is stripped so it does not double-label
-  expect((d as { reason: string }).reason).toBe('infrastructure error: 401 unauthorized — run `looprail doctor`')
+  expect((d as { reason: string }).reason).toBe('infrastructure error: 401 unauthorized - run `looprail doctor`')
 })
 
 test('config-tagged error verdict halts loudly instead of iterating', () => {
   const d = routeIteration({
-    outcomes: [outcome('metacrit', 'error', 'config: target output for "pcrit" unavailable — check graph ordering')],
+    outcomes: [outcome('metacrit', 'error', 'config: target output for "pcrit" unavailable - check graph ordering')],
     policy: { kind: 'all-pass' },
     fingerprints: [], rails, replansUsed: 0, breach: null,
   })
@@ -95,5 +95,5 @@ test('config-tagged error verdict halts loudly instead of iterating', () => {
   expect((d as { reason: string }).reason).toContain('metacrit')
   expect((d as { reason: string }).reason).toContain('pcrit')
   // verify the prefix is stripped so it does not double-label
-  expect((d as { reason: string }).reason).toBe('config error — check your loop definition: [metacrit] target output for "pcrit" unavailable — check graph ordering')
+  expect((d as { reason: string }).reason).toBe('config error - check your loop definition: [metacrit] target output for "pcrit" unavailable - check graph ordering')
 })

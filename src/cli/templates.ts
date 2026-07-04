@@ -1,10 +1,10 @@
-// Model tier is a per-agent-role RECOMMENDATION only — the user (or --yes'
+// Model tier is a per-agent-role RECOMMENDATION only - the user (or --yes'
 // non-interactive default) always makes the actual choice; nothing in this
 // file ever picks a tier on its own.
 export type Tier = 'strong' | 'medium' | 'cheap'
 
 // Which already-resolved CLI adapter (worker or reviewer) a role's agent key
-// should be wired to — see init-cmd.ts, which resolves `worker`/`reviewer`
+// should be wired to - see init-cmd.ts, which resolves `worker`/`reviewer`
 // adapter strings once and then fans them out across every agent key here.
 export type RoleKind = 'worker' | 'reviewer'
 
@@ -17,23 +17,23 @@ export interface AgentRole {
 
 export interface Template {
   description: string
-  // one entry per agent key the template's yaml() declares — lets a caller
+  // one entry per agent key the template's yaml() declares - lets a caller
   // (init-cmd.ts) know what to prompt for and what to recommend as default.
   agentRoles: AgentRole[]
   // adapters and models are both keyed by agent key (e.g. 'worker',
   // 'checker', 'fact-editor'). templates.ts does zero tier decision-making
-  // here — it only interpolates whatever adapter+model string it is given.
+  // here - it only interpolates whatever adapter+model string it is given.
   yaml: (adapters: Record<string, string>, models: Record<string, string | undefined>) => string
 }
 
-const REVIEWER_COMMENT = '# independent reviewer — a different model catches what the worker\'s own model misses'
+const REVIEWER_COMMENT = '# independent reviewer - a different model catches what the worker\'s own model misses'
 
 // Model names are Claude-specific (haiku/sonnet/opus), so only claude-code
 // gets a model: field -- codex/aider/copilot-cli/shell/mock have different or
 // no model-tier concept, and should keep deferring to their own default.
 // This is a pure translation: it never runs unless a caller passes an
 // explicit tier, and the tier itself always comes from the user's choice (or
-// the recommended default in non-interactive mode) — see init-cmd.ts.
+// the recommended default in non-interactive mode) - see init-cmd.ts.
 export function tierToModel(adapter: string, tier: Tier): string | undefined {
   if (adapter !== 'claude-code') return undefined
   if (tier === 'strong') return 'opus'
@@ -91,7 +91,7 @@ verdict: { policy: all-pass }
     yaml: (adapters, models) => `name: research-report
 goal: |
   Produce a cited research report on this repository's own architecture
-  and the most consequential decisions in its history — inspect the
+  and the most consequential decisions in its history - inspect the
   README, git log, and source to ground every claim in what you find.
   Done means: every claim has a source and independent critics find no
   unsupported claims. To research a different topic instead, replace
@@ -133,7 +133,7 @@ verdict: { policy: all-pass }
     yaml: (adapters, models) => `name: refactor
 goal: |
   Refactor the largest or most complex file under src/ without changing
-  behavior — use your own judgment to pick one if a specific file isn't
+  behavior - use your own judgment to pick one if a specific file isn't
   named. Done means: the test suite still passes, a correctness critic
   finds no behavior change, API break, or dropped edge case, and a
   quality critic confirms the refactor measurably improves readability
@@ -217,7 +217,7 @@ goal: |
   Review the currently pending changes (run 'git diff') in whatever
   directory this loop is run from. List every correctness, security,
   and style issue you find, each with a file:line reference. No code
-  changes are made — this is a read-only review of the CURRENT PENDING
+  changes are made - this is a read-only review of the CURRENT PENDING
   diff. Done means: an independent critic re-examines the same diff and
   finds nothing the review missed and nothing it wrongly flagged.
 
@@ -266,10 +266,10 @@ agents:
 graph:
   plan:  { role: planner, agent: worker }
   build: { role: executor, agent: worker, after: plan,
-           prompt: Build the app described in the goal above and write its own tests — there is no pre-existing test suite to run. }
+           prompt: Build the app described in the goal above and write its own tests - there is no pre-existing test suite to run. }
   tests: { role: tester, after: build, run: npm test, expect: exit 0 }  # swap "npm test" for your stack's real test command if different, e.g. pytest, go test ./..., or cargo test
   crit:  { role: critic, agent: checker, of: build, after: tests,
-           prompt: Fail if the result doesn't actually satisfy the spec above, even if its own tests pass — this catches the case where the agent wrote weak tests for weak work. }
+           prompt: Fail if the result doesn't actually satisfy the spec above, even if its own tests pass - this catches the case where the agent wrote weak tests for weak work. }
 
 rails:
   max_iterations: 10

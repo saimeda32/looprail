@@ -34,7 +34,7 @@ export function parseLoopfile(text: string): LoopDef {
   }
   // Stall detection compares trailing fingerprints for repetition, which needs
   // at least two iterations to have happened. stall_after: 1 would "stall" after
-  // the first iteration, before any repetition could exist — reject it.
+  // the first iteration, before any repetition could exist - reject it.
   if (rawRails.stall_after !== undefined
       && !(typeof rawRails.stall_after === 'number' && rawRails.stall_after >= 2)) {
     problems.push('rails.stall_after must be at least 2 (stall detection needs two iterations to compare)')

@@ -14,7 +14,7 @@ export interface EngineDeps {
   sleep?: (ms: number) => Promise<void>  // retry backoff clock (tests inject instant)
   retries?: number                       // adapter retry budget (default 2)
   // Clamps a node's timeout to the remaining wall-clock budget when a wall rail
-  // is set (see runner.ts). Absent when there is no wall rail — behavior is then
+  // is set (see runner.ts). Absent when there is no wall rail - behavior is then
   // identical to using node.timeoutMs directly.
   effectiveTimeout?: (nodeTimeoutMs?: number) => number | undefined
 }
@@ -55,7 +55,7 @@ export async function executeNode(
       }
     } catch (err) {
       // execa itself throwing (not a non-zero exit, which is handled above)
-      // means the command/shell setup is broken — structural, not transient.
+      // means the command/shell setup is broken - structural, not transient.
       const msg = err instanceof Error ? err.message : String(err)
       return {
         ...base,
@@ -79,7 +79,7 @@ export async function executeNode(
       }
     } catch (err) {
       // a gate handler that throws is usually a wiring bug (no handler,
-      // handler misconfigured) and gets a config: verdict — but a gate that
+      // handler misconfigured) and gets a config: verdict - but a gate that
       // times out waiting for a human (makeGate's setTimeout race) already
       // throws an infra:-tagged error, since a human not answering in time
       // is an operational condition, not a broken loopfile. Preserve any
@@ -102,7 +102,7 @@ export async function executeNode(
       verdict: {
         node: node.id,
         status: 'error',
-        evidence: `config: target output for "${node.of}" unavailable — check graph ordering`,
+        evidence: `config: target output for "${node.of}" unavailable - check graph ordering`,
       },
     }
   }
@@ -114,7 +114,7 @@ export async function executeNode(
   let agentDef: AgentDef, adapter: Adapter, prompt: string, key: string | undefined
   try {
     agentDef = def.agents[node.agent!]
-    if (!agentDef) throw new Error(`unknown agent "${node.agent}" — check the loop's agents map`)
+    if (!agentDef) throw new Error(`unknown agent "${node.agent}" - check the loop's agents map`)
     adapter = deps.registry.get(agentDef.adapter)
     prompt = composeContext(def, node, state, outcomes)
     key = deps.hash?.(node.id, prompt)

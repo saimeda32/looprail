@@ -150,7 +150,7 @@ test('an unknown workspace hash 404s instead of crashing', async () => {
 // discover.ts (discoverRuns/discoverClaudeCodeSessions) is hardened at the
 // source, but these three call sites (`/api/runs`, `/events`'s initial
 // frame, `/events`'s poll tick) also guard directly against scan() itself
-// throwing — from these functions or any future replacement of them.
+// throwing - from these functions or any future replacement of them.
 
 test('GET /api/runs responds with a clean 500 instead of crashing when scan() throws, and a subsequent request still works', async () => {
   let shouldThrow = true
@@ -182,7 +182,7 @@ test('GET /api/runs against a real registry pointing at a directory-as-journal w
   const first = await get(dashboard.url + '/api/runs')
   expect([200, 500]).toContain(first.status)
   // Regardless of status code, the server must still be alive and answer a
-  // second request cleanly — the whole point of the fix.
+  // second request cleanly - the whole point of the fix.
   const second = await get(dashboard.url + '/api/runs')
   expect([200, 500]).toContain(second.status)
 })
@@ -205,7 +205,7 @@ test('GET /events falls back to an empty snapshot on connect when scan() throws,
   expect(body).toContain('data: {"runs":[],"sessions":[]}')
 })
 
-test('GET /events poll tick survives scan() throwing — connection stays open and a later good tick still delivers', async () => {
+test('GET /events poll tick survives scan() throwing - connection stays open and a later good tick still delivers', async () => {
   let scanShouldThrow = false
   let runs = [fakeRun({ status: 'running' })]
   let tick: (() => void) | undefined

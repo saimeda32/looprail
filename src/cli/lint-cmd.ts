@@ -14,7 +14,7 @@ export async function lintAction(
   try {
     text = readFileSync(path, 'utf8')
   } catch {
-    io.out(err(`cannot read ${path} — does the file exist?`))
+    io.out(err(`cannot read ${path} - does the file exist?`))
     return 1
   }
   let def
@@ -26,7 +26,7 @@ export async function lintAction(
   }
   const findings = lintLoop(def)
   if (findings.length === 0) {
-    io.out(ok('lint clean — no findings'))
+    io.out(ok('lint clean - no findings'))
     return 0
   }
   for (const f of findings) {

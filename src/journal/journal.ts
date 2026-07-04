@@ -23,7 +23,7 @@ export function readJournal(path: string): JournalEvent[] {
     try {
       events.push(JSON.parse(line) as JournalEvent)
     } catch {
-      // trailing partial line from a crash — ignore
+      // trailing partial line from a crash - ignore
     }
   }
   return events

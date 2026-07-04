@@ -72,7 +72,7 @@ test('editing the goal invalidates the cache and re-executes live', async () => 
   writeFileSync(join(cwd, 'looprail.yaml'), FIXTURE.replace('Say DONE.', 'Say PONG.'))
   const { io, lines } = capture()
   const code = await replayAction(undefined, { cwd, json: true }, {
-    io, registry: scriptedRegistry(), // fresh script — replay must invoke it
+    io, registry: scriptedRegistry(), // fresh script - replay must invoke it
   })
   expect(code).toBe(0)
   const summary = JSON.parse(lines.at(-1)!) as { costUsd: number }

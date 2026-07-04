@@ -14,7 +14,7 @@ import { addWorkspace, defaultRegistryPath } from '../workspace/registry.js'
 export function loadLoop(file: string | undefined, cwd: string): { def: LoopDef; path: string } {
   const path = resolve(cwd, file ?? 'looprail.yaml')
   if (!existsSync(path)) {
-    throw new Error(`no loopfile at ${path} — run \`looprail init\` to scaffold one`)
+    throw new Error(`no loopfile at ${path} - run \`looprail init\` to scaffold one`)
   }
   return { def: parseLoopfile(readFileSync(path, 'utf8')), path }
 }
@@ -42,9 +42,9 @@ export function makeGate(
     const ac = new AbortController()
     let timeoutId: ReturnType<typeof setTimeout> | undefined
     try {
-      const question = rl.question(`gate "${node.id}" — approve? [y/N] `, { signal: ac.signal })
+      const question = rl.question(`gate "${node.id}" - approve? [y/N] `, { signal: ac.signal })
       const timeoutSec = rails.gateTimeoutSec
-      // 0 and undefined both mean "wait forever" — only a positive timeout
+      // 0 and undefined both mean "wait forever" - only a positive timeout
       // starts the race. (A gateTimeoutSec of exactly 0 is not treated as
       // "time out immediately"; there was no product requirement for that,
       // so it falls back to the same wait-forever behavior as unset.)
@@ -111,7 +111,7 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
     const d = e.data as Record<string, unknown>
     switch (e.type) {
       case 'run_start':
-        ctx.io.out(heading(`run ${String(d.runId)} — ${String(d.name)}`))
+        ctx.io.out(heading(`run ${String(d.runId)} - ${String(d.name)}`))
         break
       case 'node_start':
         ctx.io.out(dim(`  ▸ iter ${String(d.iteration)} · ${String(d.role)} ${String(d.nodeId)}`))
@@ -123,7 +123,7 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
         break
       }
       case 'iteration_end':
-        ctx.io.out(dim(`  — iteration ${String(d.iteration)} · $${Number(d.costUsd).toFixed(2)} of $${def.rails.maxCostUsd} budget`))
+        ctx.io.out(dim(`  - iteration ${String(d.iteration)} · $${Number(d.costUsd).toFixed(2)} of $${def.rails.maxCostUsd} budget`))
         break
       case 'replan':
         ctx.io.out(warn(`  ↻ replan #${String(d.replans)}`))
@@ -158,8 +158,8 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
 
   ctx.io.out('')
   ctx.io.out(report.status === 'verified'
-    ? ok(`verified — ${report.reason}`)
-    : err(`halted — ${report.reason}`))
+    ? ok(`verified - ${report.reason}`)
+    : err(`halted - ${report.reason}`))
   ctx.io.out(`  iterations: ${report.iterations} · replans: ${report.replans} · total cost: $${report.costUsd.toFixed(2)}`)
   const breakdown = agentCostBreakdown(def, join(ctx.runDir, 'journal.jsonl'))
   if (breakdown.length > 0) {
@@ -188,7 +188,7 @@ function autoRegisterWorkspace(cwd: string, registryPath: string): void {
   try {
     addWorkspace(registryPath, cwd)
   } catch {
-    // swallowed — see comment above
+    // swallowed - see comment above
   }
 }
 
@@ -213,7 +213,7 @@ export async function runAction(
     }
   }
   if (findings.some((f) => f.level === 'error')) {
-    io.out(err('loop failed lint — fix the errors above (details: `looprail lint`)'))
+    io.out(err('loop failed lint - fix the errors above (details: `looprail lint`)'))
     return 1
   }
   const runId = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
@@ -223,7 +223,7 @@ export async function runAction(
   if (opts.ui) {
     // Create the run directory before the dashboard starts listening, so its
     // /events parent-dir-watch fallback always has a real directory to watch
-    // from the first connection onward — otherwise a client connecting
+    // from the first connection onward - otherwise a client connecting
     // before executeRun creates the directory (via JournalWriter's own
     // mkdirSync) gets no watcher at all and live updates never start until a
     // manual refresh. JournalWriter's later mkdirSync on this same path is a
@@ -231,7 +231,7 @@ export async function runAction(
     mkdirSync(runDir, { recursive: true })
     // panel-expand up front so node ids in the dashboard match the ids the
     // engine will actually journal (runLoop does this same expansion
-    // internally — see splitRegions/expandPanels in engine/runner.ts)
+    // internally - see splitRegions/expandPanels in engine/runner.ts)
     dashboard = await startDashboardServer({
       journalPath: join(runDir, 'journal.jsonl'),
       def: expandPanels(loaded.def),

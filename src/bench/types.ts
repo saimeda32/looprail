@@ -2,7 +2,7 @@ import type { JournalEvent, RunReport } from '../core/types.js'
 
 // One named arm of a bench run: an id used in the report, and a path to an
 // ordinary loopfile (resolved relative to the benchfile's own directory).
-// A config never embeds a loop graph inline — there is exactly one
+// A config never embeds a loop graph inline - there is exactly one
 // YAML-to-LoopDef schema in this codebase (parseLoopfile), and benchfiles
 // reuse it rather than duplicating it.
 export interface BenchConfigRef {

@@ -17,7 +17,7 @@ export async function lintLoopfileHandler(
 ): Promise<CallToolResult> {
   const cwd = input.cwd ?? deps.cwd
   const path = resolve(cwd, input.file)
-  if (!existsSync(path)) return errorResult(`cannot read ${path} — does the file exist?`)
+  if (!existsSync(path)) return errorResult(`cannot read ${path} - does the file exist?`)
   let def
   try {
     def = parseLoopfile(readFileSync(path, 'utf8'))

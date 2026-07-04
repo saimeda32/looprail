@@ -133,14 +133,14 @@ test('makeGate --yes auto-approves without touching stdin', async () => {
   expect(lines.join('\n')).toContain('auto-approved')
 })
 
-test('makeGate rejects with an infra-tagged message via the injected gate timer — no real timer used', async () => {
+test('makeGate rejects with an infra-tagged message via the injected gate timer - no real timer used', async () => {
   const lines: string[] = []
   const gate = makeGate(
     { maxIterations: 1, maxCostUsd: 1, gateTimeoutSec: 5 },
     { out: (l) => lines.push(l) },
     false,
     // the injected timer rejects immediately instead of waiting 5 real
-    // seconds — this is the whole point of the seam
+    // seconds - this is the whole point of the seam
     { gateTimer: async (_ms, message) => { throw new Error(message) } },
   )
   await expect(gate({ id: 'approve', role: 'gate' }, 'ctx'))
@@ -263,7 +263,7 @@ test('run --ui: the run directory exists the instant the dashboard URL is printe
     io.out = (l: string) => {
       const match = l.match(/http:\/\/127\.0\.0\.1:\d+/)
       if (!match) return
-      // This fires synchronously the instant the dashboard is listening —
+      // This fires synchronously the instant the dashboard is listening - 
       // strictly before executeRun (and the JournalWriter inside it) has
       // run a single line. It's the earliest point any real client (a
       // browser tab, this test) could ever connect, so this is exactly
@@ -295,7 +295,7 @@ test('run --ui dashboard reflects the finished run at /model once closed data is
   const { io } = capture()
   await runAction(undefined, { cwd, json: true, ui: true }, { io })
   // the run's own journal is on disk and independently readable after the
-  // --ui server has closed — the dashboard never held anything the run needed
+  // --ui server has closed - the dashboard never held anything the run needed
   const { latestRunId, runsRoot } = await import('./status-cmd.js')
   const id = latestRunId(cwd)!
   const { readJournal } = await import('../journal/journal.js')
@@ -329,7 +329,7 @@ test('a registry file the process cannot write to never fails the run', async ()
   const cwd = mkdtempSync(join(tmpdir(), 'lr-autoreg-'))
   writeFileSync(join(cwd, 'looprail.yaml'), FIXTURE)
   // a path whose parent is itself a FILE, not a directory: writeRegistry's
-  // own mkdirSync(dirname(path)) throws ENOTDIR here — this must be
+  // own mkdirSync(dirname(path)) throws ENOTDIR here - this must be
   // swallowed, not surfaced to the run's exit code.
   const blocker = join(mkdtempSync(join(tmpdir(), 'lr-autoreg-blocker-')), 'blocker-file')
   writeFileSync(blocker, 'not a directory')

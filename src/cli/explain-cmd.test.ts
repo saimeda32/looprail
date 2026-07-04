@@ -28,7 +28,7 @@ test('explain prints the exact composed context with placeholders', async () => 
   expect(await explainAction('looprail.yaml', 'crit', { cwd }, io)).toBe(0)
   const text = lines.join('\n')
   expect(text).toContain('Ship the widget.')                 // goal
-  expect(text).toContain('<output of "do" — placeholder>')   // of-target placeholder
+  expect(text).toContain('<output of "do" - placeholder>')   // of-target placeholder
   expect(text).toContain('Be ruthless.')                     // node prompt
   expect(text).toContain('VERDICT:')                         // verifying-role format block
 })

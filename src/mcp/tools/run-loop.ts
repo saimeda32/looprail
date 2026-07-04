@@ -19,7 +19,7 @@ export interface RunLoopInput {
 export interface RunLoopOutcome {
   result: CallToolResult
   // Test-only: the exact promise runLoop() returns. Never sent over the
-  // real MCP wire — see registerRunLoopTool below, which returns only
+  // real MCP wire - see registerRunLoopTool below, which returns only
   // `.result`. Tests await this to deterministically observe the detached
   // run's eventual outcome with no polling and no real timer.
   done: Promise<RunReport | undefined>
@@ -32,7 +32,7 @@ export async function runLoopHandler(
   const path = resolve(cwd, input.file ?? 'looprail.yaml')
   if (!existsSync(path)) {
     return {
-      result: errorResult(`no loopfile at ${path} — run \`looprail init\` to scaffold one`),
+      result: errorResult(`no loopfile at ${path} - run \`looprail init\` to scaffold one`),
       done: Promise.resolve(undefined),
     }
   }
@@ -52,13 +52,13 @@ export async function runLoopHandler(
   if (errors.length > 0) {
     return {
       result: errorResult(
-        `loop failed lint — not started:\n${errors.map((f) => `${f.rule} ${f.message}`).join('\n')}`),
+        `loop failed lint - not started:\n${errors.map((f) => `${f.rule} ${f.message}`).join('\n')}`),
       done: Promise.resolve(undefined),
     }
   }
 
   // lintLoop only validates the raw graph (L005), but runLoop validates AGAIN
-  // after expandPanels — panel-expansion-specific faults (e.g. a clone id
+  // after expandPanels - panel-expansion-specific faults (e.g. a clone id
   // colliding with a literal node id) can slip past the raw check and only
   // surface here. Catch that synchronously too, so an unrunnable-after-
   // expansion loop is rejected before 'started' is ever reported, same as
@@ -66,7 +66,7 @@ export async function runLoopHandler(
   const expansionErrors = validateGraph(expandPanels(def))
   if (expansionErrors.length > 0) {
     return {
-      result: errorResult(`loop is invalid after panel expansion — not started:\n${expansionErrors.join('\n')}`),
+      result: errorResult(`loop is invalid after panel expansion - not started:\n${expansionErrors.join('\n')}`),
       done: Promise.resolve(undefined),
     }
   }
@@ -76,15 +76,15 @@ export async function runLoopHandler(
   const registry = createDefaultRegistry({ cwd })
 
   // Detached on purpose (see design decision 1 / decision 7): this promise
-  // keeps running for as long as this `looprail mcp` process stays alive —
+  // keeps running for as long as this `looprail mcp` process stays alive - 
   // which is for as long as the host (Claude Desktop / Cursor / VS Code)
   // keeps the stdio connection to it open. Every event lands durably in
   // runDir's journal as it happens, so run_status observes progress with
   // zero shared in-memory state between this call and a later one.
   //
   // gate: a real GateHandler (see gate-registry.ts) so a gate node PAUSES
-  // this run — registering a pending entry the new approve_gate tool can
-  // answer later — instead of halting loudly with "no gate handler
+  // this run - registering a pending entry the new approve_gate tool can
+  // answer later - instead of halting loudly with "no gate handler
   // configured" the moment the run reaches it.
   const done = runLoop(def, {
     registry, cwd, runDir, runId, gate: makeMcpGate(runId, def.rails, gateTimerDeps),
@@ -110,7 +110,7 @@ export function registerRunLoopTool(server: McpServer, deps: McpToolDeps): void 
     title: 'Start a looprail run',
     description:
       'Lint and start running a loopfile in the background. Returns immediately with a ' +
-      'runId — call run_status with that runId to see progress. Does not wait for the run ' +
+      'runId - call run_status with that runId to see progress. Does not wait for the run ' +
       'to finish, since a real run can take minutes and spend real money.',
     inputSchema: {
       file: z.string().optional().describe('Path to the loopfile, relative to cwd (default looprail.yaml)'),

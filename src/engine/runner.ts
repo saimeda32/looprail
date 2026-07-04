@@ -140,7 +140,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
 
     const breach = guard.check(state.iteration)
     // a rail can preempt the pool between layers (scheduler.ts pre-node check),
-    // leaving execution-region nodes — including configured verifiers — that
+    // leaving execution-region nodes - including configured verifiers - that
     // never ran. Their outcomes simply don't exist, so aggregating only the
     // outcomes present can misreport a partial verdict set as "all passed".
     const skipped = outcomes.length < execution.length
@@ -159,7 +159,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
       const breachDetail = breach ? `rail breached (${breach.rail}): ${breach.detail}` : 'rail breached'
       return finish(
         'halted',
-        `${breachDetail} — ${skipped.length} node(s) skipped before verification completed`,
+        `${breachDetail} - ${skipped.length} node(s) skipped before verification completed`,
       )
     }
     if (decision.action === 'verified') return finish('verified', 'all verifiers passed')

@@ -3,14 +3,14 @@
 `looprail mcp` starts looprail as a [Model Context Protocol](https://modelcontextprotocol.io)
 (MCP) server over stdio. Claude Desktop, Cursor, and VS Code's GitHub
 Copilot Chat all know how to spawn a local MCP server as a child process and
-talk to it over stdin/stdout — once you register looprail as one, you can
+talk to it over stdin/stdout - once you register looprail as one, you can
 lint a loopfile, start a run, check on it, and see what a node would receive
 as context, all from inside the chat you're already in, without switching to
 a terminal.
 
 This is a normal `looprail` install talking a second protocol, not a second
 product. `looprail mcp` runs the exact same engine, adapters, and journal as
-`looprail run`/`looprail status` — it just exposes them as MCP tools instead
+`looprail run`/`looprail status` - it just exposes them as MCP tools instead
 of CLI subcommands.
 
 ## What's exposed
@@ -26,7 +26,7 @@ of CLI subcommands.
 
 A run started through `run_loop` keeps running for as long as the `looprail
 mcp` process the host started stays alive, which is for as long as you keep
-that host (and its connection to looprail) open — exactly like `looprail
+that host (and its connection to looprail) open - exactly like `looprail
 run` keeps running for as long as its terminal is open. Ask your assistant
 to check on it with `run_status` any time; it reads straight from the run's
 journal, the same file `looprail status` reads.
@@ -102,7 +102,7 @@ command palette, which writes the same file):
 }
 ```
 
-VS Code's schema uses `servers`, not `mcpServers` — same tool, a different
+VS Code's schema uses `servers`, not `mcpServers` - same tool, a different
 host's config shape. Open Copilot Chat, switch to agent mode, and
 looprail's tools appear alongside VS Code's built-in ones.
 
@@ -140,7 +140,7 @@ the same mode you'd use to script it from anywhere else. We tested this
 directly rather than assume it: in that mode, `claude -p` did not pause
 waiting for a yes or no on an ordinary tool call (a shell command ran
 immediately, no prompt, no denial). Asking it to do something genuinely
-risky did not trigger a permission prompt either — the model declined the
+risky did not trigger a permission prompt either - the model declined the
 request itself, on its own judgement, and still returned a normal
 completed response. So on a default setup, there's no confirmation gate to
 answer at all; whatever guardrails apply come from the model's own

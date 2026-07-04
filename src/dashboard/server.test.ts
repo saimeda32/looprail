@@ -74,7 +74,7 @@ test('GET /events replays existing journal lines as SSE frames immediately', asy
         received += chunk
         if (received.includes('\n\n')) { res.destroy(); resolve(received) }
       })
-      res.on('error', () => resolve(received)) // destroy() triggers an error on some Node versions — that's fine
+      res.on('error', () => resolve(received)) // destroy() triggers an error on some Node versions - that's fine
     }).on('error', reject)
   })
   expect(body).toContain('"type":"run_start"')
@@ -83,16 +83,16 @@ test('GET /events replays existing journal lines as SSE frames immediately', asy
 test('GET /events with the REAL fsWatcher does not crash the server when the journal file does not exist yet', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'lr-dash-'))
   const journalPath = join(dir, 'journal.jsonl') // deliberately never written before connecting
-  dashboard = await startDashboardServer({ journalPath }) // no watcher override — exercises the real fsWatcher
+  dashboard = await startDashboardServer({ journalPath }) // no watcher override - exercises the real fsWatcher
   await new Promise<void>((resolve, reject) => {
     http.get(dashboard!.url + '/events', (res) => {
       expect(res.statusCode).toBe(200)
       expect(res.headers['content-type']).toContain('text/event-stream')
-      res.destroy() // SSE stream stays open by design — close it explicitly, don't wait for 'end'
+      res.destroy() // SSE stream stays open by design - close it explicitly, don't wait for 'end'
       resolve()
     }).on('error', reject)
   })
-  // Process is still alive and serving other routes — the crash the finding describes never happened.
+  // Process is still alive and serving other routes - the crash the finding describes never happened.
   const health = await get(dashboard.url + '/model')
   expect(health.status).toBe(200)
 })
@@ -141,7 +141,7 @@ test('GET /events against a journalPath that is a directory returns a clean resp
   expect(res.status).toBe(500)
   // the server is still alive and serving other routes afterwards
   const health = await get(dashboard.url + '/model')
-  expect(health.status).toBe(500) // same broken path — still a clean error, not a crash
+  expect(health.status).toBe(500) // same broken path - still a clean error, not a crash
 })
 
 test('the dashboard never writes to the journal file (read-only)', async () => {

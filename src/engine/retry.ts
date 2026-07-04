@@ -1,7 +1,7 @@
 import type { Adapter, AgentRequest, AgentResult } from '../core/types.js'
 
 // Infrastructural failures (expired auth, logged-out CLI) can never be fixed
-// by retrying or iterating — the run must halt and point at `looprail doctor`.
+// by retrying or iterating - the run must halt and point at `looprail doctor`.
 export class InfraError extends Error {}
 
 export function isInfraError(message: string): boolean {
@@ -30,7 +30,7 @@ export async function invokeWithRetry(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       if (isInfraError(msg)) {
-        throw new InfraError(`${msg} — run \`looprail doctor\` to check adapter auth`)
+        throw new InfraError(`${msg} - run \`looprail doctor\` to check adapter auth`)
       }
       lastErr = err
       if (attempt < retries) await sleep(1000 * 4 ** attempt) // 1s, 4s

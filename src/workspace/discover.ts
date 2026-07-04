@@ -7,7 +7,7 @@ import { readJournal } from '../journal/journal.js'
 import { buildViewModel } from '../dashboard/view-model.js'
 
 // Deliberately duplicated in miniature from loadExpandedLoopDef
-// (src/cli/ui-cmd.ts) rather than imported — see design decision 5. Both
+// (src/cli/ui-cmd.ts) rather than imported - see design decision 5. Both
 // copies do exactly parseLoopfile -> validateGraph -> expandPanels ->
 // validateGraph, best-effort; neither is likely to change independently of
 // the other, since both encode the same fixed, already-reviewed pipeline.
@@ -40,7 +40,7 @@ export function workspaceHash(workspace: string): string {
   return createHash('sha256').update(workspace).digest('hex').slice(0, 12)
 }
 
-// A one-line, deliberate duplicate of status-cmd.ts's runsRoot(cwd) — see
+// A one-line, deliberate duplicate of status-cmd.ts's runsRoot(cwd) - see
 // design decision 5 for why this file never imports from src/cli/.
 export function runsRootOf(workspace: string): string {
   return join(workspace, '.looprail', 'runs')
@@ -83,7 +83,7 @@ export function buildRunListEntry(
 }
 
 // Impure: the one function in this file that scans the filesystem beyond a
-// single journal read. On-demand only — called once per `ui --all`
+// single journal read. On-demand only - called once per `ui --all`
 // request/poll tick, never on a timer of its own (see Global Constraints:
 // no daemon).
 //
@@ -126,7 +126,7 @@ export function discoverRuns(workspaces: string[]): RunListEntry[] {
 // Detects ACTIVE Claude Code sessions (not looprail runs) in registered
 // workspaces, so mission control can show "a raw Claude Code session is
 // active here" as a visually distinct entry. Privacy-motivated design: this
-// only ever lists filenames and reads their mtime — the .jsonl transcript
+// only ever lists filenames and reads their mtime - the .jsonl transcript
 // content is never opened or parsed. See design constraints: homedir and
 // "now" are both injectable so tests never touch the real $HOME, and a
 // missing ~/.claude/projects/<slug> directory degrades to an empty result
@@ -147,12 +147,12 @@ export interface SessionEntry {
 // directory `-Users-skiranmeda-sai-git-looprail` (confirmed live, not
 // inferred). That example only exercises `/`, so this broadens the
 // replacement to the full non-alphanumeric character class as the most
-// defensible guess at Claude Code's actual scheme — it's still only a
+// defensible guess at Claude Code's actual scheme - it's still only a
 // guess for characters this machine has never produced (e.g. a literal
 // `.` in a path), and it does NOT eliminate collisions: `/a/b-c` and
 // `/a/b/c` both slug to `-a-b-c` either way, because both `/` and `-` map
 // to the same replacement character. That is a real, currently
-// unavoidable limitation — fixing it with workspace-side disambiguation
+// unavoidable limitation - fixing it with workspace-side disambiguation
 // (e.g. a hash suffix) would break matching against Claude Code's real
 // directories entirely, which defeats the purpose of this function, so it
 // is intentionally not attempted here.

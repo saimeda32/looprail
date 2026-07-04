@@ -4,7 +4,7 @@ import { TEMPLATES, tierToModel, type Template, type Tier } from './templates.js
 
 // Builds the adapters/models maps init-cmd.ts would build, fanning the
 // worker/reviewer adapters out per role and applying one explicit tier to
-// every role — used to prove yaml() correctly interpolates whatever tier a
+// every role - used to prove yaml() correctly interpolates whatever tier a
 // caller supplies (not just the recommended default).
 function withTier(
   template: Template,
@@ -23,7 +23,7 @@ function withTier(
 }
 
 // Same, but each role gets its own recommendedTier instead of one forced
-// tier — this is what init-cmd.ts produces in non-interactive (--yes) mode.
+// tier - this is what init-cmd.ts produces in non-interactive (--yes) mode.
 function withRecommended(
   template: Template,
   worker: string,
@@ -59,7 +59,7 @@ describe('tierToModel', () => {
     }
   })
 
-  test('is a pure translation with no auto-invocation — same inputs always give the same output', () => {
+  test('is a pure translation with no auto-invocation - same inputs always give the same output', () => {
     expect(tierToModel('claude-code', 'strong')).toBe(tierToModel('claude-code', 'strong'))
   })
 })
@@ -85,7 +85,7 @@ describe('template gallery', () => {
     expect(yaml).toContain('agent: quality')
   })
 
-  test('review-diff has no planner and no tester — it is a read-only review', () => {
+  test('review-diff has no planner and no tester - it is a read-only review', () => {
     const def = parseLoopfile(recommendedYaml(TEMPLATES['review-diff'], 'claude-code', 'codex'))
     expect(def.nodes.some((n) => n.role === 'planner')).toBe(false)
     expect(def.nodes.some((n) => n.role === 'tester')).toBe(false)
@@ -133,7 +133,7 @@ describe('template gallery', () => {
     expect(yaml).toMatch(/#.*swap.*npm test.*for your stack's real test command/i)
   })
 
-  test('build-app rails are the largest budget in the gallery — most open-ended template', () => {
+  test('build-app rails are the largest budget in the gallery - most open-ended template', () => {
     const def = parseLoopfile(recommendedYaml(TEMPLATES['build-app'], 'claude-code', 'codex'))
     expect(def.rails.maxIterations).toBe(10)
     expect(def.rails.maxCostUsd).toBe(20)
@@ -142,7 +142,7 @@ describe('template gallery', () => {
     expect(def.rails.replanLimit).toBe(2)
   })
 
-  // Documents each template's recommended tier per agent key — a hardcoded
+  // Documents each template's recommended tier per agent key - a hardcoded
   // table independent of templates.ts's own agentRoles data, so a test below
   // can catch an accidental drift between the two rather than just
   // reflecting back whatever the implementation currently says.
@@ -181,7 +181,7 @@ describe('template gallery', () => {
     }
   })
 
-  test('only the "worker" agent key has kind "worker" — every other key is "reviewer"', () => {
+  test('only the "worker" agent key has kind "worker" - every other key is "reviewer"', () => {
     for (const template of Object.values(TEMPLATES)) {
       for (const role of template.agentRoles) {
         expect(role.kind).toBe(role.key === 'worker' ? 'worker' : 'reviewer')
@@ -276,7 +276,7 @@ describe('template gallery', () => {
   test('every template documents the independent reviewer in a YAML comment', () => {
     for (const template of Object.values(TEMPLATES)) {
       const yaml = recommendedYaml(template, 'claude-code', 'codex')
-      expect(yaml).toContain('# independent reviewer — a different model catches what the worker\'s own model misses')
+      expect(yaml).toContain('# independent reviewer - a different model catches what the worker\'s own model misses')
     }
   })
 

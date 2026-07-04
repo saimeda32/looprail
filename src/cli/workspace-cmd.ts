@@ -37,7 +37,7 @@ export function workspaceListAction(opts: WorkspaceActionOpts, io: CliIo = defau
   const registryPath = opts.registryPath ?? defaultRegistryPath()
   const workspaces = listWorkspaces(registryPath)
   if (workspaces.length === 0) {
-    io.out(dim('no workspaces registered — `looprail workspace add` in a project directory, or just `looprail run` there (it registers itself automatically)'))
+    io.out(dim('no workspaces registered - `looprail workspace add` in a project directory, or just `looprail run` there (it registers itself automatically)'))
     return 0
   }
   io.out(heading(`${workspaces.length} registered workspace${workspaces.length === 1 ? '' : 's'}`))

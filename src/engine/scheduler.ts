@@ -13,7 +13,7 @@ async function pool<T>(
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (next < items.length) {
       // pre-start rail check (spec §6): never START a node once a rail is
-      // breached — in-flight nodes finish, unstarted ones are skipped
+      // breached - in-flight nodes finish, unstarted ones are skipped
       if (shouldContinue && !shouldContinue()) return
       const i = next++
       results[i] = await items[i]()
@@ -56,7 +56,7 @@ export async function runIteration(
       shouldContinue,
     )
     for (const o of layerResults) {
-      if (!o) continue // skipped by shouldContinue — no outcome exists
+      if (!o) continue // skipped by shouldContinue - no outcome exists
       outcomes.set(o.nodeId, o)
       ordered.push(o)
     }

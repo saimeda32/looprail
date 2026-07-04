@@ -6,7 +6,7 @@ import { createLooprailMcpServer } from '../mcp/server.js'
 // stdin/stdout completely as the MCP JSON-RPC channel for as long as this
 // process runs. A stray console.log/banner would corrupt every message the
 // connected host (Claude Desktop / Cursor / VS Code) reads from this
-// process — so unlike every other *-cmd.ts file in this codebase, this one
+// process - so unlike every other *-cmd.ts file in this codebase, this one
 // never imports CliIo/defaultIo. Any diagnostic this plan's code needs to
 // report goes to stderr via console.error (see run-loop.ts).
 export async function mcpAction(opts: { cwd: string }): Promise<void> {

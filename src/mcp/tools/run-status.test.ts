@@ -120,7 +120,7 @@ rails:
   const parsed = JSON.parse((result.content[0] as { text: string }).text)
 
   // flush the (purely microtask) chain from run_loop's start through the
-  // gate node registering itself — see run-loop.test.ts's tick() for why a
+  // gate node registering itself - see run-loop.test.ts's tick() for why a
   // single macrotask tick is sufficient and deterministic here.
   await new Promise((resolve) => setImmediate(resolve))
 

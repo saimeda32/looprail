@@ -61,7 +61,7 @@ rails:
   const status = await client.callTool({ name: 'run_status', arguments: { runId: parsed.runId } })
   // The background run may or may not have journaled anything by the time
   // this resolves (see Task 2/9 notes on why this plan never races real
-  // time against a detached promise) — only asserting the call succeeds
+  // time against a detached promise) - only asserting the call succeeds
   // and names the right run proves the wiring; run_loop's actual async
   // behavior is exhaustively covered at the handler level in run-loop.test.ts.
   expect(status.isError).toBeFalsy()

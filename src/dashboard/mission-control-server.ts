@@ -30,11 +30,11 @@ export type Poller = (fn: () => void, intervalMs: number) => { close(): void }
 
 // Real production poller: a plain, unref'd setInterval. This is the one
 // place in the whole dashboard/mission-control tree production code starts
-// a timer of its own accord — everything else reacts to fs.watch or an
+// a timer of its own accord - everything else reacts to fs.watch or an
 // incoming request. It exists only to notice OTHER processes' runs
 // progressing (a `looprail run` in another terminal, writing to a journal
 // this server never individually subscribed to) between one full re-scan
-// and the next. Tests never touch it — see mission-control-server.test.ts,
+// and the next. Tests never touch it - see mission-control-server.test.ts,
 // which always injects a manually-triggered fake (design decision 9).
 export const intervalPoller: Poller = (fn, intervalMs) => {
   const handle = setInterval(fn, intervalMs)
@@ -67,7 +67,7 @@ export interface MissionControlServer {
 interface RunRoute { hash: string; runId: string; sub: 'index' | 'model' | 'events' }
 
 // Pure: parses /run/<hash>/<runId>[/model|/events]. Plain segment splitting
-// instead of a regex — easier to read and to unit test in isolation.
+// instead of a regex - easier to read and to unit test in isolation.
 export function matchRunRoute(pathname: string): RunRoute | null {
   const parts = pathname.split('/').filter((p) => p.length > 0)
   if (parts[0] !== 'run' || !parts[1] || !parts[2]) return null
@@ -105,7 +105,7 @@ export function startMissionControlServer(opts: MissionControlServerOptions = {}
       // touch the filesystem of every registered workspace. Those two are
       // hardened at the source (discover.ts skips a bad workspace instead of
       // throwing), but this catch is deliberate defense in depth: any
-      // throw from scan() — including from future code — must become a
+      // throw from scan() - including from future code - must become a
       // clean 500, never an uncaught exception that takes down the whole
       // `looprail ui --all` process.
       let result: ScanResult
@@ -130,7 +130,7 @@ export function startMissionControlServer(opts: MissionControlServerOptions = {}
       })
       // Same defense-in-depth reasoning as /api/runs above, but an SSE
       // stream can't fall back to a clean 500 once headers are already
-      // written — so a failed scan() here degrades to the last-known-good
+      // written - so a failed scan() here degrades to the last-known-good
       // snapshot (or an empty one on the very first frame) instead.
       let last: string
       try {

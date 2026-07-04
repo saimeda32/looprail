@@ -21,7 +21,7 @@ export interface WaitingOnGate {
 }
 
 // A gate node is "currently pending" if the journal shows it started
-// (node_start, role gate) with no matching node_end afterward — the same
+// (node_start, role gate) with no matching node_end afterward - the same
 // "is this node still running" signal the dashboard's view-model already
 // derives (src/dashboard/view-model.ts), read fresh here since run_status
 // only had run-level status (summarizeJournal) before this. Kept thin on
@@ -52,7 +52,7 @@ export async function runStatusHandler(
 ): Promise<CallToolResult> {
   const cwd = input.cwd ?? deps.cwd
   const id = input.runId ?? latestRunId(cwd)
-  if (!id) return errorResult(`no runs found under ${runsRoot(cwd)} — start one with run_loop`)
+  if (!id) return errorResult(`no runs found under ${runsRoot(cwd)} - start one with run_loop`)
   const journalPath = join(runsRoot(cwd), id, 'journal.jsonl')
   if (!existsSync(journalPath)) return errorResult(`no journal for run "${id}"`)
   const events = readJournal(journalPath)
@@ -60,10 +60,10 @@ export async function runStatusHandler(
   const waiting = findWaitingGates(events)
   if (waiting.length === 0) return textResult(summary)
   // Enrich each gate with its live question text when this process is the one
-  // running it (module-scope pendingGates — see gate-registry.ts). If a gate's
+  // running it (module-scope pendingGates - see gate-registry.ts). If a gate's
   // entry is absent (e.g. a different process, or it was already swept),
-  // waitingOnGates still reports its nodeId — the run really is paused there
-  // per the journal — just without the question text.
+  // waitingOnGates still reports its nodeId - the run really is paused there
+  // per the journal - just without the question text.
   const waitingOnGates: WaitingOnGate[] = waiting.map((nodeId) => ({
     nodeId,
     question: pendingGates.get(gateKey(id, nodeId))?.question,

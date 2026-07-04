@@ -20,7 +20,7 @@ export interface DashboardServer {
   close(): Promise<void>
 }
 
-const PAGE = buildPage() // static — built once per process, not per request
+const PAGE = buildPage() // static - built once per process, not per request
 
 function readEvents(journalPath: string) {
   return existsSync(journalPath) ? readJournal(journalPath) : []
@@ -34,7 +34,7 @@ function readLength(journalPath: string): number {
 // path gets deleted between an existsSync check and the read (TOCTOU), a
 // permissions error, or the path turning out to be a directory. Whatever the
 // cause, a synchronous throw inside a request handler becomes an uncaught
-// exception that crashes the whole process — so every route that touches the
+// exception that crashes the whole process - so every route that touches the
 // journal on disk funnels its error handling through this one helper.
 function sendReadError(res: ServerResponse, context: string, err: unknown): void {
   console.error(`dashboard: ${context}`, err)
@@ -50,9 +50,9 @@ function sendReadError(res: ServerResponse, context: string, err: unknown): void
 // startDashboardServer's single request handler before mission control
 // (Plan 3b) needed to mount the exact same per-run view under a
 // /run/<workspaceHash>/<runId>/... prefix too. Nothing about their behavior
-// changed in the extraction — same status codes, same headers, same
+// changed in the extraction - same status codes, same headers, same
 // TOCTOU-safe error handling, same ENOENT-safe watch-the-parent-dir
-// fallback — so startDashboardServer's own request handler below, and its
+// fallback - so startDashboardServer's own request handler below, and its
 // existing tests, are unaffected byte-for-byte. mission-control-server.ts
 // (Task 10) imports these same three functions instead of reimplementing
 // per-run routing.
@@ -97,8 +97,8 @@ export function serveEvents(
   // The journal file may not exist yet (run hasn't written its first
   // line). Node's real fs.watch() throws synchronously with ENOENT for
   // a nonexistent path, which would otherwise crash the whole process.
-  // Watch the parent directory instead — it exists, and fs.watch on a
-  // directory fires for changes to files created/modified inside it —
+  // Watch the parent directory instead - it exists, and fs.watch on a
+  // directory fires for changes to files created/modified inside it - 
   // so we still get notified once the journal appears, without ever
   // handing a nonexistent path to watch().
   const watchTarget = existsSync(opts.journalPath) ? opts.journalPath : dirname(opts.journalPath)
@@ -111,7 +111,7 @@ export function serveEvents(
         for (const event of events) res.write(encodeSseFrame(event))
       } catch (err) {
         // Journal not readable this tick (not created yet, or deleted
-        // mid-stream) — log and skip; never let this take down the process.
+        // mid-stream) - log and skip; never let this take down the process.
         console.error('dashboard /events: failed to read journal update', err)
       }
     })

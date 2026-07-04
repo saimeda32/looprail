@@ -6,7 +6,7 @@ export interface MockStep {
   costUsd?: number
   tokens?: number
   // optional scripted streaming chunks, delivered to onChunk (if given)
-  // before resolving — see design decision 1: streaming is opt-in per
+  // before resolving - see design decision 1: streaming is opt-in per
   // adapter, MockAdapter only streams when a step scripts chunks, so every
   // existing MockStep (and every existing test) is byte-for-byte unaffected.
   chunks?: string[]

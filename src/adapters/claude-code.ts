@@ -19,7 +19,7 @@ export function parseClaudeJson(stdout: string): ParsedResponse {
       }
     }
   } catch {
-    // not JSON — fall through to raw text
+    // not JSON - fall through to raw text
   }
   return { output: stdout.trim() }
 }

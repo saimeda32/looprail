@@ -18,7 +18,7 @@ export async function explainAction(
   }
   const node = def.nodes.find((n) => n.id === nodeId)
   if (!node) {
-    io.out(err(`no node "${nodeId}" — nodes: ${def.nodes.map((n) => n.id).join(', ')}`))
+    io.out(err(`no node "${nodeId}" - nodes: ${def.nodes.map((n) => n.id).join(', ')}`))
     return 1
   }
   const outcomes = new Map<string, NodeOutcome>()
@@ -27,11 +27,11 @@ export async function explainAction(
     outcomes.set(dep, {
       nodeId: dep,
       role: def.nodes.find((n) => n.id === dep)?.role ?? 'executor',
-      output: `<output of "${dep}" — placeholder>`,
+      output: `<output of "${dep}" - placeholder>`,
       verdict: null, costUsd: 0, tokens: 0, durationMs: 0,
     })
   }
-  const state: RunState = { plan: '<current plan — placeholder>', iteration: 1, feedback: null }
+  const state: RunState = { plan: '<current plan - placeholder>', iteration: 1, feedback: null }
   io.out(heading(`context node "${node.id}" (${node.role}) would receive:`))
   io.out(composeContext(def, node, state, outcomes))
   return 0

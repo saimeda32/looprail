@@ -88,7 +88,7 @@ test('a registered workspace path that no longer exists on disk is skipped, not 
 
 test('discoverRuns skips a workspace whose run journal path is a directory instead of a file, without dropping other workspaces', () => {
   const broken = mkdtempSync(join(tmpdir(), 'lr-discover-broken-'))
-  // journal.jsonl is a directory, not a file — e.g. a crashed process, a
+  // journal.jsonl is a directory, not a file - e.g. a crashed process, a
   // stray mkdir, or some other tool clobbering the expected path.
   mkdirSync(join(broken, '.looprail', 'runs', 'run-1', 'journal.jsonl'), { recursive: true })
 
@@ -203,7 +203,7 @@ test('discoverClaudeCodeSessions skips a workspace whose Claude Code project pat
   const broken = '/broken/workspace'
   const projectsParent = join(homedir, '.claude', 'projects')
   mkdirSync(projectsParent, { recursive: true })
-  // The expected project dir is a plain file, not a directory — readdirSync
+  // The expected project dir is a plain file, not a directory - readdirSync
   // on it throws ENOTDIR.
   writeFileSync(join(projectsParent, claudeCodeProjectSlug(broken)), 'not a directory')
 
@@ -249,13 +249,13 @@ test('discoverClaudeCodeSessions skips one session whose statSync throws but sti
   expect(sessions[0].sessionId).toBe('good-session')
 })
 
-test('discoverClaudeCodeSessions never reads file content — a corrupt jsonl file is still detected by mtime alone', () => {
+test('discoverClaudeCodeSessions never reads file content - a corrupt jsonl file is still detected by mtime alone', () => {
   const homedir = mkdtempSync(join(tmpdir(), 'lr-claude-home-'))
   const workspace = '/projects/corrupt'
   const dir = join(homedir, '.claude', 'projects', claudeCodeProjectSlug(workspace))
   mkdirSync(dir, { recursive: true })
   const file = join(dir, 'broken-session.jsonl')
-  // Genuinely invalid/corrupt content — if the implementation ever tried to
+  // Genuinely invalid/corrupt content - if the implementation ever tried to
   // JSON.parse or otherwise read this, it would throw or behave oddly.
   writeFileSync(file, 'this is not { json at all "]]] \x00\xFF garbage')
   const now = 3_000_000_000_000

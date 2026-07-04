@@ -5,7 +5,7 @@ import { readJournal, type JournalEvent } from '../index.js'
 import { latestRunId, runsRoot, summarizeJournal, type RunSummary } from '../journal/runs.js'
 import { defaultIo, dim, err, heading, ok, warn, type CliIo } from './ui.js'
 
-// Re-exported for backward compatibility — every existing import of these
+// Re-exported for backward compatibility - every existing import of these
 // three names from './status-cmd.js' (this file's own test file included)
 // keeps working unmodified. Real implementations now live in
 // src/journal/runs.ts so src/mcp/'s run_status/list_runs tools can reuse
@@ -16,12 +16,12 @@ export function renderSummary(s: RunSummary): string[] {
   const statusLine = s.status === 'verified' ? ok('verified')
     : s.status === 'halted' ? err('halted') : warn('running')
   const lines = [
-    heading(`${s.runId} — ${s.name}`),
+    heading(`${s.runId} - ${s.name}`),
     `status: ${statusLine}${s.reason ? ` (${s.reason})` : ''} · iterations: ${s.iterations} · cost: $${s.costUsd.toFixed(2)}`,
   ]
   for (const v of s.verdicts) {
     const mark = v.status === 'pass' ? ok('pass') : err(v.status)
-    lines.push(`  iter ${v.iteration} · ${v.nodeId}: ${mark} — ${v.evidence}`)
+    lines.push(`  iter ${v.iteration} · ${v.nodeId}: ${mark} - ${v.evidence}`)
   }
   return lines
 }
@@ -35,7 +35,7 @@ export async function statusAction(
 ): Promise<number> {
   const id = runId ?? latestRunId(opts.cwd)
   if (!id) {
-    io.out(err(`no runs found under ${runsRoot(opts.cwd)} — start one with \`looprail run\``))
+    io.out(err(`no runs found under ${runsRoot(opts.cwd)} - start one with \`looprail run\``))
     return 1
   }
   const journalPath = join(runsRoot(opts.cwd), id, 'journal.jsonl')
@@ -49,7 +49,7 @@ export async function statusAction(
     for (const line of renderSummary(summary)) io.out(line)
     if (!opts.watch || summary.status !== 'running') return 0
     await sleep(opts.intervalMs ?? 1000)
-    io.out(dim('—'.repeat(40)))
+    io.out(dim('-'.repeat(40)))
   }
 }
 

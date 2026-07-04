@@ -14,7 +14,7 @@ export function createShellAdapter(
     async invoke(req: AgentRequest): Promise<AgentResult> {
       if (!req.command) {
         throw new Error(
-          'shell adapter needs a command template — set agents.<name>.command in your loopfile',
+          'shell adapter needs a command template - set agents.<name>.command in your loopfile',
         )
       }
       const started = Date.now()

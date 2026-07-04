@@ -18,14 +18,14 @@ export async function approveGateHandler(
   const pending = pendingGates.get(key)
   if (!pending) {
     return errorResult(
-      `no pending gate found for run "${input.runId}", node "${input.nodeId}" — it may have ` +
+      `no pending gate found for run "${input.runId}", node "${input.nodeId}" - it may have ` +
       'already been answered, timed out, or the run hasn\'t reached it yet',
     )
   }
   // delete before resolve: the gate handler's own `finally` (gate-registry.ts)
   // would delete this same key once its promise settles anyway, but doing it
-  // here too means a second approve_gate call racing this one — or the
-  // gate_timeout race firing at the same instant — sees a clean miss instead
+  // here too means a second approve_gate call racing this one - or the
+  // gate_timeout race firing at the same instant - sees a clean miss instead
   // of a stale entry.
   pendingGates.delete(key)
   pending.resolve(input.approved)
@@ -42,7 +42,7 @@ export function registerApproveGateTool(server: McpServer, deps: McpToolDeps): v
     title: 'Answer a pending gate in a running loop',
     description:
       'Approve or reject a gate node that a run_loop run is currently paused on. Use run_status ' +
-      'to find the runId and nodeId — see its waitingOnGates field.',
+      'to find the runId and nodeId - see its waitingOnGates field.',
     inputSchema: {
       runId: z.string().describe('Run id returned by run_loop'),
       nodeId: z.string().describe('The gate node id currently pending (see run_status.waitingOnGates[].nodeId)'),

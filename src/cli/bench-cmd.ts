@@ -37,7 +37,7 @@ export async function benchAction(
   }
 
   const benchfileDir = dirname(path)
-  // fail fast on a bad referenced loopfile — same lint gate `looprail run` uses
+  // fail fast on a bad referenced loopfile - same lint gate `looprail run` uses
   for (const c of def.configs) {
     let loaded
     try {

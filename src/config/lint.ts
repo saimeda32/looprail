@@ -25,7 +25,7 @@ export function lintLoop(def: LoopDef): LintFinding[] {
   if (verifying.length === 0) {
     findings.push({
       rule: 'L001', level: 'error',
-      message: 'no path to a passing verdict — add a tester, judge, gate, or work critic',
+      message: 'no path to a passing verdict - add a tester, judge, gate, or work critic',
     })
   }
 
@@ -47,7 +47,7 @@ export function lintLoop(def: LoopDef): LintFinding[] {
     if (agentKey(j.agent) && executorKeys.has(agentKey(j.agent))) {
       findings.push({
         rule: 'L003', level: 'warn', node: j.id,
-        message: `judge "${j.id}" uses the same model as an executor — the model is grading its own homework`,
+        message: `judge "${j.id}" uses the same model as an executor - the model is grading its own homework`,
       })
     }
   }
@@ -68,7 +68,7 @@ export function lintLoop(def: LoopDef): LintFinding[] {
     if (n.weight !== undefined && !(n.weight > 0)) {
       findings.push({
         rule: 'L006', level: 'error', node: n.id,
-        message: `node "${n.id}" has non-positive weight ${n.weight} — weights must be > 0`,
+        message: `node "${n.id}" has non-positive weight ${n.weight} - weights must be > 0`,
       })
     }
   }
@@ -77,7 +77,7 @@ export function lintLoop(def: LoopDef): LintFinding[] {
       && !(typeof def.concurrency === 'number' && def.concurrency > 0)) {
     findings.push({
       rule: 'L007', level: 'error',
-      message: `concurrency must be a positive number, got ${JSON.stringify(def.concurrency)} — a non-numeric value collapses the worker pool to zero and nothing runs`,
+      message: `concurrency must be a positive number, got ${JSON.stringify(def.concurrency)} - a non-numeric value collapses the worker pool to zero and nothing runs`,
     })
   }
 
@@ -92,7 +92,7 @@ export function lintLoop(def: LoopDef): LintFinding[] {
     if (def.verdictPolicy.atLeast > verifierCount) {
       findings.push({
         rule: 'L008', level: 'error',
-        message: `quorum of ${def.verdictPolicy.atLeast} can never be met — the graph has only ${verifierCount} verifying node(s)`,
+        message: `quorum of ${def.verdictPolicy.atLeast} can never be met - the graph has only ${verifierCount} verifying node(s)`,
       })
     }
   }

@@ -20,7 +20,7 @@ export function buildProgram(): Command {
   const program = new Command()
   program
     .name('looprail')
-    .description('Vendor-neutral orchestrator for agentic loops — engineer the loop that decides when work is actually done')
+    .description('Vendor-neutral orchestrator for agentic loops - engineer the loop that decides when work is actually done')
     .version(pkg.version)
     .option('--cwd <dir>', 'working directory', process.cwd())
   // command modules register themselves here (Tasks 7-11)

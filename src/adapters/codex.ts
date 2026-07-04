@@ -25,7 +25,7 @@ export function parseCodexJsonl(stdout: string): ParsedResponse {
       tokens = (e.usage.input_tokens ?? 0) + (e.usage.output_tokens ?? 0)
     }
   }
-  // codex does not report USD cost in its envelope — costUsd stays 0 (default)
+  // codex does not report USD cost in its envelope - costUsd stays 0 (default)
   return output ? { output, tokens } : { output: stdout.trim() }
 }
 

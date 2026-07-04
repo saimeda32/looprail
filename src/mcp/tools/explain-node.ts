@@ -16,7 +16,7 @@ export interface ExplainNodeInput {
 // Builds the same placeholder-filled dry-run context src/cli/explain-cmd.ts
 // builds. Duplicated here in miniature rather than imported, so src/mcp/
 // only ever depends on the public SDK surface (src/index.ts), never on
-// src/cli/ — see this plan's Global Constraints and design decision 3.
+// src/cli/ - see this plan's Global Constraints and design decision 3.
 export async function explainNodeHandler(
   input: ExplainNodeInput, toolDeps: McpToolDeps,
 ): Promise<CallToolResult> {
@@ -33,7 +33,7 @@ export async function explainNodeHandler(
 
   const node = def.nodes.find((n) => n.id === input.node)
   if (!node) {
-    return errorResult(`no node "${input.node}" — nodes: ${def.nodes.map((n) => n.id).join(', ')}`)
+    return errorResult(`no node "${input.node}" - nodes: ${def.nodes.map((n) => n.id).join(', ')}`)
   }
 
   const outcomes = new Map<string, NodeOutcome>()
@@ -42,11 +42,11 @@ export async function explainNodeHandler(
     outcomes.set(dep, {
       nodeId: dep,
       role: def.nodes.find((n) => n.id === dep)?.role ?? 'executor',
-      output: `<output of "${dep}" — placeholder>`,
+      output: `<output of "${dep}" - placeholder>`,
       verdict: null, costUsd: 0, tokens: 0, durationMs: 0,
     })
   }
-  const state: RunState = { plan: '<current plan — placeholder>', iteration: 1, feedback: null }
+  const state: RunState = { plan: '<current plan - placeholder>', iteration: 1, feedback: null }
   return textResult(composeContext(def, node, state, outcomes))
 }
 

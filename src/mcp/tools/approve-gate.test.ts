@@ -18,7 +18,7 @@ test('approving a gate with no pending entry returns a clear isError result, not
   expect(text).toContain('approve')
 })
 
-test('a pending gate resolves exactly once — a second approve_gate call for the same key misses cleanly', async () => {
+test('a pending gate resolves exactly once - a second approve_gate call for the same key misses cleanly', async () => {
   const cwd = tmpCwd()
   const key = gateKey('run-1', 'approve')
   const resolved: boolean[] = []
@@ -34,5 +34,5 @@ test('a pending gate resolves exactly once — a second approve_gate call for th
 
   const second = await approveGateHandler({ runId: 'run-1', nodeId: 'approve', approved: false }, { cwd })
   expect(second.isError).toBe(true)
-  expect(resolved).toEqual([true]) // unchanged — the second call never touched the (already-gone) entry
+  expect(resolved).toEqual([true]) // unchanged - the second call never touched the (already-gone) entry
 })

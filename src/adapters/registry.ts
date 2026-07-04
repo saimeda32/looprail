@@ -11,7 +11,7 @@ export function createRegistry(): AdapterRegistry {
     register(adapter) { adapters.set(adapter.name, adapter) },
     get(name) {
       const a = adapters.get(name)
-      if (!a) throw new Error(`unknown adapter "${name}" — is it registered?`)
+      if (!a) throw new Error(`unknown adapter "${name}" - is it registered?`)
       return a
     },
   }

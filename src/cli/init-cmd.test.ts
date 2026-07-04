@@ -49,7 +49,7 @@ test('interactive path uses the injected ask for agent and template', async () =
   expect(code).toBe(0)
   // the template and agent prompts are asked first; the picked template then
   // also prompts once per agent role for its model tier (tested separately
-  // below) — this test only pins down the original template/agent behavior.
+  // below) - this test only pins down the original template/agent behavior.
   expect(asked.slice(0, 2)).toEqual(['Pick a template', 'Which agent should run your loop?'])
   expect(readFileSync(join(cwd, 'looprail.yaml'), 'utf8')).toContain('adapter: codex')
 })
@@ -177,7 +177,7 @@ test('more than one adapter detected: reviewer auto-defaults to a different dete
   const yaml = readFileSync(join(cwd, 'looprail.yaml'), 'utf8')
   expect(yaml).toContain('adapter: claude-code')
   expect(yaml).toContain('adapter: codex')
-  expect(lines.join('\n')).toContain('worker: claude-code, reviewer: codex — independent verification')
+  expect(lines.join('\n')).toContain('worker: claude-code, reviewer: codex - independent verification')
 })
 
 test('only one adapter detected: reviewer falls back to the worker adapter', async () => {
@@ -215,5 +215,5 @@ test('--reviewer pins a specific reviewer adapter, overriding auto-selection', a
   expect(yaml).toContain('adapter: claude-code')
   expect(yaml).toContain('adapter: aider')
   expect(yaml).not.toContain('adapter: codex')
-  expect(lines.join('\n')).toContain('worker: claude-code, reviewer: aider — independent verification')
+  expect(lines.join('\n')).toContain('worker: claude-code, reviewer: aider - independent verification')
 })

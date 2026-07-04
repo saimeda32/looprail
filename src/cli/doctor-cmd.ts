@@ -23,10 +23,10 @@ export async function doctorAction(deps: DoctorDeps = {}): Promise<number> {
   ))
   const available = agents.filter((a) => a.available)
   if (available.length === 0) {
-    io.out(err('no agent CLI found — install one above, or use adapter "mock"/"shell" in your loopfile'))
+    io.out(err('no agent CLI found - install one above, or use adapter "mock"/"shell" in your loopfile'))
     return 1
   }
-  io.out(ok(`${available.length} adapter(s) ready — adapters reuse each CLI's own login, no API keys needed`))
+  io.out(ok(`${available.length} adapter(s) ready - adapters reuse each CLI's own login, no API keys needed`))
   return 0
 }
 

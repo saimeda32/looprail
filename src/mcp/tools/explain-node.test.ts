@@ -28,7 +28,7 @@ test('shows the composed context with placeholders for upstream outputs', async 
   expect(result.isError).toBeFalsy()
   const text = (result.content[0] as { text: string }).text
   expect(text).toContain('Ship the widget.')
-  expect(text).toContain('<output of "do" — placeholder>')
+  expect(text).toContain('<output of "do" - placeholder>')
   expect(text).toContain('Be ruthless.')
   expect(text).toContain('VERDICT:')
 })

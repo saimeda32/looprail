@@ -85,7 +85,7 @@ test('halts on iteration rail with a report, never throws', async () => {
       { match: /CRITIC/, output: `VERDICT: fail\nEVIDENCE: wrong attempt ${i}` },
     )
   }
-  // no stall_after on these rails: identical failing sets must NOT stall —
+  // no stall_after on these rails: identical failing sets must NOT stall - 
   // this test exercises the iteration rail in isolation
   const def = loop({ rails: { maxIterations: 4, maxCostUsd: 5 } })
   const report = await runLoop(def, { registry: reg(new MockAdapter(steps)) })
@@ -169,7 +169,7 @@ test('denies verified when a rail-skipped node leaves verification incomplete', 
   // repro: do($0.6) -> crit(pass, $0.5) -> judge(threshold, would fail if run)
   // max_cost_usd 1.0 breaches after crit, so judge is skipped pre-start.
   // aggregating only the outcomes present (do, crit) yields an all-pass
-  // verdict set, but the judge — a configured verifier — never ran.
+  // verdict set, but the judge - a configured verifier - never ran.
   const mock = new MockAdapter([
     { match: /EXECUTOR/, output: 'DONE', costUsd: 0.6 },
     { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok', costUsd: 0.5 },
@@ -203,7 +203,7 @@ test('denies verified when a rail-skipped node leaves verification incomplete', 
 test('critic-of-critic whose "of" target is unreachable halts loudly on the first iteration, not after riding out the iteration rail', async () => {
   // C1/I4: an "of" target that can never resolve (here: metacrit lives in
   // the execution region while pcrit only exists in the planning region's
-  // outcomes) is a structural graph bug — it reproduces identically on every
+  // outcomes) is a structural graph bug - it reproduces identically on every
   // iteration, so it must halt immediately with the target named rather than
   // being softened into a failure that iterates until the iteration rail.
   const mock = new MockAdapter([
@@ -285,7 +285,7 @@ test('halts before starting a node that would run past the cost rail', async () 
 
 test('a node with no timeout_ms is clamped to the remaining wall budget, so a hung adapter cannot outlive the wall rail', async () => {
   // Without the clamp, the executor below (no timeoutMs) receives an undefined
-  // timeout and its "subprocess" never returns — the run would hang forever,
+  // timeout and its "subprocess" never returns - the run would hang forever,
   // because the wall rail is only checked between nodes. With the clamp, the
   // node inherits the remaining wall budget as its timeout and fails, handing
   // control back so the wall rail can fire. If this regresses, the test hangs
@@ -373,7 +373,7 @@ test('auth failure halts the run with a doctor hint', async () => {
   const registry = createRegistry()
   registry.register({
     name: 'mock',
-    invoke: async () => { throw new Error('HTTP 401 unauthorized — please login') },
+    invoke: async () => { throw new Error('HTTP 401 unauthorized - please login') },
   })
   const report = await runLoop(loop(), { registry, sleep: async () => {} })
   expect(report.status).toBe('halted')

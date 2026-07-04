@@ -14,7 +14,7 @@ export async function replayAction(
   const io = deps.io ?? defaultIo
   const source = runId ?? latestRunId(opts.cwd)
   if (!source) {
-    io.out(err(`no runs found under ${runsRoot(opts.cwd)} — nothing to resume or replay`))
+    io.out(err(`no runs found under ${runsRoot(opts.cwd)} - nothing to resume or replay`))
     return 1
   }
   const journalPath = join(runsRoot(opts.cwd), source, 'journal.jsonl')
@@ -24,7 +24,7 @@ export async function replayAction(
   }
   let loaded: { def: LoopDef; path: string }
   try {
-    // v1: the loopfile is re-read from disk — replay from the project directory
+    // v1: the loopfile is re-read from disk - replay from the project directory
     // the run started in. Edited nodes (changed context hash) re-execute live.
     loaded = loadLoop(opts.file, opts.cwd)
   } catch (e) {
@@ -67,7 +67,7 @@ function register(program: Command, name: 'resume' | 'replay', description: stri
 
 export function registerReplay(program: Command): void {
   register(program, 'replay',
-    're-run a past run with cached node results — edit one prompt, re-execute only downstream (latest run by default; v1: replay semantics)')
+    're-run a past run with cached node results - edit one prompt, re-execute only downstream (latest run by default; v1: replay semantics)')
   register(program, 'resume',
     'continue an interrupted run: completed nodes replay from cache for free, the remainder runs live (v1: replay semantics)')
 }

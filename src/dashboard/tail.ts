@@ -5,7 +5,7 @@ export interface LineSlice { lines: string[]; offset: number }
 
 // Pure: given the file's full text and a byte offset already consumed,
 // returns the newly appended, complete (newline-terminated) lines and the
-// new offset. A partial trailing line (still being written) is held back —
+// new offset. A partial trailing line (still being written) is held back - 
 // its bytes are not counted into the returned offset, so the next call
 // re-reads it once it's complete.
 export function sliceNewLines(fullText: string, offset: number): LineSlice {
@@ -17,7 +17,7 @@ export function sliceNewLines(fullText: string, offset: number): LineSlice {
   return { lines, offset: offset + lastNewline + 1 }
 }
 
-// Pure: mirrors readJournal's per-line try/catch (journal.ts) — a trailing
+// Pure: mirrors readJournal's per-line try/catch (journal.ts) - a trailing
 // partial line from a crash mid-write is ignored, not thrown.
 export function parseLines(lines: string[]): JournalEvent[] {
   const events: JournalEvent[] = []
@@ -25,7 +25,7 @@ export function parseLines(lines: string[]): JournalEvent[] {
     try {
       events.push(JSON.parse(line) as JournalEvent)
     } catch {
-      // corrupt/partial line — ignore
+      // corrupt/partial line - ignore
     }
   }
   return events

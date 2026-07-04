@@ -26,7 +26,7 @@ function baselineSteps(pass: boolean): MockStep[] {
 
 // looprail.yaml closes its critic panel with a `merge` synthesizer node
 // (role: synthesizer) so the loop is L004-lint-clean (a panel fan-out must
-// have a downstream judge/synthesizer to aggregate it) — that node runs
+// have a downstream judge/synthesizer to aggregate it) - that node runs
 // after both panel critics and needs its own scripted step.
 function looprailSteps(): MockStep[] {
   return [

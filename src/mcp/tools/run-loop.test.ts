@@ -26,7 +26,7 @@ ${opts.gateTimeoutSec !== undefined ? `  gate_timeout: ${opts.gateTimeoutSec}` :
 // Everything between calling runLoopHandler and the gate node registering
 // itself in pendingGates is a straight-line chain of promise microtasks (the
 // mock adapter resolves immediately, with no setTimeout/setImmediate of its
-// own) — so a single macrotask tick is guaranteed to happen strictly after
+// own) - so a single macrotask tick is guaranteed to happen strictly after
 // every one of those microtasks has drained, regardless of how many there
 // are. This is a test-synchronization flush, not a wait on the gate_timeout
 // feature itself (that's exercised below via an injected gateTimer, never a
@@ -60,9 +60,9 @@ test('returns a runId immediately, and the run keeps executing in the background
   const { result, done } = await runLoopHandler({}, { cwd })
 
   // "Immediately" is a structural guarantee (runLoopHandler never awaits
-  // runLoop(...) before returning `result` — see run-loop.ts), not a race
+  // runLoop(...) before returning `result` - see run-loop.ts), not a race
   // this test needs real time to prove. `done` below is the same promise
-  // runLoop() itself returns — awaiting it is deterministic and uses no
+  // runLoop() itself returns - awaiting it is deterministic and uses no
   // timer or poll loop.
   expect(result.isError).toBeFalsy()
   const parsed = JSON.parse((result.content[0] as { text: string }).text)
@@ -77,7 +77,7 @@ test('returns a runId immediately, and the run keeps executing in the background
 
 test('a loop that fails lint is rejected synchronously and never starts a background run', async () => {
   const cwd = tmpCwd()
-  fixture(cwd, false) // no verifying node — L001
+  fixture(cwd, false) // no verifying node - L001
   const { result, done } = await runLoopHandler({}, { cwd })
   expect(result.isError).toBe(true)
   expect(await done).toBeUndefined()
@@ -88,7 +88,7 @@ test('a loop valid pre-expansion but invalid post-expansion is rejected synchron
   const cwd = tmpCwd()
   // "do" panel-expands into clones "do@1"/"do@2" (see expandPanels in
   // src/core/graph.ts), which collides with the literal node id "do@1"
-  // below — a duplicate-id fault validateGraph can only see on the
+  // below - a duplicate-id fault validateGraph can only see on the
   // EXPANDED graph, never on the raw one lintLoop checks (raw ids
   // do/do@1/check are all unique).
   writeFileSync(join(cwd, 'looprail.yaml'), `
@@ -117,7 +117,7 @@ test('a missing loopfile returns an error result', async () => {
   expect(await done).toBeUndefined()
 })
 
-test('a gate node pauses the run instead of halting — it stays pending until answered', async () => {
+test('a gate node pauses the run instead of halting - it stays pending until answered', async () => {
   const cwd = tmpCwd()
   gatedFixture(cwd, { maxIterations: 2 })
   const { result, done } = await runLoopHandler({}, { cwd })
@@ -159,11 +159,11 @@ test('approve_gate approved:true lets the run continue past the gate and verify'
   expect(pendingGates.has(gateKey(parsed.runId, 'approve'))).toBe(false)
 })
 
-test('approve_gate approved:false rejects the gate — the run iterates/halts per its own rails, same as the CLI', async () => {
+test('approve_gate approved:false rejects the gate - the run iterates/halts per its own rails, same as the CLI', async () => {
   const cwd = tmpCwd()
   // max_iterations: 1 makes the outcome deterministic: a rejected gate is a
   // fail verdict (not a config/infra error), so routeIteration says
-  // "iterate" — but the very next iteration immediately breaches
+  // "iterate" - but the very next iteration immediately breaches
   // max_iterations, producing the same "rail breached" halt the CLI's own
   // rejected-gate-then-rail-breach path produces.
   gatedFixture(cwd, { maxIterations: 1 })

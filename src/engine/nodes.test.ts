@@ -81,7 +81,7 @@ test('adapter throw becomes an error verdict', async () => {
     { registry, sleep: async () => {} })
   expect(out.verdict!.status).toBe('error')
   expect(out.verdict!.evidence).toContain('exhausted')
-  // transient — must NOT be tagged infra: or config:, so the router keeps
+  // transient - must NOT be tagged infra: or config:, so the router keeps
   // softening it to a failure and iterating rather than halting loudly
   expect(out.verdict!.evidence).not.toMatch(/^(infra|config):/)
 })

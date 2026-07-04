@@ -13,7 +13,7 @@ function median(xs: number[]): number {
 
 // Nearest-rank percentile: sorts ascending, takes the value at
 // ceil(p/100 * n) - 1, clamped to [0, n-1]. No interpolation, so the
-// result is always one of the observed values — deterministic and easy
+// result is always one of the observed values - deterministic and easy
 // to hand-verify against a scripted fixture.
 export function percentile(p: number, xs: number[]): number {
   if (xs.length === 0) return 0

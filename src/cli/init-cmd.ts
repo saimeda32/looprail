@@ -6,7 +6,7 @@ import { detectAgents, type DetectedAgent } from '../index.js'
 import { defaultIo, err, ok, warn, type CliIo } from './ui.js'
 import { TEMPLATES, tierToModel, type AgentRole, type Tier } from './templates.js'
 
-// order tiers are offered in when a role's recommended tier isn't first —
+// order tiers are offered in when a role's recommended tier isn't first - 
 // the recommended tier is always moved to the front so it's the default
 // choice on a bare enter (askViaStdin falls back to choices[0]).
 const ALL_TIERS: Tier[] = ['strong', 'medium', 'cheap']
@@ -17,7 +17,7 @@ function tierChoices(recommended: Tier): Tier[] {
 
 // Resolves each of the template's agent roles to a concrete adapter (fanning
 // the already-resolved worker/reviewer adapters out per role) and a model
-// tier — prompting interactively when possible, otherwise silently applying
+// tier - prompting interactively when possible, otherwise silently applying
 // the role's recommended tier (exactly like every other --yes-skipped
 // prompt in this file).
 async function resolveAgents(
@@ -40,7 +40,7 @@ async function resolveAgents(
   return { adapters, models }
 }
 
-// known looprail adapter ids — mirrors createDefaultRegistry's registrations
+// known looprail adapter ids - mirrors createDefaultRegistry's registrations
 // (src/adapters/default-registry.ts). Kept here rather than imported so init
 // can validate --agent/--reviewer without pulling in the CLI adapter deps.
 export const KNOWN_ADAPTERS = ['claude-code', 'codex', 'aider', 'copilot-cli', 'shell', 'mock']
@@ -76,7 +76,7 @@ export async function initAction(opts: InitOpts, deps: InitDeps = {}): Promise<n
   const io = deps.io ?? defaultIo
   const target = resolve(opts.cwd, 'looprail.yaml')
   if (existsSync(target) && !opts.force) {
-    io.out(err(`refusing to overwrite ${target} — pass --force to replace it`))
+    io.out(err(`refusing to overwrite ${target} - pass --force to replace it`))
     return 1
   }
 
@@ -87,16 +87,16 @@ export async function initAction(opts: InitOpts, deps: InitDeps = {}): Promise<n
       : await deps.ask('Pick a template', templateNames))
   const template = TEMPLATES[templateName]
   if (!template) {
-    io.out(err(`unknown template "${templateName}" — one of: ${templateNames.join(', ')}`))
+    io.out(err(`unknown template "${templateName}" - one of: ${templateNames.join(', ')}`))
     return 1
   }
 
   if (opts.agent && !KNOWN_ADAPTERS.includes(opts.agent)) {
-    io.out(err(`unknown adapter "${opts.agent}" for --agent — one of: ${KNOWN_ADAPTERS.join(', ')}`))
+    io.out(err(`unknown adapter "${opts.agent}" for --agent - one of: ${KNOWN_ADAPTERS.join(', ')}`))
     return 1
   }
   if (opts.reviewer && !KNOWN_ADAPTERS.includes(opts.reviewer)) {
-    io.out(err(`unknown adapter "${opts.reviewer}" for --reviewer — one of: ${KNOWN_ADAPTERS.join(', ')}`))
+    io.out(err(`unknown adapter "${opts.reviewer}" for --reviewer - one of: ${KNOWN_ADAPTERS.join(', ')}`))
     return 1
   }
 
@@ -110,20 +110,20 @@ export async function initAction(opts: InitOpts, deps: InitDeps = {}): Promise<n
   }
   if (!worker) {
     worker = 'mock'
-    io.out(warn('no agent CLI detected — scaffolding with the mock adapter; run `looprail doctor` to fix'))
+    io.out(warn('no agent CLI detected - scaffolding with the mock adapter; run `looprail doctor` to fix'))
   }
 
   // reviewer defaults to a genuinely different detected adapter than the
   // worker, so the generated loop shows real cross-model verification. An
   // explicit --agent pins the worker deliberately, so we don't second-guess
-  // it — reviewer falls back to worker unless --reviewer says otherwise.
+  // it - reviewer falls back to worker unless --reviewer says otherwise.
   let reviewer = opts.reviewer
   if (!reviewer) {
     const distinct = !opts.agent ? availableAdapters.find((a) => a !== worker) : undefined
     reviewer = distinct ?? worker
   }
   if (worker !== reviewer) {
-    io.out(`worker: ${worker}, reviewer: ${reviewer} — independent verification`)
+    io.out(`worker: ${worker}, reviewer: ${reviewer} - independent verification`)
   }
 
   const { adapters, models } = await resolveAgents(template.agentRoles, worker, reviewer, opts, deps)
@@ -133,7 +133,7 @@ export async function initAction(opts: InitOpts, deps: InitDeps = {}): Promise<n
   // created the file in the meantime). The early guard above still covers
   // the fast, no-prompt path without paying for detection first.
   if (existsSync(target) && !opts.force) {
-    io.out(err(`refusing to overwrite ${target} — pass --force to replace it`))
+    io.out(err(`refusing to overwrite ${target} - pass --force to replace it`))
     return 1
   }
 
@@ -148,7 +148,7 @@ export function registerInit(program: Command): void {
     .command('init')
     .description('scaffold a working looprail.yaml from the template gallery')
     .option('--template <name>', `one of: ${Object.keys(TEMPLATES).join(', ')}`)
-    .option('--agent <adapter>', `worker adapter to prefill — one of: ${KNOWN_ADAPTERS.join(', ')}`)
+    .option('--agent <adapter>', `worker adapter to prefill - one of: ${KNOWN_ADAPTERS.join(', ')}`)
     .option('--reviewer <adapter>', 'reviewer adapter to prefill (defaults to a different detected adapter than --agent, when available)')
     .option('--yes', 'non-interactive: first available agent, first template')
     .option('--force', 'overwrite an existing looprail.yaml')

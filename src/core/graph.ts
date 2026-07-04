@@ -15,7 +15,7 @@ export function validateGraph(def: LoopDef): string[] {
     if (n.of && !ids.has(n.of)) errors.push(`critic "${n.id}" targets unknown node "${n.of}"`)
     if (n.of && byId.get(n.of)?.panel !== undefined) {
       errors.push(
-        `node "${n.id}": of targets panel node "${n.of}" — reviewing a fan-out is ambiguous; ` +
+        `node "${n.id}": of targets panel node "${n.of}" - reviewing a fan-out is ambiguous; ` +
         'insert a synthesizer between them',
       )
     }
@@ -24,7 +24,7 @@ export function validateGraph(def: LoopDef): string[] {
     }
     // A numeric panel clones the node N times reusing its `agent`. On a
     // non-agent role (tester, gate) `agent` is undefined/ignored, so this
-    // silently produces N identical clones with a meaningless agent — reject it.
+    // silently produces N identical clones with a meaningless agent - reject it.
     if (typeof n.panel === 'number' && !AGENT_ROLES.has(n.role)) {
       errors.push(`node "${n.id}" (${n.role}): a numeric panel fans out over an agent, which a ${n.role} node has none of`)
     }
