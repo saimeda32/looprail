@@ -13,6 +13,10 @@ export interface EngineDeps {
   hash?: (nodeId: string, prompt: string) => string
   sleep?: (ms: number) => Promise<void>  // retry backoff clock (tests inject instant)
   retries?: number                       // adapter retry budget (default 2)
+  // Clamps a node's timeout to the remaining wall-clock budget when a wall rail
+  // is set (see runner.ts). Absent when there is no wall rail — behavior is then
+  // identical to using node.timeoutMs directly.
+  effectiveTimeout?: (nodeTimeoutMs?: number) => number | undefined
 }
 
 const VERIFYING = new Set(['critic', 'judge'])
@@ -26,12 +30,16 @@ export async function executeNode(
   onChunk?: (text: string) => void,
 ): Promise<NodeOutcome> {
   const base = { nodeId: node.id, role: node.role, costUsd: 0, tokens: 0, durationMs: 0 }
+  // A node with no explicit timeout still gets one when a wall rail is set, so a
+  // hung subprocess degrades into the timeout/infra path instead of hanging the
+  // whole run past the wall deadline. No wall rail => unchanged (node.timeoutMs).
+  const timeoutMs = deps.effectiveTimeout ? deps.effectiveTimeout(node.timeoutMs) : node.timeoutMs
 
   if (node.role === 'tester') {
     try {
       const started = Date.now()
       const res = await execa(node.run!, {
-        shell: true, cwd: deps.cwd, reject: false, timeout: node.timeoutMs,
+        shell: true, cwd: deps.cwd, reject: false, timeout: timeoutMs,
         all: true,
       })
       const passed = res.exitCode === 0
@@ -124,7 +132,7 @@ export async function executeNode(
 
   try {
     let res = await invokeWithRetry(adapter, {
-      prompt, timeoutMs: node.timeoutMs,
+      prompt, timeoutMs,
       model: agentDef.model, command: agentDef.command,
     }, deps, onChunk)
     let verdict = VERIFYING.has(node.role) ? parseVerdict(node.id, res.output) : null
@@ -134,7 +142,7 @@ export async function executeNode(
     if (VERIFYING.has(node.role) && !verdict) {
       const retry = await invokeWithRetry(adapter, {
         prompt: `${prompt}\n\nYour previous reply had no verdict block. Reply again ending with:\nVERDICT: pass|fail\nEVIDENCE: <reason>`,
-        timeoutMs: node.timeoutMs,
+        timeoutMs,
         model: agentDef.model, command: agentDef.command,
       }, deps, onChunk)
       cost += retry.costUsd

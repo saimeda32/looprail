@@ -6,7 +6,7 @@ import { runLoop } from './runner.js'
 import { readJournal } from '../journal/journal.js'
 import { MockAdapter } from '../adapters/mock.js'
 import { createRegistry } from '../adapters/registry.js'
-import type { LoopDef } from '../core/types.js'
+import type { AgentResult, LoopDef } from '../core/types.js'
 
 const loop = (over: Partial<LoopDef> = {}): LoopDef => ({
   name: 'demo',
@@ -281,6 +281,63 @@ test('halts before starting a node that would run past the cost rail', async () 
   expect(report.reason).toContain('cost')
   expect(mock.calls).toHaveLength(2) // s3's adapter was never invoked
   expect(mock.calls.some((c) => c.prompt.includes('step3'))).toBe(false)
+})
+
+test('a node with no timeout_ms is clamped to the remaining wall budget, so a hung adapter cannot outlive the wall rail', async () => {
+  // Without the clamp, the executor below (no timeoutMs) receives an undefined
+  // timeout and its "subprocess" never returns — the run would hang forever,
+  // because the wall rail is only checked between nodes. With the clamp, the
+  // node inherits the remaining wall budget as its timeout and fails, handing
+  // control back so the wall rail can fire. If this regresses, the test hangs
+  // and trips vitest's own timeout rather than passing.
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    async invoke(req) {
+      if (req.prompt.includes('EXECUTOR')) {
+        if (req.timeoutMs === undefined) return new Promise<AgentResult>(() => {}) // hangs forever
+        // honor the deadline the way a real subprocess timeout would
+        return new Promise<AgentResult>((_, reject) =>
+          setTimeout(() => reject(new Error('subprocess timed out')), req.timeoutMs))
+      }
+      return { output: 'VERDICT: pass\nEVIDENCE: ok', costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  })
+  const def = loop({
+    nodes: [
+      { id: 'do', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'do', after: ['do'] },
+    ],
+    rails: { maxIterations: 5, maxCostUsd: 5, maxWallMinutes: 0.003 }, // 180ms budget
+  })
+  const report = await runLoop(def, { registry, retries: 0, sleep: async () => {} })
+  expect(report.status).toBe('halted')
+  expect(report.reason).toMatch(/wall|iterations/)
+})
+
+test('no wall rail means a node with no timeout_ms still gets no timeout (unchanged behavior)', async () => {
+  let seenTimeout: number | undefined = -1
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    async invoke(req) {
+      if (req.prompt.includes('EXECUTOR')) seenTimeout = req.timeoutMs
+      return {
+        output: req.prompt.includes('CRITIC') ? 'VERDICT: pass\nEVIDENCE: ok' : 'DONE',
+        costUsd: 0, tokens: 0, durationMs: 1,
+      }
+    },
+  })
+  const def = loop({
+    nodes: [
+      { id: 'do', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'do', after: ['do'] },
+    ],
+    rails: { maxIterations: 2, maxCostUsd: 5 }, // no maxWallMinutes
+  })
+  const report = await runLoop(def, { registry })
+  expect(report.status).toBe('verified')
+  expect(seenTimeout).toBeUndefined()
 })
 
 test('journal emits node_start before node_end, both stamped with the iteration', async () => {

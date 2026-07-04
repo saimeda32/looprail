@@ -42,10 +42,10 @@ export function registerApproveGateTool(server: McpServer, deps: McpToolDeps): v
     title: 'Answer a pending gate in a running loop',
     description:
       'Approve or reject a gate node that a run_loop run is currently paused on. Use run_status ' +
-      'to find the runId and nodeId — see its waitingOnGate field.',
+      'to find the runId and nodeId — see its waitingOnGates field.',
     inputSchema: {
       runId: z.string().describe('Run id returned by run_loop'),
-      nodeId: z.string().describe('The gate node id currently pending (see run_status.waitingOnGate.nodeId)'),
+      nodeId: z.string().describe('The gate node id currently pending (see run_status.waitingOnGates[].nodeId)'),
       approved: z.boolean().describe('true to approve the gate, false to reject it'),
     },
   }, async (args) => approveGateHandler(args, deps))

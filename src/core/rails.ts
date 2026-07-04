@@ -17,6 +17,15 @@ export class RailsGuard {
 
   get spentUsd(): number { return this.spent }
 
+  // Remaining wall-clock budget in ms, or undefined when no wall rail is set.
+  // Nodes clamp their effective timeout to this so a hung in-flight node cannot
+  // outlive the wall deadline (the between-node rail check never gets a turn
+  // while a node hangs). May be <= 0 once the budget is spent; callers clamp.
+  remainingWallMs(): number | undefined {
+    if (this.rails.maxWallMinutes === undefined) return undefined
+    return this.rails.maxWallMinutes * 60_000 - (this.now() - this.startedAt)
+  }
+
   check(iteration: number): RailBreach | null {
     if (iteration > this.rails.maxIterations) {
       return { rail: 'iterations', detail: `iteration ${iteration} exceeds max ${this.rails.maxIterations}` }

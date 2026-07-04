@@ -67,6 +67,16 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     registry: opts.registry, gate: opts.gate, cwd: opts.cwd,
     cache: opts.cache, hash: contextHash,
     sleep: opts.sleep, retries: opts.retries,
+    // With a wall rail, an in-flight node inherits (at most) the remaining wall
+    // budget as its timeout, so a hung node can't run past the wall deadline.
+    // An explicit, shorter node.timeoutMs is never loosened; no wall rail leaves
+    // the timeout untouched (undefined stays undefined).
+    effectiveTimeout: (nodeTimeoutMs?: number) => {
+      const remaining = guard.remainingWallMs()
+      if (remaining === undefined) return nodeTimeoutMs
+      const budget = Math.max(1, remaining)
+      return nodeTimeoutMs === undefined ? budget : Math.min(nodeTimeoutMs, budget)
+    },
   }
   const onNode = (o: NodeOutcome) => {
     guard.addCost(o.costUsd)

@@ -57,7 +57,7 @@ test('no runs at all returns an error result', async () => {
   expect(result.isError).toBe(true)
 })
 
-test('reports waitingOnGate once a gate node has started but not yet ended', async () => {
+test('reports waitingOnGates once a gate node has started but not yet ended', async () => {
   const cwd = tmpCwd()
   writeRun(cwd, 'run-gate', [
     ev('run_start', { runId: 'run-gate', name: 'demo' }),
@@ -68,10 +68,25 @@ test('reports waitingOnGate once a gate node has started but not yet ended', asy
   const result = await runStatusHandler({ runId: 'run-gate' }, { cwd })
   expect(result.isError).toBeFalsy()
   const parsed = JSON.parse((result.content[0] as { text: string }).text)
-  expect(parsed.waitingOnGate).toEqual({ nodeId: 'approve' })
+  expect(parsed.waitingOnGates).toEqual([{ nodeId: 'approve' }])
 })
 
-test('does not report waitingOnGate once the gate node has a matching node_end', async () => {
+test('reports EVERY concurrently-paused gate, not just the first', async () => {
+  const cwd = tmpCwd()
+  // Two independent gate nodes started, neither ended: the scheduler runs
+  // them concurrently, so both are paused at once and both must be reported.
+  writeRun(cwd, 'run-two-gates', [
+    ev('run_start', { runId: 'run-two-gates', name: 'demo' }),
+    ev('node_start', { nodeId: 'approve-a', role: 'gate', iteration: 1 }),
+    ev('node_start', { nodeId: 'approve-b', role: 'gate', iteration: 1 }),
+  ])
+  const result = await runStatusHandler({ runId: 'run-two-gates' }, { cwd })
+  expect(result.isError).toBeFalsy()
+  const parsed = JSON.parse((result.content[0] as { text: string }).text)
+  expect(parsed.waitingOnGates).toEqual([{ nodeId: 'approve-a' }, { nodeId: 'approve-b' }])
+})
+
+test('does not report waitingOnGates once the gate node has a matching node_end', async () => {
   const cwd = tmpCwd()
   writeRun(cwd, 'run-gate-done', [
     ev('run_start', { runId: 'run-gate-done', name: 'demo' }),
@@ -84,7 +99,7 @@ test('does not report waitingOnGate once the gate node has a matching node_end',
   ])
   const result = await runStatusHandler({ runId: 'run-gate-done' }, { cwd })
   const parsed = JSON.parse((result.content[0] as { text: string }).text)
-  expect(parsed.waitingOnGate).toBeUndefined()
+  expect(parsed.waitingOnGates).toBeUndefined()
 })
 
 test('reflects a real, live pending gate (with question text) for a run started via run_loop', async () => {
@@ -112,9 +127,10 @@ rails:
   const status = await runStatusHandler({ runId: parsed.runId, cwd }, { cwd })
   expect(status.isError).toBeFalsy()
   const statusParsed = JSON.parse((status.content[0] as { text: string }).text)
-  expect(statusParsed.waitingOnGate.nodeId).toBe('approve')
-  expect(typeof statusParsed.waitingOnGate.question).toBe('string')
-  expect(statusParsed.waitingOnGate.question.length).toBeGreaterThan(0)
+  expect(statusParsed.waitingOnGates).toHaveLength(1)
+  expect(statusParsed.waitingOnGates[0].nodeId).toBe('approve')
+  expect(typeof statusParsed.waitingOnGates[0].question).toBe('string')
+  expect(statusParsed.waitingOnGates[0].question.length).toBeGreaterThan(0)
 
   // cleanup: resolve so this test doesn't leave a dangling promise behind
   pendingGates.get(gateKey(parsed.runId, 'approve'))!.resolve(true)

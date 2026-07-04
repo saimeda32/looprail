@@ -26,18 +26,25 @@ export interface WaitingOnGate {
 // derives (src/dashboard/view-model.ts), read fresh here since run_status
 // only had run-level status (summarizeJournal) before this. Kept thin on
 // purpose: a single pass over events, no new journal event types.
-function findWaitingOnGate(events: JournalEvent[]): { nodeId: string } | undefined {
-  const running = new Set<string>()
+//
+// Returns EVERY currently-pending gate, in journal order: the scheduler can
+// run several independent gate nodes concurrently (default concurrency 4, no
+// edge between them), so more than one can be paused at once. Reporting only
+// the first would hide the others until it's resolved.
+function findWaitingGates(events: JournalEvent[]): string[] {
+  const running: string[] = []
   for (const e of events) {
     const d = e.data as Record<string, unknown>
     if (e.type === 'node_start' && d.role === 'gate') {
-      running.add(String(d.nodeId))
+      const nodeId = String(d.nodeId)
+      if (!running.includes(nodeId)) running.push(nodeId)
     } else if (e.type === 'node_end') {
-      running.delete(String(d.nodeId))
+      const nodeId = String(d.nodeId)
+      const i = running.indexOf(nodeId)
+      if (i !== -1) running.splice(i, 1)
     }
   }
-  const [nodeId] = running
-  return nodeId ? { nodeId } : undefined
+  return running
 }
 
 export async function runStatusHandler(
@@ -50,16 +57,18 @@ export async function runStatusHandler(
   if (!existsSync(journalPath)) return errorResult(`no journal for run "${id}"`)
   const events = readJournal(journalPath)
   const summary = summarizeJournal(events)
-  const waiting = findWaitingOnGate(events)
-  if (!waiting) return textResult(summary)
-  // Enrich with the live question text when this process is the one running
-  // the gate (module-scope pendingGates — see gate-registry.ts). If it's
-  // absent (e.g. a different process, or the registry entry already swept),
-  // waitingOnGate still reports the nodeId — the run really is paused there
+  const waiting = findWaitingGates(events)
+  if (waiting.length === 0) return textResult(summary)
+  // Enrich each gate with its live question text when this process is the one
+  // running it (module-scope pendingGates — see gate-registry.ts). If a gate's
+  // entry is absent (e.g. a different process, or it was already swept),
+  // waitingOnGates still reports its nodeId — the run really is paused there
   // per the journal — just without the question text.
-  const live = pendingGates.get(gateKey(id, waiting.nodeId))
-  const waitingOnGate: WaitingOnGate = { nodeId: waiting.nodeId, question: live?.question }
-  return textResult({ ...summary, waitingOnGate })
+  const waitingOnGates: WaitingOnGate[] = waiting.map((nodeId) => ({
+    nodeId,
+    question: pendingGates.get(gateKey(id, nodeId))?.question,
+  }))
+  return textResult({ ...summary, waitingOnGates })
 }
 
 export function registerRunStatusTool(server: McpServer, deps: McpToolDeps): void {
