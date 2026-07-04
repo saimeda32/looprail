@@ -36,16 +36,28 @@ export function buildMissionControlPage(): string {
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   * { box-sizing: border-box; }
-  html, body { background: var(--void); }
+  html, body { background: var(--void); height: 100%; }
   body {
     margin: 0; font: 14px/1.5 var(--sans); color: var(--ink);
     background-image:
       linear-gradient(var(--line) 1px, transparent 1px),
       linear-gradient(90deg, var(--line) 1px, transparent 1px);
     background-size: 48px 48px; background-position: -1px -1px; background-attachment: fixed;
+    display: flex; flex-direction: column; min-height: 100vh;
   }
   a { color: inherit; }
-  .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 24px 64px; }
+  .wrap { max-width: 1180px; width: 100%; margin: 0 auto; padding: 24px 24px 40px; flex: 1 0 auto; }
+
+  .site-footer {
+    flex-shrink: 0; border-top: 1px solid var(--line); padding: 18px 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  .site-footer .brand { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
+  .site-footer nav { display: flex; gap: 20px; }
+  .site-footer nav a {
+    font-size: 12px; color: var(--ink-dim); text-decoration: none;
+  }
+  .site-footer nav a:hover { color: var(--signal); }
 
   .masthead {
     display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
@@ -147,6 +159,14 @@ export function buildMissionControlPage(): string {
     </section>
   </main>
 </div>
+<footer class="site-footer">
+  <span class="brand">looprail</span>
+  <nav>
+    <a href="https://github.com/saimeda32/looprail" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://github.com/saimeda32/looprail#readme" target="_blank" rel="noopener">README</a>
+    <a href="https://github.com/saimeda32/looprail/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+  </nav>
+</footer>
 <script>
 (function () {
   var STATUS_CLASS = { running: 'status-running', verified: 'status-verified', halted: 'status-halted' };
