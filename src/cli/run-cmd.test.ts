@@ -2,7 +2,8 @@ import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, test } from 'vitest'
+import { PassThrough } from 'node:stream'
+import { expect, test, vi } from 'vitest'
 import { agentCostBreakdown, makeGate, runAction } from './run-cmd.js'
 import { JournalWriter, parseLoopfile } from '../index.js'
 import { startDashboardServer } from '../dashboard/server.js'
@@ -144,6 +145,46 @@ test('makeGate rejects with an infra-tagged message via the injected gate timer 
   )
   await expect(gate({ id: 'approve', role: 'gate' }, 'ctx'))
     .rejects.toThrow('infra: gate "approve" timed out after 5s awaiting human approval')
+})
+
+test('makeGate clears the timeout when the human answers first, leaving no lingering timer', async () => {
+  vi.useFakeTimers()
+  const fakeStdin = new PassThrough()
+  const origStdin = Object.getOwnPropertyDescriptor(process, 'stdin')!
+  Object.defineProperty(process, 'stdin', { value: fakeStdin, configurable: true })
+  try {
+    const gate = makeGate(
+      { maxIterations: 1, maxCostUsd: 1, gateTimeoutSec: 3600 }, // 1h timeout
+      { out: () => {} }, false,
+    )
+    const p = gate({ id: 'approve', role: 'gate' }, 'ctx')
+    await Promise.resolve() // let readline wire up its line listener
+    fakeStdin.write('y\n')
+    await expect(p).resolves.toBe(true)
+    // the 1h timeout must have been cleared, not left pending for the process
+    expect(vi.getTimerCount()).toBe(0)
+  } finally {
+    Object.defineProperty(process, 'stdin', origStdin)
+    vi.useRealTimers()
+  }
+})
+
+test('a timed-out gate leaves no unhandled rejection (the aborted question is settled)', async () => {
+  const rejections: unknown[] = []
+  const onRej = (r: unknown) => rejections.push(r)
+  process.on('unhandledRejection', onRej)
+  try {
+    const gate = makeGate(
+      { maxIterations: 1, maxCostUsd: 1, gateTimeoutSec: 5 },
+      { out: () => {} }, false,
+      { gateTimer: async (_ms, message) => { throw new Error(message) } },
+    )
+    await expect(gate({ id: 'approve', role: 'gate' }, 'ctx')).rejects.toThrow(/timed out/)
+    await new Promise((r) => setTimeout(r, 10)) // flush any dangling rejection
+  } finally {
+    process.removeListener('unhandledRejection', onRej)
+  }
+  expect(rejections).toEqual([])
 })
 
 test('gate timeout halts the run as an infrastructure error, not a config error (no real timers)', async () => {

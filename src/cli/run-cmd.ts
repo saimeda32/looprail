@@ -19,50 +19,60 @@ export function loadLoop(file: string | undefined, cwd: string): { def: LoopDef;
   return { def: parseLoopfile(readFileSync(path, 'utf8')), path }
 }
 
-// Produces the promise half of the gate's timeout race: it rejects with an
-// infra:-tagged error once `ms` elapses. Pulled out as an injectable seam
-// (see GateTimerDeps) so tests can force the timeout branch without waiting
-// on a real timer.
-function defaultGateTimer(ms: number, message: string): Promise<never> {
-  return new Promise((_, reject) => {
-    const t = setTimeout(() => reject(new Error(message)), ms)
-    t.unref()
-  })
-}
-
 export interface GateTimerDeps {
   // returns a promise that rejects with `message` after `ms` milliseconds.
-  // Defaults to a real (unref'd) setTimeout; tests inject a fake that
-  // rejects immediately to exercise the timeout path deterministically.
+  // Defaults to a real (unref'd) setTimeout owned by makeGate (so it can be
+  // cleared once the human answers); tests inject a fake that rejects
+  // immediately to exercise the timeout path deterministically.
   gateTimer?: (ms: number, message: string) => Promise<never>
 }
 
 export function makeGate(
   rails: Rails, io: CliIo, autoApprove: boolean, timerDeps: GateTimerDeps = {},
 ): GateHandler {
-  const gateTimer = timerDeps.gateTimer ?? defaultGateTimer
   return async (node) => {
     if (autoApprove) {
       io.out(warn(`gate "${node.id}" auto-approved (--yes)`))
       return true
     }
     const rl = createInterface({ input: process.stdin, output: process.stdout })
+    // Abort seam for the readline question: readline never rejects a pending
+    // question on rl.close(), so the timeout path aborts it explicitly to
+    // settle it instead of leaving a promise dangling for the process lifetime.
+    const ac = new AbortController()
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
     try {
-      const question = rl.question(`gate "${node.id}" — approve? [y/N] `)
+      const question = rl.question(`gate "${node.id}" — approve? [y/N] `, { signal: ac.signal })
       const timeoutSec = rails.gateTimeoutSec
       // 0 and undefined both mean "wait forever" — only a positive timeout
       // starts the race. (A gateTimeoutSec of exactly 0 is not treated as
       // "time out immediately"; there was no product requirement for that,
       // so it falls back to the same wait-forever behavior as unset.)
-      const answer = timeoutSec !== undefined && timeoutSec > 0
-        ? await Promise.race([
-            question,
-            // the infra: tag makes the router HALT (spec §10) instead of
-            // treating the timeout as an ordinary gate rejection
-            gateTimer(timeoutSec * 1000, `infra: gate "${node.id}" timed out after ${timeoutSec}s awaiting human approval`),
-          ])
-        : await question
-      return /^y(es)?$/i.test(answer.trim())
+      if (!(timeoutSec !== undefined && timeoutSec > 0)) {
+        const answer = await question
+        return /^y(es)?$/i.test(answer.trim())
+      }
+      // the infra: tag makes the router HALT (spec §10) instead of treating the
+      // timeout as an ordinary gate rejection
+      const message = `infra: gate "${node.id}" timed out after ${timeoutSec}s awaiting human approval`
+      const timer = timerDeps.gateTimer
+        ? timerDeps.gateTimer(timeoutSec * 1000, message)
+        : new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error(message)), timeoutSec * 1000)
+            timeoutId.unref()
+          })
+      // when the timer wins, abort the still-pending question so it settles;
+      // swallow both losers' rejections so neither surfaces as an unhandled one
+      timer.catch(() => ac.abort())
+      question.catch(() => {})
+      try {
+        const answer = await Promise.race([question, timer])
+        return /^y(es)?$/i.test(answer.trim())
+      } finally {
+        // human answered first: stop the real timer so it never fires later
+        // (no-op when a test injected its own gateTimer)
+        clearTimeout(timeoutId)
+      }
     } finally {
       rl.close()
     }
