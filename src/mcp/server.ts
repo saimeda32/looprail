@@ -7,6 +7,7 @@ import { registerRunStatusTool } from './tools/run-status.js'
 import { registerListRunsTool } from './tools/list-runs.js'
 import { registerExplainNodeTool } from './tools/explain-node.js'
 import { registerListWorkspacesTool } from './tools/list-workspaces.js'
+import { registerApproveGateTool } from './tools/approve-gate.js'
 
 const pkg = createRequire(import.meta.url)('../../package.json') as { version: string }
 
@@ -20,5 +21,6 @@ export function createLooprailMcpServer(deps: McpServerDeps): McpServer {
   registerListRunsTool(server, deps)
   registerExplainNodeTool(server, deps)
   registerListWorkspacesTool(server, deps)
+  registerApproveGateTool(server, deps)
   return server
 }

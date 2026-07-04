@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import { runsRoot, type JournalEvent } from '../../index.js'
+import { gateKey, pendingGates } from './gate-registry.js'
+import { runLoopHandler } from './run-loop.js'
 import { runStatusHandler } from './run-status.js'
 
 function ev(type: JournalEvent['type'], data: Record<string, unknown>): JournalEvent {
@@ -53,4 +55,68 @@ test('no runs at all returns an error result', async () => {
   const cwd = tmpCwd()
   const result = await runStatusHandler({}, { cwd })
   expect(result.isError).toBe(true)
+})
+
+test('reports waitingOnGate once a gate node has started but not yet ended', async () => {
+  const cwd = tmpCwd()
+  writeRun(cwd, 'run-gate', [
+    ev('run_start', { runId: 'run-gate', name: 'demo' }),
+    ev('node_start', { nodeId: 'do', role: 'executor', iteration: 1 }),
+    ev('node_end', { nodeId: 'do', role: 'executor', iteration: 1, verdict: null, costUsd: 0 }),
+    ev('node_start', { nodeId: 'approve', role: 'gate', iteration: 1 }),
+  ])
+  const result = await runStatusHandler({ runId: 'run-gate' }, { cwd })
+  expect(result.isError).toBeFalsy()
+  const parsed = JSON.parse((result.content[0] as { text: string }).text)
+  expect(parsed.waitingOnGate).toEqual({ nodeId: 'approve' })
+})
+
+test('does not report waitingOnGate once the gate node has a matching node_end', async () => {
+  const cwd = tmpCwd()
+  writeRun(cwd, 'run-gate-done', [
+    ev('run_start', { runId: 'run-gate-done', name: 'demo' }),
+    ev('node_start', { nodeId: 'approve', role: 'gate', iteration: 1 }),
+    ev('node_end', {
+      nodeId: 'approve', role: 'gate', iteration: 1, costUsd: 0,
+      verdict: { node: 'approve', status: 'pass', evidence: 'human approved' },
+    }),
+    ev('iteration_end', { iteration: 1, costUsd: 0 }),
+  ])
+  const result = await runStatusHandler({ runId: 'run-gate-done' }, { cwd })
+  const parsed = JSON.parse((result.content[0] as { text: string }).text)
+  expect(parsed.waitingOnGate).toBeUndefined()
+})
+
+test('reflects a real, live pending gate (with question text) for a run started via run_loop', async () => {
+  const cwd = tmpCwd()
+  writeFileSync(join(cwd, 'looprail.yaml'), `
+name: gated-mcp
+goal: Needs approval.
+agents:
+  worker: { adapter: mock }
+graph:
+  do:      { role: executor, agent: worker }
+  approve: { role: gate, after: do }
+rails:
+  max_iterations: 2
+  max_cost_usd: 1
+`)
+  const { result, done } = await runLoopHandler({}, { cwd })
+  const parsed = JSON.parse((result.content[0] as { text: string }).text)
+
+  // flush the (purely microtask) chain from run_loop's start through the
+  // gate node registering itself — see run-loop.test.ts's tick() for why a
+  // single macrotask tick is sufficient and deterministic here.
+  await new Promise((resolve) => setImmediate(resolve))
+
+  const status = await runStatusHandler({ runId: parsed.runId, cwd }, { cwd })
+  expect(status.isError).toBeFalsy()
+  const statusParsed = JSON.parse((status.content[0] as { text: string }).text)
+  expect(statusParsed.waitingOnGate.nodeId).toBe('approve')
+  expect(typeof statusParsed.waitingOnGate.question).toBe('string')
+  expect(statusParsed.waitingOnGate.question.length).toBeGreaterThan(0)
+
+  // cleanup: resolve so this test doesn't leave a dangling promise behind
+  pendingGates.get(gateKey(parsed.runId, 'approve'))!.resolve(true)
+  await done
 })

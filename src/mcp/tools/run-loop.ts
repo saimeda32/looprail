@@ -8,6 +8,7 @@ import {
   type RunReport,
 } from '../../index.js'
 import type { McpToolDeps } from './deps.js'
+import { makeMcpGate, sweepPendingGates, type GateTimerDeps } from './gate-registry.js'
 import { errorResult, textResult } from './result.js'
 
 export interface RunLoopInput {
@@ -25,7 +26,7 @@ export interface RunLoopOutcome {
 }
 
 export async function runLoopHandler(
-  input: RunLoopInput, deps: McpToolDeps,
+  input: RunLoopInput, deps: McpToolDeps, gateTimerDeps: GateTimerDeps = {},
 ): Promise<RunLoopOutcome> {
   const cwd = input.cwd ?? deps.cwd
   const path = resolve(cwd, input.file ?? 'looprail.yaml')
@@ -80,7 +81,14 @@ export async function runLoopHandler(
   // keeps the stdio connection to it open. Every event lands durably in
   // runDir's journal as it happens, so run_status observes progress with
   // zero shared in-memory state between this call and a later one.
-  const done = runLoop(def, { registry, cwd, runDir, runId }).catch((e: unknown) => {
+  //
+  // gate: a real GateHandler (see gate-registry.ts) so a gate node PAUSES
+  // this run — registering a pending entry the new approve_gate tool can
+  // answer later — instead of halting loudly with "no gate handler
+  // configured" the moment the run reaches it.
+  const done = runLoop(def, {
+    registry, cwd, runDir, runId, gate: makeMcpGate(runId, def.rails, gateTimerDeps),
+  }).catch((e: unknown) => {
     // Defense in depth only: the pre-flight lintLoop + validateGraph(expandPanels(def))
     // checks above already reject synchronously before 'started' is ever reported, so
     // runLoop should no longer throw before its first emit() call. If it somehow still
@@ -89,7 +97,7 @@ export async function runLoopHandler(
     // is the live MCP protocol stream.
     console.error(`[looprail mcp] run ${runId} failed to start: ${e instanceof Error ? e.message : String(e)}`)
     return undefined
-  })
+  }).finally(() => sweepPendingGates(runId))
 
   return {
     result: textResult({ runId, runDir, status: 'started', name: def.name, goal: def.goal }),
