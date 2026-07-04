@@ -17,6 +17,10 @@ export {
 } from './journal/runs.js'
 export { loadCache } from './journal/cache.js'
 export { parseLoopfile } from './config/loopfile.js'
+export { parseBenchfile } from './bench/benchfile.js'
+export type {
+  BenchConfigRef, BenchConfigResult, BenchDef, BenchResult, BenchRunResult, ConfigStats,
+} from './bench/types.js'
 export { lintLoop, type LintFinding } from './config/lint.js'
 export {
   CliAdapter, defaultExec,
