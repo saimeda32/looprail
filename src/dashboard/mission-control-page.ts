@@ -92,6 +92,10 @@ export function buildMissionControlPage(): string {
   .run-card:hover, .run-card:focus-visible { border-color: var(--line-bright); }
   .run-card .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px; gap: 8px; }
   .run-card .name { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .run-card .goal {
+    font-size: 11.5px; color: var(--ink-dim); line-height: 1.4; margin-bottom: 8px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
   .run-card .workspace { font: 10.5px var(--mono); color: var(--ink-faint); margin-bottom: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .status-pill {
     display: inline-flex; align-items: center; gap: 6px; font: 600 10.5px/1.4 var(--mono);
@@ -189,6 +193,7 @@ export function buildMissionControlPage(): string {
     top.appendChild(el('span', 'name', run.name || run.runId));
     top.appendChild(el('span', 'status-pill ' + (STATUS_CLASS[run.status] || 'status-running'), run.status));
     a.appendChild(top);
+    if (run.goal) a.appendChild(el('div', 'goal', run.goal));
     a.appendChild(el('div', 'workspace', run.workspaceName));
     a.appendChild(el('div', 'agents', run.agents.length ? run.agents.join(', ') : 'no agents recorded'));
     var stats = el('div', 'stats');

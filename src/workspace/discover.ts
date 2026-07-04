@@ -46,10 +46,13 @@ export interface RunListEntry {
   workspaceName: string
   workspaceHash: string
   runId: string
+  name: string
+  goal: string
   status: 'running' | 'verified' | 'halted'
   agents: string[]
   iteration: number
   costUsd: number
+  tokens: number
   startedAt?: number
   lastEventAt?: number
   journalPath: string
@@ -67,10 +70,13 @@ export function buildRunListEntry(
     workspaceName: basename(workspace),
     workspaceHash: workspaceHash(workspace),
     runId,
+    name: model.name,
+    goal: model.goal,
     status: model.status,
     agents: agentsInUse(def, events),
     iteration: model.totals.iteration,
     costUsd: model.totals.costUsd,
+    tokens: model.totals.tokens,
     startedAt: events[0]?.ts,
     lastEventAt: events.at(-1)?.ts,
     journalPath,

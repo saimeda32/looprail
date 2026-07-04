@@ -36,6 +36,17 @@ test('buildRunListEntry derives status/iteration/cost from buildViewModel, not i
   })
 })
 
+test('buildRunListEntry carries the loop\'s own name, goal, and total tokens - not just the workspace and run id', () => {
+  const events: JournalEvent[] = [
+    ev('run_start', { runId: 'r1', name: 'fix-tests', goal: 'Make CI green again.' }, 100),
+    ev('node_end', { nodeId: 'do', role: 'executor', iteration: 1, costUsd: 0.1, tokens: 250, verdict: null }, 150),
+  ]
+  const entry = buildRunListEntry('/projects/demo', 'r1', '/irrelevant', events)
+  expect(entry.name).toBe('fix-tests')
+  expect(entry.goal).toBe('Make CI green again.')
+  expect(entry.tokens).toBe(250)
+})
+
 test('discoverRuns on an empty workspace list returns no runs', () => {
   expect(discoverRuns([])).toEqual([])
 })
