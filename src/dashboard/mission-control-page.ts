@@ -116,9 +116,11 @@ export function buildMissionControlPage(): string {
   .status-canceled { color: var(--ink-dim); background: rgba(140,131,117,0.12); border-color: rgba(140,131,117,0.3); }
   @keyframes pulse-dot { 50% { opacity: 0.35; } }
   .run-card .agents { font-size: 11.5px; color: var(--ink-dim); margin-bottom: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .run-card .stats { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .run-card .stats { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
   .run-card .stats .num { font: 11.5px var(--mono); font-variant-numeric: tabular-nums; color: var(--ink-dim); }
   .run-card .stats .num b { color: var(--ink); font-weight: 500; }
+  .run-card .stats .num.wall-over { color: var(--fail); }
+  .run-card .stats .num.wall-over b { color: var(--fail); font-weight: 600; }
   .run-card .updated { font: 10.5px var(--mono); color: var(--ink-faint); margin-top: 8px; }
   #empty-state {
     padding: 60px 20px; text-align: center; color: var(--ink-dim); max-width: 520px; margin: 0 auto;
@@ -158,6 +160,7 @@ export function buildMissionControlPage(): string {
       <div class="usage-item"><span class="label">Running now</span><span class="value" id="usage-running">0</span></div>
       <div class="usage-item"><span class="label">Cost</span><span class="value" id="usage-cost">$0.00</span></div>
       <div class="usage-item"><span class="label">Tokens</span><span class="value" id="usage-tokens">0</span></div>
+      <div class="usage-item"><span class="label">Wall time</span><span class="value" id="usage-wall">0s</span></div>
     </div>
     <div class="range-picker" id="range-picker"></div>
   </div>
@@ -191,6 +194,31 @@ export function buildMissionControlPage(): string {
 
   function formatTokens(n) {
     return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+  }
+
+  // Mirrors formatTokens' placement/style: a small ES5 pure formatter, no
+  // DOM access, reused by both the per-tile reading and the aggregate strip
+  // so the two surfaces can never drift into showing different units.
+  function formatDuration(ms) {
+    var totalSec = Math.max(0, Math.round(ms / 1000));
+    var h = Math.floor(totalSec / 3600);
+    var m = Math.floor((totalSec % 3600) / 60);
+    var s = totalSec % 60;
+    if (h > 0) return h + 'h ' + m + 'm';
+    if (m > 0) return m + 'm ' + s + 's';
+    return s + 's';
+  }
+
+  // Anchored on the server-written startedAt/lastEventAt timestamps already
+  // carried on every RunListEntry, never on a raw unanchored client clock. A
+  // finished run's figure (lastEventAt - startedAt) is fully
+  // server-timestamped and therefore skew-free; a running run's figure
+  // (Date.now() - startedAt) only has sub-second-scale client/server skew,
+  // immaterial for a live ticking counter re-anchored on every render.
+  function elapsedMs(run) {
+    if (!run.startedAt) return null;
+    var end = run.status === 'running' ? Date.now() : (run.lastEventAt || run.startedAt);
+    return Math.max(0, end - run.startedAt);
   }
 
   function runCard(run) {
@@ -232,6 +260,24 @@ export function buildMissionControlPage(): string {
       var tok = el('span', 'num');
       tok.innerHTML = '<b>' + formatTokens(run.tokens) + '</b> tok';
       stats.appendChild(tok);
+    }
+    // A no-meter, text-only reading (matching this tile's existing .num
+    // treatment) rather than a full proportional meter bar, flagged with
+    // the wall-over class when the budget is blown so an overshoot reads
+    // at a glance.
+    var wallMs = elapsedMs(run);
+    if (wallMs !== null) {
+      var wall = el('span', 'num');
+      wall.id = 'wall-' + run.workspaceHash + '-' + run.runId;
+      if (typeof run.maxWallMinutes === 'number') {
+        var wallMinutes = wallMs / 60000;
+        var overBudget = wallMinutes > run.maxWallMinutes;
+        wall.className = 'num' + (overBudget ? ' wall-over' : '');
+        wall.innerHTML = '<b>' + formatDuration(wallMs) + '</b> / ' + run.maxWallMinutes + 'm';
+      } else {
+        wall.innerHTML = '<b>' + formatDuration(wallMs) + '</b>';
+      }
+      stats.appendChild(wall);
     }
     a.appendChild(stats);
     if (run.lastEventAt) {
@@ -277,13 +323,15 @@ export function buildMissionControlPage(): string {
 
   function renderUsage(runs) {
     var workspaces = {};
-    var totalCost = 0, totalEstimatedCost = 0, totalTokens = 0, running = 0;
+    var totalCost = 0, totalEstimatedCost = 0, totalTokens = 0, running = 0, totalWallMs = 0;
     runs.forEach(function (r) {
       workspaces[r.workspaceName] = true;
       totalCost += r.costUsd || 0;
       totalEstimatedCost += r.estimatedCostUsd || 0;
       totalTokens += r.tokens || 0;
       if (r.status === 'running') running += 1;
+      var wallMs = elapsedMs(r);
+      if (wallMs !== null) totalWallMs += wallMs;
     });
     document.getElementById('usage-workspaces').textContent = String(Object.keys(workspaces).length);
     document.getElementById('usage-runs').textContent = String(runs.length);
@@ -298,6 +346,10 @@ export function buildMissionControlPage(): string {
     // separate.
     document.getElementById('usage-cost').textContent = '$' + (totalCost + totalEstimatedCost).toFixed(2);
     document.getElementById('usage-tokens').textContent = formatTokens(totalTokens);
+    // Plain reading, no meter - there is no single max_wall_minutes to be
+    // proportional against once runs from different loopfiles (each with
+    // its own budget, or none) are summed together.
+    document.getElementById('usage-wall').textContent = formatDuration(totalWallMs);
   }
 
   function renderRuns(runs) {
@@ -361,9 +413,39 @@ export function buildMissionControlPage(): string {
     });
   }
 
+  // Ticks the wall-time readings once per second from the last rendered
+  // runs (lastRuns, already populated by renderRuns) - no fetch/SSE round
+  // trip per tick. Mirrors runCard's/renderUsage's own wall-time markup so
+  // a running run's tile and the aggregate both keep advancing between SSE
+  // frames, and stop advancing the instant a run is no longer 'running'
+  // (elapsedMs then returns its fixed lastEventAt - startedAt figure).
+  function tickWall() {
+    var visible = filterByRange(lastRuns);
+    var totalWallMs = 0;
+    visible.forEach(function (r) {
+      var wallMs = elapsedMs(r);
+      if (wallMs === null) return;
+      totalWallMs += wallMs;
+      if (r.status !== 'running') return;
+      var wallEl = document.getElementById('wall-' + r.workspaceHash + '-' + r.runId);
+      if (!wallEl) return;
+      if (typeof r.maxWallMinutes === 'number') {
+        var wallMinutes = wallMs / 60000;
+        var overBudget = wallMinutes > r.maxWallMinutes;
+        wallEl.className = 'num' + (overBudget ? ' wall-over' : '');
+        wallEl.innerHTML = '<b>' + formatDuration(wallMs) + '</b> / ' + r.maxWallMinutes + 'm';
+      } else {
+        wallEl.innerHTML = '<b>' + formatDuration(wallMs) + '</b>';
+      }
+    });
+    var usageWallEl = document.getElementById('usage-wall');
+    if (usageWallEl) usageWallEl.textContent = formatDuration(totalWallMs);
+  }
+
   refresh();
   var es = new EventSource('/events');
   es.onmessage = function (e) { renderAll(JSON.parse(e.data)); };
+  setInterval(tickWall, 1000);
 })();
 </script>
 </body>

@@ -67,6 +67,13 @@ export interface RunListEntry {
   tokens: number
   startedAt?: number
   lastEventAt?: number
+  // The loopfile's own rails.maxWallMinutes, carried through verbatim so
+  // mission control's run tiles (and their aggregate strip) can show elapsed
+  // wall time against the run's actual wall budget rather than in a vacuum.
+  // Undefined when there's no loopfile (def undefined) or the loopfile sets
+  // no wall rail at all - both cases mean "nothing to be proportional
+  // against", same spirit as costUsd having no max when maxCostUsd is unset.
+  maxWallMinutes?: number
   journalPath: string
 }
 
@@ -93,6 +100,7 @@ export function buildRunListEntry(
     tokens: model.totals.tokens,
     startedAt: events[0]?.ts,
     lastEventAt: events.at(-1)?.ts,
+    maxWallMinutes: def?.rails.maxWallMinutes,
     journalPath,
   }
 }

@@ -129,11 +129,15 @@ function loadRunCard(): (run: unknown) => ReturnType<typeof makeFakeElement> {
   const statusClassSrc = script.match(/var STATUS_CLASS = \{[\s\S]*?\};/)![0]
   const elSrc = script.match(/function el\(tag, className, text\) \{[\s\S]*?\n  \}\n/)![0]
   const formatTokensSrc = script.match(/function formatTokens\(n\) \{[\s\S]*?\n  \}\n/)![0]
+  const formatDurationSrc = script.match(/function formatDuration\(ms\) \{[\s\S]*?\n  \}\n/)![0]
+  const elapsedMsSrc = script.match(/function elapsedMs\(run\) \{[\s\S]*?\n  \}\n/)![0]
   const runCardSrc = script.match(/function runCard\(run\) \{[\s\S]*?\n  \}\n/)![0]
   const factory = new Function('document', `
     ${statusClassSrc}
     ${elSrc}
     ${formatTokensSrc}
+    ${formatDurationSrc}
+    ${elapsedMsSrc}
     ${runCardSrc}
     return runCard;
   `)
@@ -191,9 +195,13 @@ function loadRenderUsage() {
   const html = buildMissionControlPage()
   const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
   const formatTokensSrc = script.match(/function formatTokens\(n\) \{[\s\S]*?\n  \}\n/)![0]
+  const formatDurationSrc = script.match(/function formatDuration\(ms\) \{[\s\S]*?\n  \}\n/)![0]
+  const elapsedMsSrc = script.match(/function elapsedMs\(run\) \{[\s\S]*?\n  \}\n/)![0]
   const renderUsageSrc = script.match(/function renderUsage\(runs\) \{[\s\S]*?\n  \}\n/)![0]
   const factory = new Function('document', `
     ${formatTokensSrc}
+    ${formatDurationSrc}
+    ${elapsedMsSrc}
     ${renderUsageSrc}
     return renderUsage;
   `)
@@ -203,6 +211,7 @@ function loadRenderUsage() {
     'usage-running': { textContent: '' },
     'usage-cost': { textContent: '' },
     'usage-tokens': { textContent: '' },
+    'usage-wall': { textContent: '' },
   }
   const fakeDocument = { getElementById: (id: string) => store[id] }
   const renderUsage = factory(fakeDocument) as (runs: unknown[]) => void
@@ -256,3 +265,107 @@ test('run tiles render a one-line reason for halted/canceled runs, distinctly cl
   expect(html).toContain('.reason.reason-canceled')
 })
 
+
+// tickWall is the client-side live-tick handler wired to a real
+// setInterval so running-run tiles and the aggregate strip keep advancing
+// once per second between SSE frames, without any fetch/SSE round trip.
+// Extracts the actual runtime functions (RANGES/filterByRange/elapsedMs/
+// formatDuration/tickWall) verbatim from the built page, the same
+// new-Function + fake-DOM technique used above for runCard/renderUsage,
+// and exposes a setLastRuns hook so the test can populate the module's
+// private lastRuns closure variable the way renderRuns normally would.
+function loadTickWall() {
+  const html = buildMissionControlPage()
+  const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
+  const rangesSrc = script.match(/var RANGES = \[[\s\S]*?\];/)![0]
+  const selectedRangeSrc = "var selectedRange = 'all';"
+  const lastRunsSrc = 'var lastRuns = [];'
+  const filterByRangeSrc = script.match(/function filterByRange\(runs\) \{[\s\S]*?\n  \}\n/)![0]
+  const formatDurationSrc = script.match(/function formatDuration\(ms\) \{[\s\S]*?\n  \}\n/)![0]
+  const elapsedMsSrc = script.match(/function elapsedMs\(run\) \{[\s\S]*?\n  \}\n/)![0]
+  const tickWallSrc = script.match(/function tickWall\(\) \{[\s\S]*?\n  \}\n/)![0]
+  const factory = new Function('document', `
+    ${rangesSrc}
+    ${selectedRangeSrc}
+    ${lastRunsSrc}
+    ${filterByRangeSrc}
+    ${formatDurationSrc}
+    ${elapsedMsSrc}
+    ${tickWallSrc}
+    return {
+      tickWall: tickWall,
+      setLastRuns: function (runs) { lastRuns = runs; },
+    };
+  `)
+  return factory as unknown as (document: unknown) => {
+    tickWall: () => void
+    setLastRuns: (runs: unknown[]) => void
+  }
+}
+
+test('the inline script wires a real setInterval to tick the wall-time readings once per second', () => {
+  const html = buildMissionControlPage()
+  const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
+  expect(script).toMatch(/setInterval\(tickWall,\s*1000\)/)
+})
+
+test('tickWall updates a running run tile\'s wall-time span from lastRuns, without a fetch call', () => {
+  const wallSpan = { className: '', innerHTML: '' }
+  const store: Record<string, unknown> = {
+    'wall-h-r1': wallSpan,
+    'usage-wall': { textContent: '' },
+  }
+  const fakeDocument = { getElementById: (id: string) => store[id] }
+  const factory = loadTickWall()
+  const { tickWall, setLastRuns } = factory(fakeDocument)
+  const startedAt = Date.now() - 5000
+  setLastRuns([baseRun({ workspaceHash: 'h', runId: 'r1', status: 'running', startedAt, maxWallMinutes: 45 })])
+  tickWall()
+  expect(wallSpan.innerHTML).toContain('/ 45m')
+  expect(wallSpan.className).toBe('num')
+})
+
+test('tickWall flags an over-budget running run via the wall-over class', () => {
+  const wallSpan = { className: '', innerHTML: '' }
+  const store: Record<string, unknown> = {
+    'wall-h-r1': wallSpan,
+    'usage-wall': { textContent: '' },
+  }
+  const fakeDocument = { getElementById: (id: string) => store[id] }
+  const factory = loadTickWall()
+  const { tickWall, setLastRuns } = factory(fakeDocument)
+  const startedAt = Date.now() - 46 * 60 * 1000
+  setLastRuns([baseRun({ workspaceHash: 'h', runId: 'r1', status: 'running', startedAt, maxWallMinutes: 45 })])
+  tickWall()
+  expect(wallSpan.className).toBe('num wall-over')
+})
+
+test('tickWall never advances a finished run\'s wall-time reading (fixed lastEventAt - startedAt)', () => {
+  const wallSpan = { className: '', innerHTML: '<b>should not change</b>' }
+  const store: Record<string, unknown> = {
+    'wall-h-r1': wallSpan,
+    'usage-wall': { textContent: '' },
+  }
+  const fakeDocument = { getElementById: (id: string) => store[id] }
+  const factory = loadTickWall()
+  const { tickWall, setLastRuns } = factory(fakeDocument)
+  setLastRuns([baseRun({ workspaceHash: 'h', runId: 'r1', status: 'verified', startedAt: 1000, lastEventAt: 61000 })])
+  tickWall()
+  // status !== 'running', so tickWall must not touch the per-tile span at all
+  expect(wallSpan.innerHTML).toBe('<b>should not change</b>')
+})
+
+test('tickWall recomputes the aggregate usage-wall total across lastRuns without a fetch', () => {
+  const store: Record<string, unknown> = {
+    'usage-wall': { textContent: '' },
+  }
+  const fakeDocument = { getElementById: (id: string) => store[id] }
+  const factory = loadTickWall()
+  const { tickWall, setLastRuns } = factory(fakeDocument)
+  setLastRuns([
+    baseRun({ workspaceHash: 'h', runId: 'r1', status: 'verified', startedAt: 1000, lastEventAt: 61000 }),
+    baseRun({ workspaceHash: 'h', runId: 'r2', status: 'verified', startedAt: 1000, lastEventAt: 61000 }),
+  ])
+  tickWall()
+  expect((store['usage-wall'] as { textContent: string }).textContent).toBe('2m 0s')
+})

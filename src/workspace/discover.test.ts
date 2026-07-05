@@ -98,6 +98,36 @@ test('buildRunListEntry defaults estimatedCostUsd to 0 when no event ever carrie
   expect(entry.estimatedCostUsd).toBe(0)
 })
 
+// Mission control's run tiles need the run's own wall budget to flag an
+// overshoot (see dashboard/mission-control-page.ts's runCard) - the elapsed
+// figure itself is already derivable client-side from startedAt/lastEventAt,
+// so RunListEntry only needs to carry the loopfile's rails.maxWallMinutes
+// through verbatim, exactly like the reason/estimatedCostUsd carry-throughs
+// above.
+test('buildRunListEntry carries rails.maxWallMinutes through from the loopfile def when set', () => {
+  const events: JournalEvent[] = [ev('run_start', { runId: 'r1', name: 'demo', goal: 'g' }, 100)]
+  const def = {
+    name: 'demo', goal: 'g', agents: {}, graph: {},
+    rails: { maxIterations: 10, maxCostUsd: 5, maxWallMinutes: 45, replanLimit: 3 },
+  } as unknown as Parameters<typeof buildRunListEntry>[4]
+  const entry = buildRunListEntry('/projects/demo', 'r1', '/irrelevant', events, def)
+  expect(entry.maxWallMinutes).toBe(45)
+})
+
+test('buildRunListEntry leaves maxWallMinutes undefined with no def, or a def with no wall rail', () => {
+  const events: JournalEvent[] = [ev('run_start', { runId: 'r1', name: 'demo', goal: 'g' }, 100)]
+
+  const withoutDef = buildRunListEntry('/projects/demo', 'r1', '/irrelevant', events)
+  expect(withoutDef.maxWallMinutes).toBeUndefined()
+
+  const defWithNoWallRail = {
+    name: 'demo', goal: 'g', agents: {}, graph: {},
+    rails: { maxIterations: 10, maxCostUsd: 5, replanLimit: 3 },
+  } as unknown as Parameters<typeof buildRunListEntry>[4]
+  const withNoWallRail = buildRunListEntry('/projects/demo', 'r1', '/irrelevant', events, defWithNoWallRail)
+  expect(withNoWallRail.maxWallMinutes).toBeUndefined()
+})
+
 test('discoverRuns on an empty workspace list returns no runs', () => {
   expect(discoverRuns([])).toEqual([])
 })
