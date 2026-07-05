@@ -26,6 +26,23 @@ export class RailsGuard {
     return this.rails.maxWallMinutes * 60_000 - (this.now() - this.startedAt)
   }
 
+  // Never loosens a limit - only lowers it. Used when a self-planning
+  // fragment declares its own rails: the outer loopfile's rails are always
+  // the ceiling (see docs/superpowers/specs/2026-07-04-self-planning-loop-design.md).
+  tighten(partial: Partial<Rails>): void {
+    if (partial.maxIterations !== undefined) {
+      this.rails.maxIterations = Math.min(this.rails.maxIterations, partial.maxIterations)
+    }
+    if (partial.maxCostUsd !== undefined) {
+      this.rails.maxCostUsd = Math.min(this.rails.maxCostUsd, partial.maxCostUsd)
+    }
+    if (partial.maxWallMinutes !== undefined) {
+      this.rails.maxWallMinutes = this.rails.maxWallMinutes === undefined
+        ? partial.maxWallMinutes
+        : Math.min(this.rails.maxWallMinutes, partial.maxWallMinutes)
+    }
+  }
+
   check(iteration: number): RailBreach | null {
     if (iteration > this.rails.maxIterations) {
       return { rail: 'iterations', detail: `iteration ${iteration} exceeds max ${this.rails.maxIterations}` }
