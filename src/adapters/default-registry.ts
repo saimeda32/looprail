@@ -1,4 +1,5 @@
 import type { Adapter } from '../core/types.js'
+import type { PricingTable } from '../core/pricing.js'
 import { createRegistry, type AdapterRegistry } from './registry.js'
 import type { ExecFn } from './cli-adapter.js'
 import { createClaudeCodeAdapter } from './claude-code.js'
@@ -10,6 +11,11 @@ import { createShellAdapter } from './shell.js'
 export interface DefaultRegistryOptions {
   exec?: ExecFn
   cwd?: string
+  // Overridable pricing table loader, threaded into the three adapters that
+  // derive estimatedCostUsd (copilot, codex, aider). Left unset in normal
+  // use, which defaults each adapter to the real runtime fetch/cache module;
+  // tests can override this to avoid network access end to end.
+  loadPricingTable?: () => Promise<PricingTable> | PricingTable
 }
 
 // Unscripted mock for CLI runs (`adapter: mock` in a loopfile): verifying

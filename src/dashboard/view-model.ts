@@ -8,6 +8,7 @@ export interface NodeIterationRecord {
   status: NodeStatus
   evidence?: string
   costUsd?: number
+  estimatedCostUsd?: number
   tokens?: number
   durationMs?: number
   output?: string
@@ -23,6 +24,10 @@ export interface DashboardNode {
   role: Role
   status: NodeStatus
   costUsd: number
+  // Pricing-derived estimate, accumulated separately from costUsd (real,
+  // adapter-reported spend). See core/rails.ts and core/types.ts
+  // NodeOutcome.estimatedCostUsd for why the two must never merge.
+  estimatedCostUsd: number
   tokens: number
   iterations: NodeIterationRecord[]
   agent?: string
@@ -45,6 +50,7 @@ export interface PlanVersion {
 
 export interface DashboardTotals {
   costUsd: number
+  estimatedCostUsd: number
   maxCostUsd?: number
   iteration: number
   maxIterations?: number
@@ -94,7 +100,7 @@ function ensureNode(
 ): DashboardNode {
   let n = nodes.get(id)
   if (!n) {
-    n = { id, role, status: 'pending', costUsd: 0, tokens: 0, iterations: [], agent, model, adapter }
+    n = { id, role, status: 'pending', costUsd: 0, estimatedCostUsd: 0, tokens: 0, iterations: [], agent, model, adapter }
     nodes.set(id, n)
   }
   return n
@@ -116,6 +122,7 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
   let reason: string | undefined
   let report: FinalReport | undefined
   let costUsd = 0
+  let estimatedCostUsd = 0
   let tokens = 0
   let iteration = 0
   let replans = 0
@@ -166,16 +173,19 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
         const verdict = d.verdict as Verdict | null
         const iter = Number(d.iteration ?? 0)
         const cost = Number(d.costUsd ?? 0)
+        const nodeEstimatedCost = d.estimatedCostUsd === undefined ? undefined : Number(d.estimatedCostUsd)
         const nodeTokens = Number(d.tokens ?? 0)
         const nodeStatus: NodeStatus = verdict ? verdict.status : 'done'
         n.status = nodeStatus
         n.costUsd += cost
+        n.estimatedCostUsd += nodeEstimatedCost ?? 0
         n.tokens += nodeTokens
         n.iterations.push({
           iteration: iter,
           status: nodeStatus,
           evidence: verdict?.evidence,
           costUsd: cost,
+          estimatedCostUsd: nodeEstimatedCost,
           tokens: nodeTokens,
           durationMs: d.durationMs === undefined ? undefined : Number(d.durationMs),
           output: d.output === undefined ? undefined : String(d.output),
@@ -185,6 +195,7 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
         calls += 1
         tokens += nodeTokens
         costUsd += cost
+        estimatedCostUsd += nodeEstimatedCost ?? 0
         break
       }
       case 'node_skipped': {
@@ -201,6 +212,7 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
         // guard's authoritative running spend in case it saw cost the node-level sum can't
         // (e.g. retry cost not attached to any single node_end). Never let the total regress.
         costUsd = Math.max(costUsd, Number(d.costUsd ?? costUsd))
+        estimatedCostUsd = Math.max(estimatedCostUsd, Number(d.estimatedCostUsd ?? estimatedCostUsd))
         break
       case 'replan':
         replans += 1
@@ -216,6 +228,7 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
         reason = String(d.reason)
         report = d.report as FinalReport | undefined
         costUsd = Math.max(costUsd, Number(d.costUsd ?? costUsd))
+        estimatedCostUsd = Math.max(estimatedCostUsd, Number(d.estimatedCostUsd ?? estimatedCostUsd))
         // A node that started but never got its own node_end (a rail
         // breach or a user cancel while it was still in flight - the whole
         // point of the cancel control) would otherwise show "running"
@@ -236,7 +249,7 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
     nodes: [...nodes.values()],
     edges: def ? edgesFromDef(def) : [],
     totals: {
-      costUsd, iteration, replans, tokens, calls,
+      costUsd, estimatedCostUsd, iteration, replans, tokens, calls,
       maxCostUsd: def?.rails.maxCostUsd,
       maxIterations: def?.rails.maxIterations,
       maxWallMinutes: def?.rails.maxWallMinutes,

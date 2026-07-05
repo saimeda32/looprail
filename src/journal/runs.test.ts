@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
-import { latestRunId, listRunIds, reconstructRunState, runsRoot } from './runs.js'
+import { latestRunId, listRunIds, reconstructRunState, runsRoot, summarizeJournal } from './runs.js'
 import type { JournalEvent } from '../core/types.js'
 
 test('listRunIds on a cwd with no runs directory returns an empty array', () => {
@@ -56,4 +56,35 @@ test('reconstructRunState returns null feedback when the last iteration had no f
     ev('iteration_end', { iteration: 1 }),
   ]
   expect(reconstructRunState(events).feedback).toBeNull()
+})
+
+test('summarizeJournal surfaces estimatedCostUsd separately from costUsd, from iteration_end', () => {
+  const events = [
+    ev('run_start', { runId: 'r1', name: 'demo' }),
+    ev('iteration_end', { iteration: 1, costUsd: 0, estimatedCostUsd: 0.42 }),
+  ]
+  const s = summarizeJournal(events)
+  expect(s.costUsd).toBe(0)
+  expect(s.estimatedCostUsd).toBeCloseTo(0.42)
+})
+
+test('summarizeJournal reconciles estimatedCostUsd from the terminal verified/halt event, never conflating it with real cost', () => {
+  const events = [
+    ev('run_start', { runId: 'r1', name: 'demo' }),
+    ev('iteration_end', { iteration: 1, costUsd: 0, estimatedCostUsd: 0.5 }),
+    ev('halt', { reason: 'rail breached (cost)', costUsd: 0, estimatedCostUsd: 1.2 }),
+  ]
+  const s = summarizeJournal(events)
+  expect(s.status).toBe('halted')
+  expect(s.costUsd).toBe(0)
+  expect(s.estimatedCostUsd).toBeCloseTo(1.2)
+})
+
+test('summarizeJournal defaults estimatedCostUsd to 0 when no event ever carries one', () => {
+  const events = [
+    ev('run_start', { runId: 'r1', name: 'demo' }),
+    ev('iteration_end', { iteration: 1, costUsd: 0.3 }),
+  ]
+  const s = summarizeJournal(events)
+  expect(s.estimatedCostUsd).toBe(0)
 })

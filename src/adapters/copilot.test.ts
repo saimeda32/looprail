@@ -12,7 +12,12 @@ const JSONL = [
 
 describe('parseCopilotJsonl', () => {
   test('takes the final assistant.message content and its output token count', () => {
-    expect(parseCopilotJsonl(JSONL)).toEqual({ output: 'hi', tokens: 4 })
+    expect(parseCopilotJsonl(JSONL)).toEqual({
+      output: 'hi',
+      tokens: 4,
+      outputTokens: 4,
+      resolvedModel: 'claude-sonnet-5',
+    })
   })
 
   test('falls back to raw text when no assistant.message line exists', () => {
@@ -20,7 +25,31 @@ describe('parseCopilotJsonl', () => {
   })
 
   test('ignores unparseable lines instead of throwing', () => {
-    expect(parseCopilotJsonl('garbage\n' + JSONL)).toEqual({ output: 'hi', tokens: 4 })
+    expect(parseCopilotJsonl('garbage\n' + JSONL)).toEqual({
+      output: 'hi',
+      tokens: 4,
+      outputTokens: 4,
+      resolvedModel: 'claude-sonnet-5',
+    })
+  })
+
+  test('captures the resolved model from session.tools_updated even when AgentRequest.model was omitted/"auto"', () => {
+    const jsonl = [
+      JSON.stringify({ type: 'session.tools_updated', data: { model: 'gpt-5.4' } }),
+      JSON.stringify({ type: 'assistant.message', data: { content: 'ok', outputTokens: 2 } }),
+    ].join('\n')
+    expect(parseCopilotJsonl(jsonl).resolvedModel).toBe('gpt-5.4')
+  })
+
+  test('leaves inputTokens undefined - copilot JSON never reports an input-token count anywhere (verified empirically)', () => {
+    const parsed = parseCopilotJsonl(JSONL)
+    expect(parsed.inputTokens).toBeUndefined()
+    expect(parsed.outputTokens).toBe(4)
+  })
+
+  test('leaves resolvedModel undefined when no session.tools_updated event is present', () => {
+    const jsonl = JSON.stringify({ type: 'assistant.message', data: { content: 'ok', outputTokens: 1 } })
+    expect(parseCopilotJsonl(jsonl).resolvedModel).toBeUndefined()
   })
 })
 
@@ -117,5 +146,23 @@ describe('createCopilotAdapter', () => {
     const res = await createCopilotAdapter({ exec }).invoke({ prompt: 'p' }, (c) => chunks.push(c))
     expect(chunks).toEqual(['h', 'i'])
     expect(res.output).toBe('hi')
+  })
+
+  test('estimates a cost from the resolved model + output tokens when the model is priced, without touching costUsd', async () => {
+    const exec: ExecFn = async () => ({ stdout: JSONL, stderr: '', exitCode: 0 })
+    const loadPricingTable = () => ({
+      'claude-sonnet-5': { input_cost_per_token: 2e-6, output_cost_per_token: 1e-5 },
+    })
+    const res = await createCopilotAdapter({ exec, loadPricingTable }).invoke({ prompt: 'say hi' })
+    // JSONL fixture: resolvedModel 'claude-sonnet-5' from session.tools_updated, outputTokens 4, no inputTokens.
+    expect(res.costUsd).toBe(0)
+    expect(res.estimatedCostUsd).toBeCloseTo(4 * 1e-5)
+  })
+
+  test('leaves estimatedCostUsd undefined (never 0) when the resolved model is absent from the pricing table', async () => {
+    const exec: ExecFn = async () => ({ stdout: JSONL, stderr: '', exitCode: 0 })
+    const res = await createCopilotAdapter({ exec, loadPricingTable: () => ({}) }).invoke({ prompt: 'say hi' })
+    expect(res.costUsd).toBe(0)
+    expect(res.estimatedCostUsd).toBeUndefined()
   })
 })

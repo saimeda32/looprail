@@ -4,6 +4,7 @@ export interface MockStep {
   match?: RegExp
   output: string
   costUsd?: number
+  estimatedCostUsd?: number
   tokens?: number
   // optional scripted streaming chunks, delivered to onChunk (if given)
   // before resolving - see design decision 1: streaming is opt-in per
@@ -33,6 +34,7 @@ export class MockAdapter implements Adapter {
     return {
       output: step.output,
       costUsd: step.costUsd ?? 0,
+      estimatedCostUsd: step.estimatedCostUsd,
       tokens: step.tokens ?? 0,
       durationMs: 1,
     }

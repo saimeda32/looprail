@@ -46,6 +46,44 @@ describe('CliAdapter', () => {
     expect(await a.invoke({ prompt: 'p' })).toMatchObject({ output: 'hi', costUsd: 0.5, tokens: 42 })
   })
 
+  test('estimatedCostUsd and split input/output tokens are distinct from real costUsd/tokens', async () => {
+    const { exec } = fakeExec({ stdout: '{}' })
+    const a = new CliAdapter({
+      name: 'x', command: 'mytool {prompt}', exec,
+      parser: () => ({
+        output: 'hi',
+        estimatedCostUsd: 0.0123,
+        inputTokens: 100,
+        outputTokens: 50,
+        tokens: 150,
+      }),
+    })
+    const res = await a.invoke({ prompt: 'p' })
+    // costUsd stays a real, adapter-reported figure - 0 when no real cost was
+    // ever reported by the parser - and must never be inferred from the
+    // estimate. estimatedCostUsd is a wholly separate field.
+    expect(res.costUsd).toBe(0)
+    expect(res.estimatedCostUsd).toBe(0.0123)
+    expect(res.inputTokens).toBe(100)
+    expect(res.outputTokens).toBe(50)
+    expect(res.tokens).toBe(150)
+  })
+
+  test('estimatedCostUsd/inputTokens/outputTokens are left undefined, not coerced to 0, when a parser omits them', async () => {
+    const { exec } = fakeExec({ stdout: '{"answer":"hi","usd":0.5}' })
+    const a = new CliAdapter({
+      name: 'x', command: 'mytool {prompt}', exec,
+      parser: (stdout) => {
+        const j = JSON.parse(stdout) as { answer: string; usd: number }
+        return { output: j.answer, costUsd: j.usd, tokens: 42 }
+      },
+    })
+    const res = await a.invoke({ prompt: 'p' })
+    expect(res.estimatedCostUsd).toBeUndefined()
+    expect(res.inputTokens).toBeUndefined()
+    expect(res.outputTokens).toBeUndefined()
+  })
+
   test('non-zero exit throws with stderr tail', async () => {
     const { exec } = fakeExec({ exitCode: 1, stderr: 'rate limit exceeded' })
     const a = new CliAdapter({ name: 'x', command: 'mytool {prompt}', exec })

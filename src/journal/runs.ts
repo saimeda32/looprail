@@ -41,13 +41,18 @@ export interface RunSummary {
   reason?: string
   iterations: number
   costUsd: number
+  // Pricing-derived estimate (RailsGuard.estimatedSpentUsd via the
+  // node_end/iteration_end/halt/verified journal events), separate from
+  // costUsd - see core/rails.ts and core/types.ts NodeOutcome for why the
+  // two must never be merged.
+  estimatedCostUsd: number
   verdicts: { iteration: number; nodeId: string; status: string; evidence: string }[]
 }
 
 export function summarizeJournal(events: JournalEvent[]): RunSummary {
   const s: RunSummary = {
     runId: 'unknown', name: '', status: 'running',
-    iterations: 0, costUsd: 0, verdicts: [],
+    iterations: 0, costUsd: 0, estimatedCostUsd: 0, verdicts: [],
   }
   for (const e of events) {
     const d = e.data as Record<string, unknown>
@@ -58,6 +63,7 @@ export function summarizeJournal(events: JournalEvent[]): RunSummary {
     if (e.type === 'iteration_end') {
       s.iterations = Number(d.iteration)
       s.costUsd = Number(d.costUsd)
+      s.estimatedCostUsd = Number(d.estimatedCostUsd ?? s.estimatedCostUsd)
     }
     if (e.type === 'node_end' && d.verdict) {
       const v = d.verdict as { status: string; evidence: string }
@@ -72,6 +78,7 @@ export function summarizeJournal(events: JournalEvent[]): RunSummary {
       s.status = e.type === 'verified' ? 'verified' : 'halted'
       s.reason = String(d.reason)
       s.costUsd = Number(d.costUsd)
+      s.estimatedCostUsd = Number(d.estimatedCostUsd ?? s.estimatedCostUsd)
     }
   }
   return s

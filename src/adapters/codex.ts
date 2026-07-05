@@ -1,6 +1,8 @@
 import type { Adapter, AgentRequest } from '../core/types.js'
+import type { PricingTable } from '../core/pricing.js'
 import { CliAdapter, type ExecFn, type ParsedResponse } from './cli-adapter.js'
 import { resolvePermissionArgs } from './permissions.js'
+import { createPricingEstimator } from './pricing-estimator.js'
 
 interface CodexEvent {
   type?: string
@@ -10,7 +12,8 @@ interface CodexEvent {
 
 export function parseCodexJsonl(stdout: string): ParsedResponse {
   let output = ''
-  let tokens = 0
+  let inputTokens: number | undefined
+  let outputTokens: number | undefined
   for (const line of stdout.split('\n')) {
     if (!line.trim()) continue
     let e: CodexEvent
@@ -23,11 +26,17 @@ export function parseCodexJsonl(stdout: string): ParsedResponse {
       output = e.item.text
     }
     if (e.type === 'turn.completed' && e.usage) {
-      tokens = (e.usage.input_tokens ?? 0) + (e.usage.output_tokens ?? 0)
+      // Preserve the input/output split (not just the combined total) - mixed-rate
+      // cost estimation needs each side priced separately.
+      inputTokens = e.usage.input_tokens ?? 0
+      outputTokens = e.usage.output_tokens ?? 0
     }
   }
   // codex does not report USD cost in its envelope - costUsd stays 0 (default)
-  return output ? { output, tokens } : { output: stdout.trim() }
+  if (!output) return { output: stdout.trim() }
+  if (inputTokens === undefined && outputTokens === undefined) return { output }
+  const tokens = (inputTokens ?? 0) + (outputTokens ?? 0)
+  return { output, tokens, inputTokens, outputTokens }
 }
 
 // `codex exec --json` emits one line per completed item as the turn
@@ -48,7 +57,7 @@ export function codexStreamLine(line: string): string | null {
 }
 
 export function createCodexAdapter(
-  opts: { exec?: ExecFn; cwd?: string } = {},
+  opts: { exec?: ExecFn; cwd?: string; loadPricingTable?: () => Promise<PricingTable> | PricingTable } = {},
 ): Adapter {
   return new CliAdapter({
     name: 'codex',
@@ -59,6 +68,11 @@ export function createCodexAdapter(
     ],
     parser: parseCodexJsonl,
     streamHandler: codexStreamLine,
+    // codex never reports a real dollar cost (see parseCodexJsonl); derive
+    // an estimate from the split tokens via the runtime pricing module,
+    // without ever touching costUsd. codex has no resolved-model event of
+    // its own, so an estimate here relies on AgentRequest.model being set.
+    estimator: createPricingEstimator({ loadTable: opts.loadPricingTable }),
     exec: opts.exec,
     cwd: opts.cwd,
   })

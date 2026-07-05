@@ -124,7 +124,7 @@ export async function executeNode(
     prompt = composeContext(def, node, state, outcomes)
     key = deps.hash?.(node.id, prompt)
     if (key && deps.cache?.has(key)) {
-      return { ...deps.cache.get(key)!, costUsd: 0, contextHash: key }
+      return { ...deps.cache.get(key)!, costUsd: 0, estimatedCostUsd: undefined, contextHash: key }
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -143,6 +143,7 @@ export async function executeNode(
     let verdict = VERIFYING.has(node.role) ? parseVerdict(node.id, res.output) : null
     let cost = res.costUsd
     let tokens = res.tokens
+    let estimatedCost = res.estimatedCostUsd
 
     if (VERIFYING.has(node.role) && !verdict) {
       const retry = await invokeWithRetry(adapter, {
@@ -152,6 +153,13 @@ export async function executeNode(
       }, deps, onChunk)
       cost += retry.costUsd
       tokens += retry.tokens
+      // estimatedCostUsd is optional (undefined means "no estimate
+      // computable", never 0 - see AgentResult) - undefined stays undefined
+      // only when NEITHER call produced one; either producing one sums in
+      // the other as 0 rather than losing it.
+      estimatedCost = (estimatedCost === undefined && retry.estimatedCostUsd === undefined)
+        ? undefined
+        : (estimatedCost ?? 0) + (retry.estimatedCostUsd ?? 0)
       verdict = parseVerdict(node.id, retry.output)
         ?? { node: node.id, status: 'fail', evidence: 'verdict unparseable' }
       res = retry
@@ -174,7 +182,10 @@ export async function executeNode(
       }
     }
 
-    return { ...base, output: res.output, verdict, costUsd: cost, tokens, durationMs: res.durationMs, contextHash: key }
+    return {
+      ...base, output: res.output, verdict, costUsd: cost, tokens, estimatedCostUsd: estimatedCost,
+      durationMs: res.durationMs, contextHash: key,
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     return {

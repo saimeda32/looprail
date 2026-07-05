@@ -49,6 +49,47 @@ test('a started-but-not-yet-ended node is running', () => {
   expect(m.nodes.find((n) => n.id === 'do')!.status).toBe('running')
 })
 
+test('estimatedCostUsd accumulates per node and in totals, kept separate from costUsd', () => {
+  const events: JournalEvent[] = [
+    ev('run_start', { runId: 'run-1', name: 'demo', goal: 'ship it' }),
+    ev('node_end', {
+      nodeId: 'do', role: 'executor', iteration: 1, costUsd: 0, estimatedCostUsd: 0.4, verdict: null, output: 'did it',
+    }),
+    ev('node_end', {
+      nodeId: 'do', role: 'executor', iteration: 2, costUsd: 0, estimatedCostUsd: 0.3, verdict: null, output: 'did more',
+    }),
+  ]
+  const m = buildViewModel(events)
+  const doNode = m.nodes.find((n) => n.id === 'do')!
+  expect(doNode.costUsd).toBe(0)
+  expect(doNode.estimatedCostUsd).toBeCloseTo(0.7)
+  expect(doNode.iterations[0].estimatedCostUsd).toBeCloseTo(0.4)
+  expect(m.totals.costUsd).toBe(0)
+  expect(m.totals.estimatedCostUsd).toBeCloseTo(0.7)
+})
+
+test('a node_end with no estimatedCostUsd leaves the per-iteration estimate undefined, not 0', () => {
+  const events: JournalEvent[] = [
+    ev('run_start', { runId: 'run-1', name: 'demo', goal: 'ship it' }),
+    ev('node_end', { nodeId: 'do', role: 'executor', iteration: 1, costUsd: 0.2, verdict: null, output: 'did it' }),
+  ]
+  const m = buildViewModel(events)
+  const doNode = m.nodes.find((n) => n.id === 'do')!
+  expect(doNode.iterations[0].estimatedCostUsd).toBeUndefined()
+  expect(doNode.estimatedCostUsd).toBe(0)
+})
+
+test('halt/verified reconciles totals.estimatedCostUsd against the guard-authoritative figure, never regressing', () => {
+  const events: JournalEvent[] = [
+    ev('run_start', { runId: 'run-1', name: 'demo', goal: 'ship it' }),
+    ev('node_end', { nodeId: 'do', role: 'executor', iteration: 1, costUsd: 0, estimatedCostUsd: 0.4, verdict: null, output: 'x' }),
+    ev('halt', { reason: 'rail breached (cost)', costUsd: 0, estimatedCostUsd: 1.2 }),
+  ]
+  const m = buildViewModel(events)
+  expect(m.totals.estimatedCostUsd).toBeCloseTo(1.2)
+  expect(m.totals.costUsd).toBe(0)
+})
+
 test('node_skipped marks a node skipped and does not count as cost', () => {
   const m = buildViewModel([
     ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
