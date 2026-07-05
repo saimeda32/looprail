@@ -110,12 +110,22 @@ export function buildPage(): string {
 
   .run-body { display: grid; grid-template-columns: 1fr 360px; }
   @media (max-width: 800px) { .run-body { grid-template-columns: 1fr; } }
-  #canvas-wrap { position: relative; overflow: auto; border-right: 1px solid var(--line); padding: 16px; max-height: 480px; }
+  #dag-panel { position: relative; min-width: 0; }
+  #canvas-wrap { overflow: auto; border-right: 1px solid var(--line); padding: 16px; max-height: 480px; }
   @media (max-width: 800px) { #canvas-wrap { border-right: none; border-bottom: 1px solid var(--line); } }
   #dag { display: block; }
+  /* A sibling OVERLAY of #canvas-wrap, not a scrolled child of it - a
+     child positioned inside a scrolling box still moves with that box's
+     own scroll offset even with position:sticky/float (a real bug caught
+     live: the previous float:right positioned this relative to the DAG's
+     full, often much wider than visible, scrollable content width, so it
+     visibly drifted as the graph was panned/zoomed instead of staying put
+     in the viewport's actual corner). #dag-panel (the non-scrolling
+     parent) is the positioning root instead, so this never moves
+     regardless of #canvas-wrap's own scroll position. */
   #dag-toolbar {
-    position: sticky; top: 0; left: 0; float: right; z-index: 2; display: flex; align-items: center; gap: 4px;
-    background: var(--panel-raised); border: 1px solid var(--line); border-radius: 3px; padding: 3px; margin-bottom: -32px;
+    position: absolute; top: 8px; right: 8px; z-index: 2; display: flex; align-items: center; gap: 4px;
+    background: var(--panel-raised); border: 1px solid var(--line); border-radius: 3px; padding: 3px;
   }
   #dag-toolbar button {
     font: 12px var(--mono); width: 22px; height: 22px; line-height: 1; border-radius: 2px; border: 1px solid transparent;
@@ -319,13 +329,14 @@ export function buildPage(): string {
       </div>
     </div>
     <div class="run-body">
-      <div id="canvas-wrap">
+      <div id="dag-panel">
         <div id="dag-toolbar">
           <button id="dag-zoom-out" type="button" title="Zoom out">&minus;</button>
           <span id="dag-zoom-readout">100%</span>
           <button id="dag-zoom-in" type="button" title="Zoom in">&plus;</button>
           <button id="dag-zoom-fit" type="button" title="Fit graph to view">Fit</button>
         </div>
+        <div id="canvas-wrap">
         <svg id="dag" width="100%" height="100%">
           <defs>
             <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
@@ -339,6 +350,7 @@ export function buildPage(): string {
           <g id="edges"></g>
           <g id="nodes"></g>
         </svg>
+        </div>
       </div>
       <div class="live-pane">
         <section id="live-output-section" style="display:none">
@@ -463,27 +475,26 @@ export function buildPage(): string {
     return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
   }
 
-  function renderMeter(fillId, labelId, value, max, unit, estimated) {
+  // value is always a single already-combined figure (see the cost-fill
+  // call site, which folds estimatedCostUsd in before calling this) - no
+  // separate "incl ~$X est" suffix, matching the same one-number treatment
+  // the agent-table Total row and mission control's aggregate use.
+  function renderMeter(fillId, labelId, value, max, unit) {
     var fill = document.getElementById(fillId);
     var label = document.getElementById(labelId);
-    // "estimated" (pricing-derived, never a real reported cost - see
-    // core/rails.ts) is folded into the gauge's value/percentage since
-    // that's what rails.max_cost_usd actually breaches on, but always
-    // labeled separately so it never reads as real spend.
-    var estSuffix = unit === '$' && estimated ? (' incl ~$' + estimated.toFixed(2) + ' est') : '';
     var fmt = unit === '$' ? function (v) { return '$' + v.toFixed(2); }
       : unit === 'm' ? function (v) { return v.toFixed(0) + 'm'; }
       : function (v) { return String(v); };
     if (max === undefined || max === null) {
       fill.style.width = '100%';
       fill.className = '';
-      label.innerHTML = fmt(value) + estSuffix + '<span class="of"> no ' + (unit === '$' ? 'budget' : 'max') + ' set</span>';
+      label.innerHTML = fmt(value) + '<span class="of"> no ' + (unit === '$' ? 'budget' : 'max') + ' set</span>';
       return;
     }
     var pct = max > 0 ? Math.min(100, (value / max) * 100) : 100;
     fill.style.width = pct + '%';
     fill.className = value > max ? 'over' : '';
-    label.innerHTML = fmt(value) + estSuffix + '<span class="of"> / ' + fmt(max) + '</span>';
+    label.innerHTML = fmt(value) + '<span class="of"> / ' + fmt(max) + '</span>';
   }
 
   // startedTs/lastEventTs come from buildViewModel's own journal-event
@@ -815,10 +826,14 @@ export function buildPage(): string {
     var back = document.getElementById('back-link');
     back.style.display = location.pathname.indexOf('/run/') === 0 ? 'inline' : 'none';
 
+    // Deliberately one combined figure, no "incl ~$X est" suffix - same
+    // reasoning as the agent-table Total row and mission control's
+    // aggregate: this is the top-line "how much has this run spent"
+    // number, not a place to distinguish real from estimated.
     renderMeter(
       'cost-fill', 'cost-label',
       model.totals.costUsd + (model.totals.estimatedCostUsd || 0),
-      model.totals.maxCostUsd, '$', model.totals.estimatedCostUsd,
+      model.totals.maxCostUsd, '$',
     );
     renderMeter('iter-fill', 'iter-label', model.totals.iteration, model.totals.maxIterations, '');
     document.getElementById('tokens-label').textContent = formatTokens(model.totals.tokens);

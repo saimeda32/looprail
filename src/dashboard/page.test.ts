@@ -244,6 +244,31 @@ test('the DAG panel has zoom-in/zoom-out/fit controls wired to setDagZoom/fitDag
   expect(html).toContain("document.getElementById('dag-zoom-fit').addEventListener('click', fitDagZoom);")
 })
 
+// Real bug: #dag-toolbar was a child of the SCROLLING #canvas-wrap using
+// position:sticky+float, which drifted visibly as the graph was panned or
+// zoomed - a child inside a scrolling box still moves with that box's own
+// scroll offset regardless of sticky/float. It must instead be a sibling
+// overlay of #canvas-wrap, absolutely positioned against the non-scrolling
+// #dag-panel wrapper, so it never moves no matter how #canvas-wrap scrolls.
+test('the DAG toolbar is a non-scrolling overlay, not a child of the scrollable canvas-wrap', () => {
+  const html = buildPage()
+  const panelMatch = html.match(/<div id="dag-panel">([\s\S]*?)<div class="live-pane">/)
+  expect(panelMatch).not.toBeNull()
+  const panelBody = panelMatch![1]!
+  // dag-toolbar must appear BEFORE canvas-wrap opens, as a sibling, not nested inside it
+  const toolbarIdx = panelBody.indexOf('id="dag-toolbar"')
+  const canvasWrapIdx = panelBody.indexOf('id="canvas-wrap"')
+  expect(toolbarIdx).toBeGreaterThan(-1)
+  expect(canvasWrapIdx).toBeGreaterThan(-1)
+  expect(toolbarIdx).toBeLessThan(canvasWrapIdx)
+
+  const panelRule = html.match(/#dag-panel\s*\{([^}]*)\}/)
+  const toolbarRule = html.match(/#dag-toolbar\s*\{([^}]*)\}/)
+  expect(panelRule![1]).toMatch(/position:\s*relative/)
+  expect(toolbarRule![1]).toMatch(/position:\s*absolute/)
+  expect(toolbarRule![1]).not.toMatch(/float|sticky/)
+})
+
 // Ctrl/Cmd+wheel zooms (the conventional browser gesture); a plain wheel
 // must be left alone so ordinary two-axis scrolling over the graph still
 // works like any other scrollable panel.
@@ -540,7 +565,7 @@ test('the gauges row includes a Wall time gauge with its own meter', () => {
 function loadRenderWallGauge(): (totals: unknown, status: string) => void {
   const html = buildPage()
   const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
-  const renderMeterSrc = script.match(/function renderMeter\(fillId, labelId, value, max, unit, estimated\) \{[\s\S]*?\n  \}\n/)![0]
+  const renderMeterSrc = script.match(/function renderMeter\(fillId, labelId, value, max, unit\) \{[\s\S]*?\n  \}\n/)![0]
   const wallGaugeSrc = script.match(/var wallGaugeTotals = null;[\s\S]*?\n  \}\n/)![0]
   const factory = new Function('document', `
     ${renderMeterSrc}
