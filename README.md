@@ -60,17 +60,10 @@ looprail run --ui        # same, but opens a live dashboard alongside it
 ```
 
 `looprail run --ui` opens this - the DAG updates live as each node runs,
-streaming the agent's own output as it's produced:
+streaming the agent's own output as it's produced. A `gate` pauses for your
+approval right in the browser before anything downstream of it runs:
 
-```
-  iteration 2/8   $0.34 / $10.00   12.4k tok   0 replans
-
-  ┌───────────────┐     ┌───────────────┐     ┌───────────────┐
-  │ fix           │────▶│ test          │────▶│ review        │
-  │ ● executor    │     │ ● tester      │     │ ◐ critic      │
-  │   passed      │     │   exit 0      │     │   running...  │
-  └───────────────┘     └───────────────┘     └───────────────┘
-```
+![looprail dashboard: a gate awaiting approval, then executing, then verified](docs/assets/demo.gif)
 
 `init` picks a template for you (`fix-tests`, `research-report`, `refactor`,
 `content-pipeline`, `review-diff`, or `build-app`) and fills in whichever
