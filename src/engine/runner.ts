@@ -14,7 +14,10 @@ import { drainHumanFeedback } from '../journal/human-feedback.js'
 import type { AdapterRegistry } from '../adapters/registry.js'
 import { runIteration } from './scheduler.js'
 import type { EngineDeps } from './nodes.js'
-import { parseGraphFragment } from '../config/loopfile.js'
+import {
+  applyGraphEdits, parseGraphEditsFragment, parseGraphFragment, serializeGraphFragment,
+  type GraphFragment,
+} from '../config/loopfile.js'
 import { spliceFragment } from './splice.js'
 import { persistRunLoopDef } from '../journal/loopfile-persist.js'
 
@@ -190,6 +193,16 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   let outcomes: NodeOutcome[] = []
   let replans = 0
   const fingerprints: string[] = []
+  // The last full graph fragment a generates:'graph' planner produced that
+  // parsed AND passed structural validation - the base a later compact
+  // `edits:` reply is applied against (see src/config/loopfile.ts's design
+  // note on applyGraphEdits/parseGraphEditsFragment). Declared here, not
+  // inside runPlanning, so it survives across separate runPlanning() calls
+  // (a plan-approval rejection or an outer replan each call runPlanning()
+  // again) - exactly the case where a planner is asked to fix one flagged
+  // gap in its OWN prior graph and should be able to send a small edit
+  // instead of re-emitting the whole thing.
+  let lastGoodGraphFragment: GraphFragment | null = null
 
   // Looks the gate up against expanded.nodes (its original, pre-splitRegions
   // definition) rather than the current execution list: splitRegions strips
@@ -320,7 +333,28 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
         const plannerNode = planner && expanded.nodes.find((n) => n.id === planner.nodeId)
         if (plannerNode?.generates === 'graph') {
           try {
-            const fragment = parseGraphFragment(state.plan ?? '')
+            // A reply may be either a full `graph:` document or a compact
+            // `edits:` block applied server-side to the last full fragment
+            // this same planner already produced (see loopfile.ts's design
+            // note above parseGraphEditsFragment/applyGraphEdits - the fix
+            // for this task's actual motivating cost: a targeted content
+            // fix no longer has to re-emit the whole ~20KB graph). An
+            // absent `edits:` key means "not an edits reply at all" (falls
+            // through to the existing full-graph parse, unchanged), and any
+            // OTHER edits problem (malformed shape, unknown nodeId, an
+            // invented non-NodeDef field, no prior fragment to apply
+            // against yet) throws here exactly like a broken full-graph
+            // reply would, landing in the same catch below.
+            const editsFragment = parseGraphEditsFragment(state.plan ?? '')
+            let fragment: GraphFragment
+            if (editsFragment) {
+              if (!lastGoodGraphFragment) {
+                throw new Error('invalid edits: an "edits:" reply requires a previously-produced full graph to apply to, but none exists yet')
+              }
+              fragment = applyGraphEdits(lastGoodGraphFragment, editsFragment)
+            } else {
+              fragment = parseGraphFragment(state.plan ?? '')
+            }
             // Parsing succeeding only proves `graph:` is a YAML map - it says
             // nothing about whether each node inside actually matches the
             // real NodeDef schema (role/agent/prompt/run/expect/after). A
@@ -347,6 +381,13 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
               rails: { maxIterations: 1, maxCostUsd: 1 }, verdictPolicy: { kind: 'all-pass' },
             })
             if (structuralErrors.length > 0) throw new Error(structuralErrors.join('; '))
+            lastGoodGraphFragment = fragment
+            // Re-serialize back into `state.plan` regardless of which reply
+            // shape produced `fragment`, so it always holds a full,
+            // re-parseable graph document - composeContext's "# Current
+            // plan" display, a later applySplice, and the NEXT edits
+            // reply's own base all depend on that invariant.
+            state.plan = serializeGraphFragment(fragment)
           } catch (err) {
             formatError = err instanceof Error ? err.message : String(err)
             state.feedback = `OUTPUT FORMAT ERROR (automatic - not from a human or critic): ${formatError}\nYour entire reply must be ONLY a parseable YAML document with a top-level graph: key - no prose, no markdown headers, no explanation before or after it. Every node must use the real fields (role, agent, prompt, run, expect, after, etc.) - not invented ones. Fix this before anything else can be reviewed.`
