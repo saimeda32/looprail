@@ -335,6 +335,44 @@ test('a halt with any other reason still reports status halted', () => {
   expect(m.status).toBe('halted')
 })
 
+test('a resumed run appends a second run_start, which resets status back to running and clears reason/report', () => {
+  // resume-cmd.ts appends a fresh run_start + new node_start/node_progress
+  // events to the SAME journal after a halt. Since the run hasn't
+  // verified/halted again yet, the model must report "running", not the
+  // stale status/reason from the original halt.
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('node_start', { nodeId: 'do', role: 'executor', iteration: 1 }),
+    ev('node_end', { nodeId: 'do', role: 'executor', iteration: 1, costUsd: 0.1, verdict: null, output: 'done' }),
+    ev('halt', { reason: 'rail breached (cost): over budget', costUsd: 1.5 }),
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('node_start', { nodeId: 'check', role: 'critic', iteration: 2 }),
+    ev('node_progress', { nodeId: 'check', role: 'critic', iteration: 2, chunk: 'still working' }),
+  ])
+  expect(m.status).toBe('running')
+  expect(m.reason).toBeUndefined()
+  expect(m.report).toBeUndefined()
+})
+
+test('a run with a single run_start and one terminal verified/halt is unaffected by the resume reset', () => {
+  // Regression guard: the run_start reset must not change behavior for a
+  // normal, never-resumed run.
+  const verified = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('iteration_end', { iteration: 1, costUsd: 0.3 }),
+    ev('verified', { reason: 'all verifiers passed', costUsd: 0.5 }),
+  ])
+  expect(verified.status).toBe('verified')
+  expect(verified.reason).toBe('all verifiers passed')
+
+  const halted = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('halt', { reason: 'rail breached (cost): over budget', costUsd: 1.5 }),
+  ])
+  expect(halted.status).toBe('halted')
+  expect(halted.reason).toBe('rail breached (cost): over budget')
+})
+
 test('verified also reclassifies any still-running node as interrupted (defensive, same guard as halt)', () => {
   const m = buildViewModel([
     ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),

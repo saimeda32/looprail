@@ -135,6 +135,15 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
         runId = String(d.runId)
         name = String(d.name)
         goal = String(d.goal)
+        // A resumed run (looprail resume) appends a fresh run_start to the
+        // SAME journal after an earlier halt/verified event. Reset status
+        // (and the reason/report that came with it) back to the same
+        // defaults a run's very first run_start starts from, so the model
+        // reflects "running again" instead of the stale terminal state
+        // until whatever verified/halt event eventually concludes it.
+        status = 'running'
+        reason = undefined
+        report = undefined
         break
       case 'node_start': {
         const n = ensureNode(nodes, String(d.nodeId), d.role as Role)
