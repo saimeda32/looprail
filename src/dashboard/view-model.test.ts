@@ -166,6 +166,17 @@ test('a loaded LoopDef with rails.max_wall_minutes exposes it on totals.maxWallM
   expect(m.totals.maxWallMinutes).toBe(30)
 })
 
+test('a loaded LoopDef with rails.replan_limit exposes it on totals.replanLimit', () => {
+  const def: LoopDef = {
+    name: 'demo', goal: 'g', agents: {},
+    nodes: [{ id: 'plan', role: 'planner' }],
+    rails: { replanLimit: 3 },
+    verdictPolicy: { kind: 'all-pass' },
+  }
+  const m = buildViewModel([ev('run_start', { runId: 'r', name: 'n', goal: 'g' })], def)
+  expect(m.totals.replanLimit).toBe(3)
+})
+
 test('a node observed in the journal but absent from a stale def is still listed, edge-less', () => {
   const def: LoopDef = {
     name: 'demo', goal: 'g', agents: {},

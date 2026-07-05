@@ -523,6 +523,12 @@ test('POST /resume validates maxIterations/maxCostUsd before calling onResume', 
   expect(badCost.status).toBe(400)
   const badWallMinutes = await post(dashboard.url + '/resume', { maxWallMinutes: -1 })
   expect(badWallMinutes.status).toBe(400)
+  const badReplanLimit = await post(dashboard.url + '/resume', { replanLimit: -1 })
+  expect(badReplanLimit.status).toBe(400)
+  const badGoalType = await post(dashboard.url + '/resume', { goal: 123 })
+  expect(badGoalType.status).toBe(400)
+  const badGoalEmpty = await post(dashboard.url + '/resume', { goal: '   ' })
+  expect(badGoalEmpty.status).toBe(400)
   expect(onResume).not.toHaveBeenCalled()
 })
 
@@ -533,12 +539,12 @@ test('POST /resume on a halted run calls onResume with the parsed overrides and 
   ])
   let resolveResume: () => void = () => {}
   const resumeStarted = new Promise<void>((resolve) => { resolveResume = resolve })
-  const onResume = vi.fn(async (overrides: { maxIterations?: number; maxCostUsd?: number; maxWallMinutes?: number }) => {
+  const onResume = vi.fn(async (overrides: { maxIterations?: number; maxCostUsd?: number; maxWallMinutes?: number; replanLimit?: number; goal?: string }) => {
     resolveResume()
-    expect(overrides).toEqual({ maxIterations: 5, maxCostUsd: 2, maxWallMinutes: 30 })
+    expect(overrides).toEqual({ maxIterations: 5, maxCostUsd: 2, maxWallMinutes: 30, replanLimit: 4, goal: 'a clearer goal' })
   })
   dashboard = await startDashboardServer({ journalPath, onResume })
-  const res = await post(dashboard.url + '/resume', { maxIterations: 5, maxCostUsd: 2, maxWallMinutes: 30 })
+  const res = await post(dashboard.url + '/resume', { maxIterations: 5, maxCostUsd: 2, maxWallMinutes: 30, replanLimit: 4, goal: 'a clearer goal' })
   expect(res.status).toBe(200)
   await resumeStarted
   expect(onResume).toHaveBeenCalledTimes(1)
@@ -582,6 +588,17 @@ test('GET /model reports totals.maxWallMinutes from the loopfile', async () => {
   dashboard = await startDashboardServer({ journalPath, def, onResume: async () => {} })
   const payload = JSON.parse((await get(dashboard.url + '/model')).body)
   expect(payload.totals.maxWallMinutes).toBe(45)
+})
+
+test('GET /model reports totals.replanLimit from the loopfile', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const def = {
+    name: 'n', goal: 'g', agents: {}, nodes: [],
+    rails: { replanLimit: 6 }, verdictPolicy: { kind: 'all-pass' as const },
+  }
+  dashboard = await startDashboardServer({ journalPath, def, onResume: async () => {} })
+  const payload = JSON.parse((await get(dashboard.url + '/model')).body)
+  expect(payload.totals.replanLimit).toBe(6)
 })
 
 test('startDashboardServer binds to an explicit port when given one', async () => {

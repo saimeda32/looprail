@@ -55,6 +55,7 @@ export interface DashboardTotals {
   iteration: number
   maxIterations?: number
   maxWallMinutes?: number
+  replanLimit?: number
   // Timestamps (journal-event ts, not wall-clock at build time - this stays
   // a pure function of its inputs) marking the current wall-time window: a
   // resumed run's rails.ts RailsGuard is a fresh instance per process
@@ -286,6 +287,7 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
       maxCostUsd: def?.rails.maxCostUsd,
       maxIterations: def?.rails.maxIterations,
       maxWallMinutes: def?.rails.maxWallMinutes,
+      replanLimit: def?.rails.replanLimit,
     },
     plans,
   }
