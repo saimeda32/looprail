@@ -291,3 +291,75 @@ test('renderReport renders nothing for files-touched when filesTouched is empty 
   renderReport2({ summary: 's', source: 'agent', claims: [] })
   expect(renderReport2.store['files-touched-container'].children).toHaveLength(0)
 })
+
+// Reproduces a real observed bug: on a run whose journal has a lot of
+// history (e.g. 1500+ events from a long, self-planning run), /events
+// replays the ENTIRE history as one SSE frame per journal event (see
+// sse.ts's buildReplay/encodeSseFrame - one frame per event, by design, so
+// a client opening the dashboard after the run finished still gets full
+// history). Every one of those frames fires the client's `es.onmessage`,
+// and until this fix `es.onmessage` called `refresh()` with zero in-flight
+// guard - so a single page load against a large journal launched hundreds
+// of overlapping `fetch('model')` calls back-to-back, which is exactly what
+// produced the reported `net::ERR_INSUFFICIENT_RESOURCES` storm (browsers
+// cap pending same-origin requests). This executes the extracted, real
+// `refresh()` source (not a reimplementation) against a stubbed fetch and
+// proves it never has more than one `fetch('model')` in flight at a time,
+// no matter how many times onmessage-equivalent calls arrive back-to-back.
+function loadRefresh(): {
+  refresh: () => Promise<void>
+  getFetchCallCount: () => number
+  getPeakConcurrentFetches: () => number
+  resolveAllPendingFetches: () => Promise<void>
+} {
+  const html = buildPage()
+  const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
+  const refreshSrc = script.match(/var refreshInFlight[\s\S]*?function refresh\(\) \{[\s\S]*?\n  \}\n/)![0]
+
+  let fetchCallCount = 0
+  let inFlight = 0
+  let peakConcurrent = 0
+  const pendingResolvers: Array<() => void> = []
+  const fakeFetch = () => {
+    fetchCallCount++
+    inFlight++
+    peakConcurrent = Math.max(peakConcurrent, inFlight)
+    return new Promise((resolve) => {
+      pendingResolvers.push(() => {
+        inFlight--
+        resolve({ json: () => Promise.resolve({}) })
+      })
+    })
+  }
+  const fakeRender = () => {}
+
+  const factory = new Function('fetch', 'render', `
+    ${refreshSrc}
+    return refresh;
+  `)
+  const refresh = factory(fakeFetch, fakeRender) as () => Promise<void>
+
+  return {
+    refresh,
+    getFetchCallCount: () => fetchCallCount,
+    getPeakConcurrentFetches: () => peakConcurrent,
+    resolveAllPendingFetches: async () => {
+      while (pendingResolvers.length > 0) pendingResolvers.pop()!()
+      await Promise.resolve()
+      await Promise.resolve()
+    },
+  }
+}
+
+test('refresh() never has more than one fetch(\'model\') in flight, even when called back-to-back many times (SSE replay storm)', async () => {
+  const { refresh, getPeakConcurrentFetches, resolveAllPendingFetches } = loadRefresh()
+
+  // Simulate a large journal's replay: many SSE messages arriving and
+  // firing es.onmessage -> refresh() back-to-back before the first
+  // fetch('model') has resolved - exactly what a 1500+-event journal
+  // replay does on initial connect.
+  for (let i = 0; i < 50; i++) refresh()
+  await resolveAllPendingFetches()
+
+  expect(getPeakConcurrentFetches()).toBeLessThanOrEqual(1)
+})
