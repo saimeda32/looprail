@@ -14,9 +14,41 @@ export class RailsGuard {
   // can actually fire for an estimate-only loop, which was the whole point.
   private estimatedSpent = 0
   private readonly startedAt: number
+  // Wall-clock time spent blocked on a gate awaiting a human answer -
+  // never counted toward max_wall_minutes (see beginGateWait/endGateWait).
+  // A human deciding slowly isn't the loop "taking too long to do work";
+  // charging it against the same budget as real agent time would halt a
+  // run on a rail breach that has nothing to do with actual work.
+  private pausedMs = 0
+  private pauseStartedAt: number | null = null
 
   constructor(private rails: Rails, private now: () => number = Date.now) {
     this.startedAt = this.now()
+  }
+
+  // Call immediately before awaiting a gate's human answer, and
+  // endGateWait() immediately after it resolves (see engine/nodes.ts's
+  // gate-role branch) - brackets exactly the real wall-clock span spent
+  // waiting, however long that turns out to be.
+  beginGateWait(): void {
+    if (this.pauseStartedAt === null) this.pauseStartedAt = this.now()
+  }
+
+  endGateWait(): void {
+    if (this.pauseStartedAt === null) return
+    this.pausedMs += this.now() - this.pauseStartedAt
+    this.pauseStartedAt = null
+  }
+
+  // Total real elapsed time minus every completed (and any still-open)
+  // gate-wait span - the actual "how long has real work been happening"
+  // figure that both remainingWallMs and check()'s wall breach are based
+  // on. Still-open pause is included so a rail check that somehow runs
+  // WHILE paused (defensive only - a gate await blocks the scheduler, so
+  // this shouldn't happen in practice) never double-counts that open span.
+  private workingElapsedMs(): number {
+    const openPause = this.pauseStartedAt === null ? 0 : this.now() - this.pauseStartedAt
+    return (this.now() - this.startedAt) - this.pausedMs - openPause
   }
 
   // `estimatedUsd` defaults to 0 so every existing single-arg call site
@@ -43,7 +75,7 @@ export class RailsGuard {
   // while a node hangs). May be <= 0 once the budget is spent; callers clamp.
   remainingWallMs(): number | undefined {
     if (this.rails.maxWallMinutes === undefined) return undefined
-    return this.rails.maxWallMinutes * 60_000 - (this.now() - this.startedAt)
+    return this.rails.maxWallMinutes * 60_000 - this.workingElapsedMs()
   }
 
   // Never loosens a limit - only lowers it. Used when a self-planning
@@ -74,7 +106,7 @@ export class RailsGuard {
       return { rail: 'cost', detail }
     }
     if (this.rails.maxWallMinutes !== undefined) {
-      const minutes = (this.now() - this.startedAt) / 60_000
+      const minutes = this.workingElapsedMs() / 60_000
       if (minutes >= this.rails.maxWallMinutes) {
         return { rail: 'wall', detail: `${minutes.toFixed(1)}min elapsed of ${this.rails.maxWallMinutes}min limit` }
       }

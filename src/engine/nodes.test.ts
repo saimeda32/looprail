@@ -196,6 +196,32 @@ test('gate consults the handler; missing handler is an error verdict', async () 
   expect(missing.verdict!.status).toBe('error')
 })
 
+// A human deciding on a gate isn't real agent work - runner.ts wires these
+// callbacks to RailsGuard.beginGateWait/endGateWait so that wait time is
+// excluded from max_wall_minutes (see rails.test.ts). Proves the calls
+// bracket the actual await, in order, exactly once each, even when the
+// gate handler throws.
+test('onGateWaitStart/onGateWaitEnd bracket the gate handler call, including when it throws', async () => {
+  const registry = createRegistry()
+  const calls: string[] = []
+  await executeNode(def, { id: 'g', role: 'gate' }, state, none, {
+    registry,
+    gate: async () => { calls.push('gate'); return true },
+    onGateWaitStart: () => calls.push('start'),
+    onGateWaitEnd: () => calls.push('end'),
+  })
+  expect(calls).toEqual(['start', 'gate', 'end'])
+
+  calls.length = 0
+  await executeNode(def, { id: 'g', role: 'gate' }, state, none, {
+    registry,
+    gate: async () => { calls.push('gate'); throw new Error('boom') },
+    onGateWaitStart: () => calls.push('start'),
+    onGateWaitEnd: () => calls.push('end'),
+  })
+  expect(calls).toEqual(['start', 'gate', 'end'])
+})
+
 test('adapter throw becomes an error verdict', async () => {
   const registry = createRegistry()
   const mock = new MockAdapter([])

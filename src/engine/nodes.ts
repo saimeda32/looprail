@@ -18,6 +18,12 @@ export interface EngineDeps {
   // is set (see runner.ts). Absent when there is no wall rail - behavior is then
   // identical to using node.timeoutMs directly.
   effectiveTimeout?: (nodeTimeoutMs?: number) => number | undefined
+  // Brackets a gate's real wall-clock wait for a human answer (see
+  // runner.ts, wired to RailsGuard.beginGateWait/endGateWait) so that wait
+  // is excluded from max_wall_minutes - a human deciding slowly isn't the
+  // loop "taking too long to do work".
+  onGateWaitStart?: () => void
+  onGateWaitEnd?: () => void
 }
 
 const VERIFYING = new Set(['critic', 'judge'])
@@ -72,7 +78,13 @@ export async function executeNode(
         return { ...base, output: '', verdict: { node: node.id, status: 'error', evidence: 'config: no gate handler configured' } }
       }
       const context = composeContext(def, node, state, outcomes)
-      const answer = normalizeGateAnswer(await deps.gate(node, context))
+      deps.onGateWaitStart?.()
+      let answer
+      try {
+        answer = normalizeGateAnswer(await deps.gate(node, context))
+      } finally {
+        deps.onGateWaitEnd?.()
+      }
       return {
         ...base,
         output: answer.approved ? 'approved' : (answer.feedback ?? 'rejected'),

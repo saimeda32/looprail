@@ -84,3 +84,44 @@ test('mixed real+estimated spend breaches on the combined total and labels the e
   expect(breach).toMatchObject({ rail: 'cost' })
   expect(breach!.detail).toContain('incl ~$0.60 est')
 })
+
+// A human deciding slowly on a gate isn't the loop "taking too long to do
+// work" - charging that wait against max_wall_minutes would halt a run on
+// a rail breach that has nothing to do with actual agent work happening.
+test('time spent paused for a gate (beginGateWait/endGateWait) does not count toward max_wall_minutes', () => {
+  let t = 0
+  const g = new RailsGuard({ maxIterations: 9, maxCostUsd: 9, maxWallMinutes: 10 }, () => t)
+  t = 5 * 60_000 // 5 real minutes of work
+  expect(g.check(1)).toBeNull()
+  g.beginGateWait()
+  t = 60 * 60_000 // a human takes a full hour to decide
+  g.endGateWait()
+  t = 60 * 60_000 + 4 * 60_000 // 4 more real minutes of work: 9 real minutes total, still under 10
+  expect(g.check(1)).toBeNull()
+  t += 60_000 // 1 more real minute: 10 real minutes total, breaches
+  expect(g.check(1)).toMatchObject({ rail: 'wall' })
+})
+
+test('remainingWallMs excludes completed and still-open gate-wait time the same way check() does', () => {
+  let t = 0
+  const g = new RailsGuard({ maxIterations: 9, maxCostUsd: 9, maxWallMinutes: 10 }, () => t)
+  t = 3 * 60_000
+  expect(g.remainingWallMs()).toBeCloseTo(7 * 60_000)
+  g.beginGateWait()
+  t = 3 * 60_000 + 30 * 60_000 // 30 minutes into an open gate wait
+  // Still-open pause must not eat into the budget either - only completed
+  // pauses (endGateWait) and real elapsed time do.
+  expect(g.remainingWallMs()).toBeCloseTo(7 * 60_000)
+  g.endGateWait()
+  expect(g.remainingWallMs()).toBeCloseTo(7 * 60_000)
+})
+
+test('multiple separate gate waits each get excluded, not just the first', () => {
+  let t = 0
+  const g = new RailsGuard({ maxIterations: 9, maxCostUsd: 9, maxWallMinutes: 10 }, () => t)
+  g.beginGateWait(); t = 20 * 60_000; g.endGateWait() // gate 1: 20min wait, excluded
+  t = 22 * 60_000 // 2 real minutes since gate 1 ended
+  g.beginGateWait(); t = 52 * 60_000; g.endGateWait() // gate 2: 30min wait, excluded
+  t = 55 * 60_000 // 3 more real minutes: 5 real minutes total, well under 10
+  expect(g.check(1)).toBeNull()
+})

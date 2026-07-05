@@ -137,6 +137,8 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
       const budget = Math.max(1, remaining)
       return nodeTimeoutMs === undefined ? budget : Math.min(nodeTimeoutMs, budget)
     },
+    onGateWaitStart: () => guard.beginGateWait(),
+    onGateWaitEnd: () => guard.endGateWait(),
   }
   const onNode = (o: NodeOutcome) => {
     guard.addCost(o.costUsd, o.estimatedCostUsd)

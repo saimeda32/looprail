@@ -372,6 +372,43 @@ test('a node with no timeout_ms is clamped to the remaining wall budget, so a hu
   expect(report.reason).toMatch(/wall|iterations/)
 })
 
+test('time spent waiting for a gate does not count toward max_wall_minutes - a slow human approval cannot breach the wall rail', async () => {
+  // The clock jumps 10 REAL minutes forward while the gate handler is
+  // "awaiting a human" (simulated by mutating `t` before the handler
+  // resolves) - a tiny 1-minute wall budget would breach instantly if that
+  // wait counted, since everything else in this loop takes ~0 simulated
+  // time. If runner.ts's onGateWaitStart/onGateWaitEnd wiring regressed,
+  // this test's run would halt on a wall breach instead of verifying.
+  let t = 0
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    async invoke(req) {
+      return {
+        output: req.prompt.includes('CRITIC') ? 'VERDICT: pass\nEVIDENCE: ok' : 'DONE',
+        costUsd: 0, tokens: 0, durationMs: 1,
+      }
+    },
+  })
+  const def = loop({
+    nodes: [
+      { id: 'approve', role: 'gate' },
+      { id: 'do', role: 'executor', agent: 'a', after: ['approve'] },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'do', after: ['do'] },
+    ],
+    rails: { maxIterations: 3, maxCostUsd: 5, maxWallMinutes: 1 },
+  })
+  const report = await runLoop(def, {
+    registry,
+    now: () => t,
+    gate: async () => {
+      t = 10 * 60_000 // 10 real minutes pass while "waiting for the human"
+      return { approved: true }
+    },
+  })
+  expect(report.status).toBe('verified')
+})
+
 test('no wall rail means a node with no timeout_ms still gets no timeout (unchanged behavior)', async () => {
   let seenTimeout: number | undefined = -1
   const registry = createRegistry()
