@@ -1,3 +1,5 @@
+import type { PermissionConfig } from '../adapters/permissions.js'
+
 export type Role =
   | 'planner' | 'critic' | 'executor' | 'tester'
   | 'judge' | 'gate' | 'synthesizer'
@@ -22,6 +24,7 @@ export interface AgentRequest {
   timeoutMs?: number
   model?: string    // AgentDef.model, plumbed per request (model-tiered adapters)
   command?: string  // AgentDef.command, consumed by the shell adapter
+  permissions?: PermissionConfig  // AgentDef.permissions, plumbed per request (see adapters/permissions.ts)
 }
 
 export interface AgentResult {
@@ -36,7 +39,7 @@ export interface Adapter {
   invoke(req: AgentRequest, onChunk?: (text: string) => void): Promise<AgentResult>
 }
 
-export interface AgentDef { adapter: string; model?: string; command?: string }
+export interface AgentDef { adapter: string; model?: string; command?: string; permissions?: PermissionConfig }
 
 export interface NodeDef {
   id: string
