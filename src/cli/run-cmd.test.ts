@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { expect, test, vi } from 'vitest'
 import { agentCostBreakdown, makeGate, runAction } from './run-cmd.js'
-import { JournalWriter, parseLoopfile } from '../index.js'
+import { JournalWriter, MockAdapter, parseLoopfile } from '../index.js'
 import { runsRoot } from '../journal/runs.js'
 import { hasStoredApproval, storeApproval } from '../journal/gate-approvals.js'
 import { startDashboardServer } from '../dashboard/server.js'
@@ -455,4 +455,71 @@ test('a registry file the process cannot write to never fails the run', async ()
   const registryPath = join(blocker, 'workspaces.json')
   const code = await runAction(undefined, { cwd, json: true }, { io: capture().io, registryPath })
   expect(code).toBe(0)
+})
+
+test('a generates:graph planner node splices its approved fragment into the live run', async () => {
+  const SELF_PLANNING = `
+name: self-planning-fixture
+goal: Do the generated thing.
+agents:
+  planner: { adapter: mock }
+graph:
+  plan:    { role: planner, agent: planner, generates: graph }
+  approve: { role: gate, after: plan }
+rails:
+  max_iterations: 5
+  max_cost_usd: 1
+`
+  const { cwd, io } = setup(SELF_PLANNING)
+  const registry = createRegistry()
+  registry.register(new MockAdapter([
+    { match: /PLANNER/, output: 'graph:\n  build: { role: executor, agent: planner }\n  check: { role: critic, of: build, agent: planner }\n' },
+    { output: '[mock] build done' }, // the spliced "build" node's own invocation
+    { output: 'VERDICT: pass\nEVIDENCE: looks good' }, // the spliced "check" critic's own invocation
+  ]))
+  const code = await runAction(undefined, { cwd }, {
+    io, registry, gate: async () => ({ approved: true }),
+  })
+  expect(code).toBe(0)
+  // the spliced "build" node actually ran as part of this same run
+  const { latestRunId, runsRoot } = await import('./status-cmd.js')
+  const { readJournal } = await import('../journal/journal.js')
+  const runDir = join(runsRoot(cwd), latestRunId(cwd)!)
+  const events = readJournal(join(runDir, 'journal.jsonl'))
+  expect(events.some((e) => e.type === 'node_start' && (e.data as { nodeId: string }).nodeId === 'build')).toBe(true)
+})
+
+test('a plan-approval gate rejection with feedback triggers an immediate replan, not a flat halt', async () => {
+  const SELF_PLANNING_FEEDBACK = `
+name: self-planning-feedback-fixture
+goal: Do the generated thing.
+agents:
+  planner: { adapter: mock }
+graph:
+  plan:    { role: planner, agent: planner, generates: graph }
+  approve: { role: gate, after: plan }
+rails:
+  max_iterations: 5
+  max_cost_usd: 1
+`
+  const { cwd, io } = setup(SELF_PLANNING_FEEDBACK)
+  const registry = createRegistry()
+  registry.register(new MockAdapter([
+    // one planner call before the first (rejected) approval, one more after
+    // the feedback-triggered replan
+    { match: /PLANNER/, output: 'graph:\n  build: { role: executor, agent: planner }\n  check: { role: critic, of: build, agent: planner }\n' },
+    { match: /PLANNER/, output: 'graph:\n  build: { role: executor, agent: planner }\n  check: { role: critic, of: build, agent: planner }\n' },
+    { output: '[mock] build done' },
+    { output: 'VERDICT: pass\nEVIDENCE: looks good' },
+  ]))
+  let gateCalls = 0
+  const code = await runAction(undefined, { cwd }, {
+    io, registry,
+    gate: async () => {
+      gateCalls += 1
+      return gateCalls === 1 ? { approved: false, feedback: 'add a tests node' } : { approved: true }
+    },
+  })
+  expect(code).toBe(0)
+  expect(gateCalls).toBe(2) // first rejection replanned, second approved
 })

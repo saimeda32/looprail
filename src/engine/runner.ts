@@ -13,6 +13,8 @@ import { drainHumanFeedback } from '../journal/human-feedback.js'
 import type { AdapterRegistry } from '../adapters/registry.js'
 import { runIteration } from './scheduler.js'
 import type { EngineDeps } from './nodes.js'
+import { parseGraphFragment } from '../config/loopfile.js'
+import { spliceFragment } from './splice.js'
 
 export interface RunOptions {
   registry: AdapterRegistry
@@ -118,7 +120,14 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   // pre-start rail enforcement: halt BEFORE starting a node that would breach
   const shouldContinue = () => guard.check(state.iteration) === null
 
-  const { planning, execution } = splitRegions(expanded.nodes)
+  const { planning, execution: initialExecution } = splitRegions(expanded.nodes)
+  // Extended live by applySplice below when a generates:'graph' planner's
+  // fragment is approved at a gate - see docs/superpowers/specs/
+  // 2026-07-04-self-planning-loop-design.md. Ordinary loops (no such
+  // planner) never mutate either of these past their initial value.
+  let execution = initialExecution
+  let runAgents = expanded.agents
+  const nodeIds = new Set(expanded.nodes.map((n) => n.id))
   const state: RunState = {
     plan: opts.initialPlan ?? null,
     iteration: opts.startIteration ?? 0,
@@ -128,6 +137,53 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   let outcomes: NodeOutcome[] = []
   let replans = 0
   const fingerprints: string[] = []
+
+  // A gate whose dependency chain leads back to a generates:'graph' planner
+  // is a plan-approval gate, not an ordinary one - its approval splices a
+  // fragment in, and its non-empty-feedback rejection forces an immediate
+  // replan (bounded by replan_limit) rather than the generic iterate/stall
+  // path. Ordinary gates (no such ancestor) are completely unaffected.
+  // Looks the gate up in expanded.nodes (its original, pre-splitRegions
+  // definition) rather than the current execution list: splitRegions
+  // strips a gate's `after` edge into the planning region (the dependency
+  // this very check needs to see), since that edge is meaningless to the
+  // execution-region scheduler.
+  const planGeneratorFor = (gateNode: NodeDef): NodeDef | undefined => {
+    const byId = new Map(expanded.nodes.map((n) => [n.id, n]))
+    const original = byId.get(gateNode.id) ?? gateNode
+    for (const depId of original.after ?? []) {
+      const dep = byId.get(depId)
+      if (!dep) continue
+      if (dep.role === 'planner' && dep.generates === 'graph') return dep
+      if (dep.role === 'critic' && dep.of) {
+        const target = byId.get(dep.of)
+        if (target?.role === 'planner' && target.generates === 'graph') return target
+      }
+    }
+    return undefined
+  }
+
+  // Validates and merges an approved fragment into the live run. The
+  // now-resolved gate is dropped from `execution` (its job is done - it
+  // must never be asked again on a later iteration) and stripped from any
+  // node's `after` that pointed at it, mirroring splitRegions' own
+  // symmetric-dependency-filtering technique so no edge is left dangling.
+  const applySplice = (fragmentText: string, gateNodeId: string): { ok: true } | { ok: false; reason: string } => {
+    try {
+      const fragment = parseGraphFragment(fragmentText)
+      const spliced = spliceFragment(fragment, runAgents, nodeIds, gateNodeId)
+      runAgents = spliced.agents
+      guard.tighten(spliced.rails)
+      for (const n of spliced.nodes) nodeIds.add(n.id)
+      execution = execution
+        .filter((n) => n.id !== gateNodeId)
+        .concat(spliced.nodes)
+        .map((n) => ({ ...n, after: n.after?.filter((d) => d !== gateNodeId) }))
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) }
+    }
+  }
 
   // Every run gets a report, agent-narrated when one is available and its
   // reply parses, mechanically derived from the verdicts already in hand
@@ -167,7 +223,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     if (planning.length === 0) return
     const maxRounds = Math.max(1, ...planning.map((n) => n.rounds ?? 1))
     for (let round = 1; round <= maxRounds; round++) {
-      const outs = await runIteration(expanded, planning, state, deps, onNode, shouldContinue, onNodeStart, onChunk)
+      const outs = await runIteration({ ...expanded, agents: runAgents }, planning, state, deps, onNode, shouldContinue, onNodeStart, onChunk)
       const planner = outs.find((o) => o.role === 'planner')
       if (planner) state.plan = planner.output
       if (guard.check(state.iteration)) return // breached mid-planning; loop halts on entry
@@ -191,7 +247,11 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     const breachBefore = guard.check(state.iteration)
     if (breachBefore) return await finish('halted', `rail breached (${breachBefore.rail}): ${breachBefore.detail}`)
 
-    outcomes = await runIteration(expanded, execution, state, deps, onNode, shouldContinue, onNodeStart, onChunk)
+    // `runAgents` may have grown since the last pass (a fragment declaring
+    // its own agents was spliced in) - execution nodes referencing a
+    // freshly-merged agent key must resolve it, so the merged set is
+    // threaded through here rather than the run's original, fixed one.
+    outcomes = await runIteration({ ...expanded, agents: runAgents }, execution, state, deps, onNode, shouldContinue, onNodeStart, onChunk)
     const verdicts = outcomes.flatMap((o) => (o.verdict ? [o.verdict] : []))
     fingerprints.push(verdictFingerprint(verdicts))
     emit('iteration_end', { iteration: state.iteration, costUsd: guard.spentUsd })
@@ -201,12 +261,59 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     // leaving execution-region nodes - including configured verifiers - that
     // never ran. Their outcomes simply don't exist, so aggregating only the
     // outcomes present can misreport a partial verdict set as "all passed".
-    const skipped = outcomes.length < execution.length
-      ? execution.filter((n) => !outcomes.some((o) => o.nodeId === n.id))
+    // Computed against the execution list as it was AT THE START of this
+    // iteration (before any plan-approval splice below might extend it) -
+    // a node the run didn't even know about yet was never "skipped".
+    const executionAtStart = execution
+    const skipped = outcomes.length < executionAtStart.length
+      ? executionAtStart.filter((n) => !outcomes.some((o) => o.nodeId === n.id))
       : []
     for (const n of skipped) {
       emit('node_skipped', { nodeId: n.id, role: n.role, iteration: state.iteration })
     }
+
+    // A gate whose dependency chain leads back to a generates:'graph'
+    // planner is a plan-approval gate: approval splices its fragment into
+    // `execution` (handled inline, not via the ordinary routeIteration
+    // path below - the newly spliced nodes haven't run yet this iteration,
+    // so aggregating THIS iteration's outcomes would wrongly report
+    // "verified" before they get a chance to), and a non-empty-feedback
+    // rejection forces an immediate replan carrying the human's own words,
+    // bounded by the same replan_limit as any other replan. A plain
+    // (no-feedback) rejection is not a plan-approval-specific case at all -
+    // it falls through unchanged to the existing iterate/stall/halt routing
+    // every other gate already gets.
+    let planApprovalHandled = false
+    for (const o of outcomes) {
+      if (o.role !== 'gate' || !o.verdict) continue
+      const gateNode = executionAtStart.find((n) => n.id === o.nodeId)
+      if (!gateNode) continue
+      const generator = planGeneratorFor(gateNode)
+      if (!generator) continue // an ordinary gate - untouched
+      if (o.verdict.status === 'pass') {
+        const result = applySplice(state.plan ?? '', gateNode.id)
+        if (!result.ok) {
+          // an invalid fragment reaching an already-approved gate is
+          // treated like any other config-shaped failure: replan, bounded
+          // by the existing limit, carrying the parse/validation error as
+          // feedback
+          state.feedback = result.reason
+          replans += 1
+          fingerprints.length = 0
+          emit('replan', { replans, feedback: state.feedback })
+          await runPlanning()
+        }
+        planApprovalHandled = true
+      } else if (o.verdict.evidence.startsWith('human feedback:')) {
+        state.feedback = o.verdict.evidence.replace(/^human feedback:\s*/, '')
+        replans += 1
+        fingerprints.length = 0
+        emit('replan', { replans, feedback: state.feedback })
+        await runPlanning()
+        planApprovalHandled = true
+      }
+    }
+    if (planApprovalHandled) continue
 
     const decision = routeIteration({
       outcomes, policy: def.verdictPolicy, fingerprints,
