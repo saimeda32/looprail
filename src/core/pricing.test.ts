@@ -88,3 +88,36 @@ test('lookupModelPricing returns the raw per-token rates for a known model', () 
 test('lookupModelPricing returns null for an absent model, not a zeroed-out record', () => {
   expect(lookupModelPricing(samplePayload, 'absolutely-not-in-the-table')).toBeNull()
 })
+
+// Confirmed live: copilot-cli's own CLI argument requires "claude-opus-4.8"
+// (dot), but LiteLLM's real table keys the same model "claude-opus-4-8"
+// (dash) - a naming-convention mismatch, not a genuinely missing model.
+// Every opus-4.8 node silently got neither a real cost nor an estimate
+// until this was fixed.
+test('lookupModelPricing finds a dash-keyed model when queried with its dot-separated CLI spelling', () => {
+  const table = { 'claude-opus-4-8': { input_cost_per_token: 1.5e-5, output_cost_per_token: 7.5e-5 } }
+  const pricing = lookupModelPricing(table, 'claude-opus-4.8')
+  expect(pricing).toMatchObject({ inputCostPerToken: 1.5e-5, outputCostPerToken: 7.5e-5 })
+})
+
+// The reverse direction is deliberately NOT attempted - dashes are also
+// word separators ("claude-opus"), so blanket-replacing them with dots
+// would mangle a multi-word name instead of just normalizing a version
+// number, unlike the dot case (a dot is never a word separator).
+test('lookupModelPricing does NOT try a dash-to-dot variant, since dashes are ambiguous word separators too', () => {
+  const table = { 'claude-opus-4.8': { input_cost_per_token: 1.5e-5, output_cost_per_token: 7.5e-5 } }
+  expect(lookupModelPricing(table, 'claude-opus-4-8')).toBeNull()
+})
+
+test('lookupModelPricing prefers an exact match over a normalized variant when both happen to exist', () => {
+  const table = {
+    'claude-opus-4.8': { input_cost_per_token: 1e-6, output_cost_per_token: 1e-6 },
+    'claude-opus-4-8': { input_cost_per_token: 9e-6, output_cost_per_token: 9e-6 },
+  }
+  const pricing = lookupModelPricing(table, 'claude-opus-4.8')
+  expect(pricing).toMatchObject({ inputCostPerToken: 1e-6, outputCostPerToken: 1e-6 })
+})
+
+test('lookupModelPricing still returns null when no spelling of the model exists under any variant', () => {
+  expect(lookupModelPricing(samplePayload, 'not.a-real.model-at.all')).toBeNull()
+})

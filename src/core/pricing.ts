@@ -93,21 +93,47 @@ export async function loadPricingTable(opts: LoadPricingTableOptions = {}): Prom
   }
 }
 
+// Confirmed live: copilot-cli requires its own CLI argument in dot form
+// ("claude-opus-4.8"), but LiteLLM's table keys the very same model with
+// dashes ("claude-opus-4-8") - a real naming-convention mismatch between
+// what an adapter's CLI needs and how the pricing source names models,
+// not a model that's actually missing pricing data. This silently starved
+// every opus-4.8 node of both real cost (it never had any) AND an estimate
+// (the literal string never matched), even though the pricing data for the
+// same model genuinely exists.
+//
+// Generates plausible alternate spellings to try - deliberately only
+// dot-to-dash, not the reverse: a dot in a model name is always a version
+// separator (no real model name uses a literal "." as a word separator),
+// so normalizing it to a dash is unambiguous. Blanket-replacing dashes
+// with dots is NOT safe the same way - dashes ARE used as word separators
+// ("claude-opus"), so doing that would mangle "claude-opus-4-8" into
+// "claude.opus.4.8" instead of the intended "claude-opus-4.8". This is
+// deliberately generic rather than a special case for "opus" specifically,
+// since the underlying mismatch is a naming-convention difference that
+// could affect any model name shaped this way.
+function modelKeyVariants(model: string): string[] {
+  const variants = new Set([model, model.replace(/\./g, '-')])
+  return [...variants]
+}
+
 // Looks up per-token rates for one model key. Returns null - never a
-// zeroed-out record - when the model genuinely isn't in the table, so a
-// caller can never mistake "we don't know this model's price" for "this
-// model costs $0".
+// zeroed-out record - when the model genuinely isn't in the table under
+// any plausible spelling, so a caller can never mistake "we don't know
+// this model's price" for "this model costs $0".
 export function lookupModelPricing(table: PricingTable, model: string): ModelPricing | null {
-  const raw = table[model]
-  if (!raw || raw.input_cost_per_token === undefined || raw.output_cost_per_token === undefined) {
-    return null
+  for (const candidate of modelKeyVariants(model)) {
+    const raw = table[candidate]
+    if (raw && raw.input_cost_per_token !== undefined && raw.output_cost_per_token !== undefined) {
+      return {
+        inputCostPerToken: raw.input_cost_per_token,
+        outputCostPerToken: raw.output_cost_per_token,
+        cacheCreationCostPerToken: raw.cache_creation_input_token_cost,
+        cacheReadCostPerToken: raw.cache_read_input_token_cost,
+      }
+    }
   }
-  return {
-    inputCostPerToken: raw.input_cost_per_token,
-    outputCostPerToken: raw.output_cost_per_token,
-    cacheCreationCostPerToken: raw.cache_creation_input_token_cost,
-    cacheReadCostPerToken: raw.cache_read_input_token_cost,
-  }
+  return null
 }
 
 export interface TokenUsage {
