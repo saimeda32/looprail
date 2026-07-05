@@ -113,6 +113,18 @@ export function buildPage(): string {
   #canvas-wrap { position: relative; overflow: auto; border-right: 1px solid var(--line); padding: 16px; max-height: 480px; }
   @media (max-width: 800px) { #canvas-wrap { border-right: none; border-bottom: 1px solid var(--line); } }
   #dag { display: block; }
+  #dag-toolbar {
+    position: sticky; top: 0; left: 0; float: right; z-index: 2; display: flex; align-items: center; gap: 4px;
+    background: var(--panel-raised); border: 1px solid var(--line); border-radius: 3px; padding: 3px; margin-bottom: -32px;
+  }
+  #dag-toolbar button {
+    font: 12px var(--mono); width: 22px; height: 22px; line-height: 1; border-radius: 2px; border: 1px solid transparent;
+    background: none; color: var(--ink-dim); cursor: pointer;
+  }
+  #dag-toolbar button:hover { color: var(--ink); border-color: var(--line-bright); }
+  #dag-zoom-fit { width: auto !important; padding: 0 7px; font-size: 10.5px !important; }
+  #dag-zoom-readout { font: 11px var(--mono); color: var(--ink-faint); width: 38px; text-align: center; font-variant-numeric: tabular-nums; }
+  #canvas-wrap.panning { cursor: grabbing; user-select: none; }
   .node-plate { fill: var(--panel-raised); stroke: var(--line-bright); stroke-width: 1.5; cursor: pointer; }
   .node-plate.node-running { stroke: var(--signal); }
   .node-plate.node-pass, .node-plate.node-done { stroke: var(--pass); }
@@ -294,6 +306,12 @@ export function buildPage(): string {
     </div>
     <div class="run-body">
       <div id="canvas-wrap">
+        <div id="dag-toolbar">
+          <button id="dag-zoom-out" type="button" title="Zoom out">&minus;</button>
+          <span id="dag-zoom-readout">100%</span>
+          <button id="dag-zoom-in" type="button" title="Zoom in">&plus;</button>
+          <button id="dag-zoom-fit" type="button" title="Fit graph to view">Fit</button>
+        </div>
         <svg id="dag" width="100%" height="100%">
           <defs>
             <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
@@ -351,6 +369,44 @@ export function buildPage(): string {
   };
   var selected = null;
   var selectedTab = null; // nodeId of the tab the user is viewing; null = default to the first running node
+
+  var dagZoom = 1;
+  var DAG_ZOOM_MIN = 0.4, DAG_ZOOM_MAX = 2.5, DAG_ZOOM_STEP = 0.15;
+  var dagContentW = 400, dagContentH = 200;
+  var lastAutoScrollNodeId = null; // only recenter when the RUNNING node changes, not on every streamed chunk of the same node
+
+  function applyDagZoom() {
+    var svg = document.getElementById('dag');
+    svg.setAttribute('width', String(dagContentW * dagZoom));
+    svg.setAttribute('height', String(dagContentH * dagZoom));
+    document.getElementById('dag-zoom-readout').textContent = Math.round(dagZoom * 100) + '%';
+  }
+  function setDagZoom(z, anchorClientX, anchorClientY) {
+    var wrap = document.getElementById('canvas-wrap');
+    var prevZoom = dagZoom;
+    dagZoom = Math.max(DAG_ZOOM_MIN, Math.min(DAG_ZOOM_MAX, z));
+    if (anchorClientX === undefined) {
+      applyDagZoom();
+      return;
+    }
+    // Keep the point under the cursor/pinch fixed in place rather than
+    // always zooming toward the top-left corner of the scrollable area.
+    var rect = wrap.getBoundingClientRect();
+    var offsetX = anchorClientX - rect.left + wrap.scrollLeft;
+    var offsetY = anchorClientY - rect.top + wrap.scrollTop;
+    var ratio = dagZoom / prevZoom;
+    applyDagZoom();
+    wrap.scrollLeft = offsetX * ratio - (anchorClientX - rect.left);
+    wrap.scrollTop = offsetY * ratio - (anchorClientY - rect.top);
+  }
+  function fitDagZoom() {
+    var wrap = document.getElementById('canvas-wrap');
+    var availW = wrap.clientWidth - 32, availH = wrap.clientHeight - 32; // minus the wrap's own padding
+    if (availW <= 0 || availH <= 0) { setDagZoom(1); return; }
+    setDagZoom(Math.max(DAG_ZOOM_MIN, Math.min(DAG_ZOOM_MAX, availW / dagContentW, availH / dagContentH)));
+    wrap.scrollLeft = 0;
+    wrap.scrollTop = 0;
+  }
 
   var SVG_NS = 'http://www.w3.org/2000/svg'; // fixed XML namespace id required by createElementNS - never fetched over the network
   function el(tag, attrs, parent) {
@@ -743,28 +799,39 @@ export function buildPage(): string {
     var svg = document.getElementById('dag');
     var maxX = 0, maxY = 0;
     model.layout.forEach(function (l) { maxX = Math.max(maxX, l.x + BOX_W + 40); maxY = Math.max(maxY, l.y + BOX_H + 40); });
-    svg.setAttribute('viewBox', '0 0 ' + Math.max(maxX, 400) + ' ' + Math.max(maxY, 200));
-    svg.setAttribute('height', Math.max(maxY, 200));
-    // width previously stayed the static markup's "100%": with a growing
-    // viewBox but a fixed-percentage width, the SVG's default
-    // preserveAspectRatio scales the WHOLE graph down to keep it fully
-    // visible instead of ever overflowing - so a deep dependency chain
+    dagContentW = Math.max(maxX, 400);
+    dagContentH = Math.max(maxY, 200);
+    svg.setAttribute('viewBox', '0 0 ' + dagContentW + ' ' + dagContentH);
+    // width/height are driven by dagZoom (see applyDagZoom), not left at the
+    // static markup's "100%" - with a fixed-percentage width the SVG's
+    // default preserveAspectRatio scales the WHOLE graph down to keep it
+    // fully visible instead of ever overflowing, so a deep dependency chain
     // (e.g. a self-planning splice's mostly-linear node sequence, which
     // grows by layer i.e. by x, not by y) just got progressively squished
-    // and unreadable rather than actually needing to scroll. Setting width
-    // to the real content width, the same way height already is, lets the
-    // graph render at a real, legible scale and only then genuinely
-    // overflow #canvas-wrap when it doesn't fit.
-    svg.setAttribute('width', String(Math.max(maxX, 400)));
-    // Same auto-tail convention as live-output-body: keep the newest node
-    // in view as it streams in, instead of leaving the container scrolled
-    // to wherever the user last left it. Both axes, since a layered DAG
-    // can grow in either direction depending on its shape - a linear chain
-    // grows by x (layer/column), a bushy fan-out grows by y (rows within
-    // a layer).
-    var canvasWrap = document.getElementById('canvas-wrap');
-    canvasWrap.scrollTop = canvasWrap.scrollHeight;
-    canvasWrap.scrollLeft = canvasWrap.scrollWidth;
+    // and unreadable. Setting real pixel width/height lets the graph render
+    // at a legible scale and only then genuinely overflow #canvas-wrap,
+    // with the zoom controls adjusting that scale explicitly.
+    applyDagZoom();
+
+    // Follow the currently RUNNING node, not a fixed corner - a bottom-right
+    // scroll snap was wrong for a bushy or backward-growing graph, and
+    // recentering on every single streamed chunk (rather than only when the
+    // running node itself changes) fought any zoom/pan the user was doing
+    // mid-stream. No running node (halted/done) leaves scroll untouched.
+    var runningNode = model.nodes.find(function (n) { return n.status === 'running'; });
+    if (runningNode && runningNode.id !== lastAutoScrollNodeId) {
+      lastAutoScrollNodeId = runningNode.id;
+      var runningLayout = layoutById[runningNode.id];
+      if (runningLayout) {
+        var canvasWrap = document.getElementById('canvas-wrap');
+        var centerX = (runningLayout.x + BOX_W / 2) * dagZoom;
+        var centerY = (runningLayout.y + BOX_H / 2) * dagZoom;
+        canvasWrap.scrollLeft = Math.max(0, centerX - canvasWrap.clientWidth / 2);
+        canvasWrap.scrollTop = Math.max(0, centerY - canvasWrap.clientHeight / 2);
+      }
+    } else if (!runningNode) {
+      lastAutoScrollNodeId = null;
+    }
 
     renderAgentTable(model.nodes, model.totals);
     renderPlans(model.plans);
@@ -1009,6 +1076,42 @@ export function buildPage(): string {
   }
 
   document.getElementById('btn-resume').addEventListener('click', sendResume);
+
+  document.getElementById('dag-zoom-in').addEventListener('click', function () { setDagZoom(dagZoom + DAG_ZOOM_STEP); });
+  document.getElementById('dag-zoom-out').addEventListener('click', function () { setDagZoom(dagZoom - DAG_ZOOM_STEP); });
+  document.getElementById('dag-zoom-fit').addEventListener('click', fitDagZoom);
+
+  var dagWrap = document.getElementById('canvas-wrap');
+  // Ctrl/Cmd+wheel zooms (the conventional browser-zoom gesture); plain
+  // wheel is left alone so normal two-axis scrolling over the graph still
+  // works exactly like any other scrollable panel.
+  dagWrap.addEventListener('wheel', function (e) {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    setDagZoom(dagZoom + (e.deltaY < 0 ? DAG_ZOOM_STEP : -DAG_ZOOM_STEP), e.clientX, e.clientY);
+  }, { passive: false });
+
+  // Click-drag to pan. Tracked via a movement threshold so a plain click on
+  // a node (which fires its own click handler on mouseup) never gets
+  // swallowed as an accidental pan.
+  var panState = null;
+  dagWrap.addEventListener('mousedown', function (e) {
+    if (e.button !== 0) return;
+    panState = { startX: e.clientX, startY: e.clientY, scrollLeft: dagWrap.scrollLeft, scrollTop: dagWrap.scrollTop, moved: false };
+  });
+  window.addEventListener('mousemove', function (e) {
+    if (!panState) return;
+    var dx = e.clientX - panState.startX, dy = e.clientY - panState.startY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) panState.moved = true;
+    if (!panState.moved) return;
+    dagWrap.classList.add('panning');
+    dagWrap.scrollLeft = panState.scrollLeft - dx;
+    dagWrap.scrollTop = panState.scrollTop - dy;
+  });
+  window.addEventListener('mouseup', function () {
+    if (panState && panState.moved) dagWrap.classList.remove('panning');
+    panState = null;
+  });
 
   // Root cause of a real observed bug: /events replays the ENTIRE journal
   // history as one SSE frame per event on every new connection (by design -

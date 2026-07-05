@@ -209,25 +209,27 @@ function loadRenderUsage() {
   return { renderUsage, store }
 }
 
-test('the aggregate cost total sums real and estimated spend separately across runs, then applies real-first precedence', () => {
+test('the aggregate cost total combines real and estimated spend across every run into one figure', () => {
   const { renderUsage, store } = loadRenderUsage()
-  // One run reports real spend, another only an estimate - summed
-  // separately (0.5 real, 0.42 estimated) rather than conflated into one
-  // ambiguous per-run-derived number.
+  // Unlike the per-tile figure (which keeps real vs estimated visually
+  // distinct), the top-line aggregate answers "how much have I actually
+  // spent across everything" - a real-cost run and an estimate-only run
+  // must both count toward that one number, not be conflated away by a
+  // real-first precedence that would under-report the true total.
   renderUsage([
     baseRun({ costUsd: 0.5, estimatedCostUsd: 0 }),
     baseRun({ costUsd: 0, estimatedCostUsd: 0.42 }),
   ])
-  expect(store['usage-cost'].textContent).toBe('$0.50 (~$0.42 est)')
+  expect(store['usage-cost'].textContent).toBe('$0.92')
 })
 
-test('the aggregate cost total shows the combined estimate as primary when every run has a real costUsd of 0', () => {
+test('the aggregate cost total sums multiple estimate-only runs correctly', () => {
   const { renderUsage, store } = loadRenderUsage()
   renderUsage([
     baseRun({ costUsd: 0, estimatedCostUsd: 0.1 }),
     baseRun({ costUsd: 0, estimatedCostUsd: 0.2 }),
   ])
-  expect(store['usage-cost'].textContent).toBe('~$0.30 est')
+  expect(store['usage-cost'].textContent).toBe('$0.30')
 })
 
 test('the aggregate cost total stays a flat $0.00 when no run has any real or estimated spend', () => {

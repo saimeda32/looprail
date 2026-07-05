@@ -189,16 +189,18 @@ test('.plan-version pre has a bounded height with its own internal scroll', () =
 
 // The DAG's svg viewBox/height already grow unbounded with node count -
 // its container (#canvas-wrap) must cap that visually with its own
-// max-height + scroll, and render() must auto-tail it the same way
-// live-output-body already auto-tails itself.
-test('#canvas-wrap caps the DAG height and auto-scrolls to follow new nodes', () => {
+// max-height + scroll, and render() must recenter on whichever node is
+// currently running (not a fixed corner) as it progresses.
+test('#canvas-wrap caps the DAG height and auto-scrolls to follow the running node', () => {
   const html = buildPage()
   const match = html.match(/#canvas-wrap\s*\{([^}]*)\}/)
   expect(match).not.toBeNull()
   const rule = match![1]!
   expect(rule).toMatch(/max-height:\s*\d/)
   expect(rule).toMatch(/overflow:\s*auto/)
-  expect(html).toContain("canvasWrap.scrollTop = canvasWrap.scrollHeight")
+  expect(html).toContain("var runningNode = model.nodes.find(function (n) { return n.status === 'running'; });")
+  expect(html).toContain('canvasWrap.scrollLeft = Math.max(0, centerX - canvasWrap.clientWidth / 2)')
+  expect(html).toContain('canvasWrap.scrollTop = Math.max(0, centerY - canvasWrap.clientHeight / 2)')
 })
 
 // The svg's markup pins width to "100%"; leaving that attribute
@@ -207,13 +209,35 @@ test('#canvas-wrap caps the DAG height and auto-scrolls to follow new nodes', ()
 // overflowing #canvas-wrap - a linear dependency chain (a self-planning
 // splice's mostly one-node-per-layer sequence) grows by x, not y, so this
 // left it progressively squished and unreadable instead of scrollable.
-// width must be set to the real content width, the same way height
-// already is, and BOTH scroll axes must auto-tail - a chain grows by x,
-// a bushy fan-out grows by y.
-test('the DAG svg width is set to the real content width, not left at "100%", and both scroll axes auto-tail', () => {
+// width/height must instead be driven by the real content size and the
+// user-controllable zoom level (applyDagZoom), not a static percentage.
+test('the DAG svg width/height are driven by content size and zoom level, not left at "100%"', () => {
   const html = buildPage()
-  expect(html).toContain("svg.setAttribute('width', String(Math.max(maxX, 400)))")
-  expect(html).toContain('canvasWrap.scrollLeft = canvasWrap.scrollWidth')
+  expect(html).toContain("svg.setAttribute('width', String(dagContentW * dagZoom))")
+  expect(html).toContain("svg.setAttribute('height', String(dagContentH * dagZoom))")
+})
+
+// Explicit zoom/pan controls: a dense or deep self-planning graph needs a
+// way to zoom out to see the whole shape, and to pan around it, not just
+// rely on the browser's native scrollbars at a fixed 1:1 scale.
+test('the DAG panel has zoom-in/zoom-out/fit controls wired to setDagZoom/fitDagZoom', () => {
+  const html = buildPage()
+  expect(html).toContain('id="dag-zoom-in"')
+  expect(html).toContain('id="dag-zoom-out"')
+  expect(html).toContain('id="dag-zoom-fit"')
+  expect(html).toContain("document.getElementById('dag-zoom-in').addEventListener('click', function () { setDagZoom(dagZoom + DAG_ZOOM_STEP); });")
+  expect(html).toContain("document.getElementById('dag-zoom-out').addEventListener('click', function () { setDagZoom(dagZoom - DAG_ZOOM_STEP); });")
+  expect(html).toContain("document.getElementById('dag-zoom-fit').addEventListener('click', fitDagZoom);")
+})
+
+// Ctrl/Cmd+wheel zooms (the conventional browser gesture); a plain wheel
+// must be left alone so ordinary two-axis scrolling over the graph still
+// works like any other scrollable panel.
+test('ctrl/cmd+wheel over the DAG zooms, plain wheel does not', () => {
+  const html = buildPage()
+  expect(html).toContain("if (!e.ctrlKey && !e.metaKey) return;")
+  const wheelBlock = html.match(/dagWrap\.addEventListener\('wheel', function \(e\) \{[\s\S]*?\n  \}, \{ passive: false \}\);/)
+  expect(wheelBlock).not.toBeNull()
 })
 
 // Executes the inline script's own htmlEl/renderReport functions (extracted

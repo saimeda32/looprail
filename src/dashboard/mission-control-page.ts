@@ -288,21 +288,15 @@ export function buildMissionControlPage(): string {
     document.getElementById('usage-workspaces').textContent = String(Object.keys(workspaces).length);
     document.getElementById('usage-runs').textContent = String(runs.length);
     document.getElementById('usage-running').textContent = String(running);
-    // Same real-vs-estimate precedence as the per-tile figure above: real
-    // spend summed across every run is authoritative whenever any run
-    // reported it, with the combined estimate appended in parens; only
-    // when the combined real total is still 0 does the combined estimate
-    // become the primary figure - the two are summed separately first so a
-    // real-cost run and an estimate-only run never get silently conflated
-    // into one ambiguous number.
-    if (totalCost > 0) {
-      document.getElementById('usage-cost').textContent =
-        '$' + totalCost.toFixed(2) + (totalEstimatedCost ? ' (~$' + totalEstimatedCost.toFixed(2) + ' est)' : '');
-    } else if (totalEstimatedCost > 0) {
-      document.getElementById('usage-cost').textContent = '~$' + totalEstimatedCost.toFixed(2) + ' est';
-    } else {
-      document.getElementById('usage-cost').textContent = '$' + totalCost.toFixed(2);
-    }
+    // Deliberately ONE combined figure here, unlike the per-tile cost (which
+    // keeps real vs estimated visually distinct - see runCard above): this
+    // top-line number answers "how much have I actually spent across
+    // everything", and a real-cost run sitting next to an estimate-only run
+    // must not silently under-report the total just because the two figures
+    // come from different sources. Per-tile/per-workspace breakdowns are
+    // exactly where the real-vs-estimated distinction still matters and stay
+    // separate.
+    document.getElementById('usage-cost').textContent = '$' + (totalCost + totalEstimatedCost).toFixed(2);
     document.getElementById('usage-tokens').textContent = formatTokens(totalTokens);
   }
 
