@@ -1116,13 +1116,23 @@ export function buildPage(): string {
     }
   }
 
+  // A blank numeric input's .value is '', and Number('') is 0, not NaN - so
+  // without this, leaving an OPTIONAL rail field blank (common: many
+  // loopfiles set no max_wall_minutes/replan_limit at all) silently sent 0,
+  // which the server rejects as "must be a positive number", failing the
+  // whole resume request over a field the user never meant to touch.
+  function numOrUndefined(id) {
+    var v = document.getElementById(id).value;
+    return v === '' ? undefined : Number(v);
+  }
+
   function sendResume() {
     var statusEl = document.getElementById('resume-status');
     var btn = document.getElementById('btn-resume');
-    var iterations = Number(document.getElementById('resume-iterations').value);
-    var cost = Number(document.getElementById('resume-cost').value);
-    var wallMinutes = Number(document.getElementById('resume-wall-minutes').value);
-    var replanLimit = Number(document.getElementById('resume-replan-limit').value);
+    var iterations = numOrUndefined('resume-iterations');
+    var cost = numOrUndefined('resume-cost');
+    var wallMinutes = numOrUndefined('resume-wall-minutes');
+    var replanLimit = numOrUndefined('resume-replan-limit');
     // Trimmed; undefined when blank so the server keeps the loopfile's own goal
     // (the goal override never mutates the source file - see ResumeOverrides.goal).
     var goal = document.getElementById('resume-goal').value.trim() || undefined;

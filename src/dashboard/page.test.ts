@@ -594,3 +594,68 @@ test('edgeBendFraction is deterministic per edge and spreads coincidentally-alig
   expect(a).toBeGreaterThanOrEqual(0.35)
   expect(a).toBeLessThanOrEqual(0.65)
 })
+
+// Real bug: a blank optional resume field's .value is '', and Number('')
+// is 0 (not NaN) - so leaving e.g. wall-minutes/replan-limit blank (common,
+// since many loopfiles set no such rail at all) silently sent 0, which the
+// server rejects as "must be a positive number", failing the WHOLE resume
+// request over a field the user never meant to touch. Extracts the real
+// sendResume + numOrUndefined functions and a fake document/fetch to prove
+// blank fields now omit the key entirely (JSON.stringify drops undefined),
+// while a filled field still sends its real number.
+function loadSendResume() {
+  const html = buildPage()
+  const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
+  const numOrUndefinedSrc = script.match(/function numOrUndefined\(id\) \{[\s\S]*?\n  \}\n/)![0]
+  const sendResumeSrc = script.match(/function sendResume\(\) \{[\s\S]*?\n  \}\n/)![0]
+  const factory = new Function('document', 'fetch', `
+    ${numOrUndefinedSrc}
+    ${sendResumeSrc}
+    return sendResume;
+  `)
+  function makeFakeInput(value: string) {
+    return { value }
+  }
+  const store: Record<string, { value: string } | { className: string; textContent: string } | { disabled: boolean }> = {
+    'resume-iterations': makeFakeInput(''),
+    'resume-cost': makeFakeInput(''),
+    'resume-wall-minutes': makeFakeInput(''),
+    'resume-replan-limit': makeFakeInput(''),
+    'resume-goal': makeFakeInput(''),
+    'resume-status': { className: '', textContent: '' },
+    'btn-resume': { disabled: false },
+  }
+  const fakeDocument = { getElementById: (id: string) => store[id] }
+  let lastBody: unknown = null
+  const fakeFetch = (_url: string, init: { body: string }) => {
+    lastBody = JSON.parse(init.body)
+    return Promise.resolve({ ok: true })
+  }
+  const sendResume = factory(fakeDocument, fakeFetch) as () => void
+  return { sendResume, store, getLastBody: () => lastBody as Record<string, unknown> | null }
+}
+
+test('sendResume omits a blank optional field entirely instead of sending 0', () => {
+  const { sendResume, store, getLastBody } = loadSendResume()
+  ;(store['resume-iterations'] as { value: string }).value = '10'
+  // cost/wall-minutes/replan-limit/goal left blank
+  sendResume()
+  const body = getLastBody()!
+  expect(body.maxIterations).toBe(10)
+  expect('maxCostUsd' in body).toBe(false)
+  expect('maxWallMinutes' in body).toBe(false)
+  expect('replanLimit' in body).toBe(false)
+  expect('goal' in body).toBe(false)
+})
+
+test('sendResume sends every field\'s real value when all are filled in', () => {
+  const { sendResume, store, getLastBody } = loadSendResume()
+  ;(store['resume-iterations'] as { value: string }).value = '10'
+  ;(store['resume-cost'] as { value: string }).value = '5.5'
+  ;(store['resume-wall-minutes'] as { value: string }).value = '30'
+  ;(store['resume-replan-limit'] as { value: string }).value = '4'
+  ;(store['resume-goal'] as { value: string }).value = 'a clearer goal'
+  sendResume()
+  const body = getLastBody()!
+  expect(body).toEqual({ maxIterations: 10, maxCostUsd: 5.5, maxWallMinutes: 30, replanLimit: 4, goal: 'a clearer goal' })
+})
