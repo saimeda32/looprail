@@ -113,3 +113,10 @@ test('the page has a Calls gauge, wired to totals.calls, distinct from iteration
   expect(html).toContain('id="calls-label"')
   expect(html).toContain("document.getElementById('calls-label').textContent = String(model.totals.calls)")
 })
+
+test('the resume row includes a wall-minutes input alongside iterations/cost, prefilled from totals.maxWallMinutes and posted on resume', () => {
+  const html = buildPage()
+  expect(html).toContain('id="resume-wall-minutes"')
+  expect(html).toContain('model.totals.maxWallMinutes')
+  expect(html).toMatch(/maxWallMinutes:\s*wallMinutes/)
+})

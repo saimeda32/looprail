@@ -115,6 +115,23 @@ test('resume reports how many cached node results it loaded from the prior run',
   expect(lines.join('\n')).toContain('cached')
 })
 
+test('resume with raised max_wall_minutes lets a run that already breached its old limit keep going and verify', async () => {
+  const { cwd, runId } = await haltedRun()
+  const { io, lines } = capture()
+  const code = await resumeAction(runId, { cwd, json: true, maxIterations: 3, maxWallMinutes: 60 }, { io, registry: passingRegistry() })
+  expect(code).toBe(0)
+  expect((JSON.parse(lines.at(-1)!) as { status: string }).status).toBe('verified')
+})
+
+test('resume without a maxWallMinutes override leaves the loopfile\'s own rails.max_wall_minutes untouched', async () => {
+  const { cwd, runId } = await haltedRun()
+  const { io, lines } = capture()
+  await resumeAction(runId, { cwd, json: true, maxIterations: 3 }, { io, registry: passingRegistry() })
+  // FIXTURE has no max_wall_minutes, so the announced rails summary must not
+  // silently invent one when no override is provided.
+  expect(lines.join('\n')).not.toContain('undefinedmin')
+})
+
 test('resume with no runs exits 1', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'lr-resume-empty-'))
   const { io, lines } = capture()

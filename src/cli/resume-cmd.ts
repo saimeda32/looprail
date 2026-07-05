@@ -13,6 +13,7 @@ import { defaultIo, dim, err } from './ui.js'
 export interface ResumeOverrides {
   maxIterations?: number
   maxCostUsd?: number
+  maxWallMinutes?: number
 }
 
 // Unlike replay (a deliberate fork: edit one prompt, compare the variant
@@ -50,7 +51,7 @@ export async function resumeAction(
   const priorIterations = summarizeJournal(events).iterations
   const { plan, feedback } = reconstructRunState(events)
   const cache = loadCache(journalPath, { excludeIteration: priorIterations })
-  const def: LoopDef = (opts.maxIterations === undefined && opts.maxCostUsd === undefined)
+  const def: LoopDef = (opts.maxIterations === undefined && opts.maxCostUsd === undefined && opts.maxWallMinutes === undefined)
     ? loaded.def
     : {
         ...loaded.def,
@@ -58,6 +59,7 @@ export async function resumeAction(
           ...loaded.def.rails,
           ...(opts.maxIterations === undefined ? {} : { maxIterations: opts.maxIterations }),
           ...(opts.maxCostUsd === undefined ? {} : { maxCostUsd: opts.maxCostUsd }),
+          ...(opts.maxWallMinutes === undefined ? {} : { maxWallMinutes: opts.maxWallMinutes }),
         },
       }
   io.out(dim(
@@ -106,9 +108,10 @@ export function registerResume(program: Command): void {
     .option('--yes', 'auto-approve human gates')
     .option('--max-iterations <n>', 'raise rails.max_iterations for this run before continuing', (v: string) => parsePositiveNumber(v, '--max-iterations'))
     .option('--max-cost-usd <n>', 'raise rails.max_cost_usd for this run before continuing', (v: string) => parsePositiveNumber(v, '--max-cost-usd'))
+    .option('--max-wall-minutes <n>', 'raise rails.max_wall_minutes for this run before continuing', (v: string) => parsePositiveNumber(v, '--max-wall-minutes'))
     .action(async (
       runId: string | undefined,
-      opts: { file?: string; json?: boolean; yes?: boolean; maxIterations?: number; maxCostUsd?: number },
+      opts: { file?: string; json?: boolean; yes?: boolean; maxIterations?: number; maxCostUsd?: number; maxWallMinutes?: number },
       cmd: Command,
     ) => {
       const { cwd } = cmd.optsWithGlobals<{ cwd: string }>()

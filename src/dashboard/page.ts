@@ -228,6 +228,7 @@ export function buildPage(): string {
     <div class="resume-row" id="resume-row" style="display:none">
       <label>Iterations <input type="number" id="resume-iterations" min="1" step="1" /></label>
       <label>Cost budget $ <input type="number" id="resume-cost" min="0" step="0.01" /></label>
+      <label>Wall minutes <input type="number" id="resume-wall-minutes" min="1" step="1" /></label>
       <button class="control-btn" id="btn-resume" type="button">Resume with these limits</button>
       <span id="resume-status"></span>
     </div>
@@ -800,6 +801,8 @@ export function buildPage(): string {
         model.totals.maxIterations != null ? model.totals.maxIterations : '';
       document.getElementById('resume-cost').value =
         model.totals.maxCostUsd != null ? model.totals.maxCostUsd : '';
+      document.getElementById('resume-wall-minutes').value =
+        model.totals.maxWallMinutes != null ? model.totals.maxWallMinutes : '';
       // a stale "resuming…" from a previous click must not linger once this
       // is a fresh halted state (the run genuinely halted again, or for the
       // first time) - only sendResume() itself sets this text, nothing else
@@ -816,13 +819,14 @@ export function buildPage(): string {
     var btn = document.getElementById('btn-resume');
     var iterations = Number(document.getElementById('resume-iterations').value);
     var cost = Number(document.getElementById('resume-cost').value);
+    var wallMinutes = Number(document.getElementById('resume-wall-minutes').value);
     statusEl.className = '';
     statusEl.textContent = '';
     btn.disabled = true;
     fetch('resume', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ maxIterations: iterations, maxCostUsd: cost }),
+      body: JSON.stringify({ maxIterations: iterations, maxCostUsd: cost, maxWallMinutes: wallMinutes }),
     }).then(function (r) {
       if (r.ok) {
         statusEl.className = 'ok';
