@@ -1,0 +1,34 @@
+name: multi-gate-approval
+goal: |
+  Implement CHANGE (edit this line: describe the change you want, e.g.
+  "add rate limiting to the public API"). Two separate human checkpoints
+  guard this loop: approve the proposed approach before any code is
+  written, then approve the finished result before the loop is considered
+  done - a plan you liked can still turn into an implementation you don't,
+  so each gets its own explicit sign-off instead of one approval covering
+  both.
+
+agents:
+  planner: { adapter: copilot-cli, model: claude-sonnet-5 }
+  worker:  { adapter: copilot-cli, model: claude-sonnet-5 }
+  checker: { adapter: copilot-cli, model: claude-sonnet-5 }  # independent reviewer - a different context catches what the worker's own review misses
+
+graph:
+  plan:            { role: planner, agent: planner,
+                     prompt: Propose a concrete approach to the goal above - which files change, what the new behavior is, how it will be tested. Do not write any code yet. }
+  approve-design:  { role: gate, after: plan }  # gate 1 - pauses here; nothing below has run yet, so rejecting costs nothing but a re-plan
+  build:           { role: executor, agent: worker, after: approve-design,
+                     prompt: Implement the approach approved above. }
+  tests:           { role: tester, after: build, run: npm test, expect: exit 0 }  # swap "npm test" for your stack's real test command
+  crit:            { role: critic, agent: checker, of: build, after: build,
+                     prompt: Fail if the implementation doesn't actually match the approved approach, or if it introduces a real correctness or security issue. }
+  approve-release: { role: gate, after: [tests, crit] }  # gate 2 - a second, separate sign-off on the ACTUAL result, not a rubber-stamp of gate 1's approval
+
+rails:
+  max_iterations: 8
+  max_cost_usd: 15
+  stall_after: 3
+  replan_limit: 2
+  gate_timeout: 600
+
+verdict: { policy: all-pass }
