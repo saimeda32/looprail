@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { composeFeedback, routeIteration } from './router.js'
+import { routeIteration } from './router.js'
 import { verdictFingerprint } from './fingerprint.js'
 import type { NodeOutcome, Rails } from './types.js'
 

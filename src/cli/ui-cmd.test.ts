@@ -83,7 +83,7 @@ test('POST /resume on a run served via uiAction actually continues that same hal
   const runCode = await runAction(undefined, { cwd, json: true }, { io: capture().io, registry: failing })
   expect(runCode).toBe(2) // max_iterations: 2 in FIXTURE, halts without ever passing
 
-  const { io, lines } = capture()
+  const { io } = capture()
   const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-ui-reg-')), 'workspaces.json')
   const result = await uiAction(undefined, { cwd, port: 41602, registryPath }, io)
   cleanup = () => result.dashboard!.close()

@@ -152,7 +152,7 @@ function parseGraphFragmentStrict(text: string): GraphFragment {
     raw = parse(text) as Record<string, unknown>
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    throw new Error(`invalid graph fragment:\n${msg}`)
+    throw new Error(`invalid graph fragment:\n${msg}`, { cause: err })
   }
   if (!raw || typeof raw !== 'object' || raw.graph === undefined) {
     throw new Error('invalid graph fragment:\ngraph is required')

@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { expect, test } from 'vitest'
 import { executeNode, type EngineDeps } from './nodes.js'
 import { MockAdapter } from '../adapters/mock.js'
 import { createRegistry } from '../adapters/registry.js'

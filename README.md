@@ -60,17 +60,10 @@ looprail run --ui        # same, but opens a live dashboard alongside it
 ```
 
 `looprail run --ui` opens this - the DAG updates live as each node runs,
-streaming the agent's own output as it's produced:
+streaming the agent's own output as it's produced. A `gate` pauses for your
+approval right in the browser before anything downstream of it runs:
 
-```
-  iteration 2/8   $0.34 / $10.00   12.4k tok   0 replans
-
-  ┌───────────────┐     ┌───────────────┐     ┌───────────────┐
-  │ fix           │────▶│ test          │────▶│ review        │
-  │ ● executor    │     │ ● tester      │     │ ◐ critic      │
-  │   passed      │     │   exit 0      │     │   running...  │
-  └───────────────┘     └───────────────┘     └───────────────┘
-```
+![looprail dashboard: a gate awaiting approval, then executing, then verified](docs/assets/demo.gif)
 
 `init` picks a template for you (`fix-tests`, `research-report`, `refactor`,
 `content-pipeline`, `review-diff`, or `build-app`) and fills in whichever
@@ -145,15 +138,16 @@ dollars, whichever comes first.
 | `looprail workspace add [path]` | Register a project so its runs show up together (defaults to cwd) |
 | `looprail workspace list` | Show every registered project |
 | `looprail workspace remove <path>` | Stop tracking a project |
-| `looprail mcp` | Start looprail as an MCP server for Claude Desktop, Cursor, or VS Code |
+| `looprail mcp` | Start looprail as an MCP server for Claude Code, Claude Desktop, Cursor, or VS Code |
 
 You rarely need `workspace add` yourself - `looprail run` registers its own
 project the first time you use it there.
 
 `looprail mcp` lets you do the same things - lint a loopfile, start a run,
-check on it - from inside Claude Desktop, Cursor, or VS Code's Copilot Chat
-instead of a terminal. See [docs/MCP.md](docs/MCP.md) for the config
-snippet each host needs and the full list of tools it exposes.
+check on it, watch it live - from inside Claude Code, Claude Desktop,
+Cursor, or VS Code's Copilot Chat instead of a terminal. See
+[docs/MCP.md](docs/MCP.md) for the exact setup steps for each host, the
+full list of tools it exposes, and how gates and permissions work over MCP.
 
 ---
 
@@ -244,6 +238,19 @@ sandboxed mode to begin with) - set it explicitly rather than relying on
 that, since `full` is real reduced safety, not just less prompting.
 
 ### Mixing models
+
+Every `agents:` entry names an `adapter:` - which CLI actually runs that
+agent. `looprail doctor` shows which of these it found installed and
+logged in on your machine:
+
+| Adapter | Wraps | Install / login | Notes |
+| --- | --- | --- | --- |
+| `claude-code` | Claude Code CLI (`claude`) | `npm i -g @anthropic-ai/claude-code`, then run `claude` once to log in | `model:` accepts a tier name (`opus`/`sonnet`/`haiku`) or a full model string |
+| `codex` | OpenAI Codex CLI (`codex`) | `npm i -g @openai/codex`, then `codex login` | |
+| `copilot-cli` | GitHub Copilot CLI (`gh`) | Install the GitHub CLI, then `gh auth login` and `gh extension install github/gh-copilot` | model strings use dots (`claude-opus-4.8`), not the dashed form some other adapters use |
+| `aider` | [aider](https://aider.chat) | Install aider, set your provider's API key env var | reports no real dollar cost - looprail estimates one from its token counts instead |
+| `shell` | any command you give it | nothing - it's your command | for a local model, a script, or anything else with a CLI |
+| `mock` | nothing (built in) | nothing | deterministic, zero-cost - for demos and this repo's own tests |
 
 Each node picks which agent runs it, so you can shape a loop by cost and by
 independence:

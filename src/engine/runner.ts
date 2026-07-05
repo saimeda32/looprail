@@ -309,7 +309,6 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   const runPlanning = async (): Promise<PlanningResult> => {
     if (planning.length === 0) return { ok: true }
     const replanLimit = def.rails.replanLimit ?? Infinity
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       const maxRounds = Math.max(1, ...planning.map((n) => n.rounds ?? 1))
       let formatError: string | null = null

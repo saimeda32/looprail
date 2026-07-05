@@ -1,0 +1,18 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # Dev-only tooling bumps (test runner, linter, type checker) rarely
+      # need individual review - batch them into one PR instead of one per
+      # package. Runtime dependencies stay ungrouped so each gets its own
+      # PR and its own CI run.
+      dev-dependencies:
+        dependency-type: development
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
