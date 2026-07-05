@@ -174,23 +174,24 @@ export function buildPage(): string {
   .control-btn:disabled { opacity: 0.5; cursor: default; }
   #control-error { font-size: 11.5px; color: var(--fail); }
 
-  .feedback-row, .resume-row {
+  .feedback-row, .resume-row, .gate-row {
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     padding: 10px 18px; border-bottom: 1px solid var(--line); font-size: 12px;
   }
-  .feedback-row input[type="text"] {
+  .feedback-row input[type="text"], .gate-row input[type="text"] {
     flex: 1; min-width: 200px; font: 12px var(--mono); background: var(--panel);
     border: 1px solid var(--line); border-radius: 3px; color: var(--ink); padding: 6px 9px;
   }
-  .feedback-row input[type="text"]:focus, .resume-row input[type="number"]:focus { outline: 1px solid var(--signal-dim); border-color: var(--line-bright); }
+  .feedback-row input[type="text"]:focus, .resume-row input[type="number"]:focus, .gate-row input[type="text"]:focus { outline: 1px solid var(--signal-dim); border-color: var(--line-bright); }
   .resume-row label { display: flex; align-items: center; gap: 6px; color: var(--ink-dim); font: 11px var(--sans); }
   .resume-row input[type="number"] {
     width: 72px; font: 12px var(--mono); font-variant-numeric: tabular-nums; background: var(--panel);
     border: 1px solid var(--line); border-radius: 3px; color: var(--ink); padding: 5px 7px;
   }
-  #feedback-status, #resume-status { font-size: 11px; color: var(--ink-faint); }
-  #feedback-status.ok, #resume-status.ok { color: var(--pass); }
-  #feedback-status.err, #resume-status.err { color: var(--fail); }
+  .gate-row .gate-label { color: var(--ink-dim); font: 11px var(--sans); }
+  #feedback-status, #resume-status, #gate-status { font-size: 11px; color: var(--ink-faint); }
+  #feedback-status.ok, #resume-status.ok, #gate-status.ok { color: var(--pass); }
+  #feedback-status.err, #resume-status.err, #gate-status.err { color: var(--fail); }
 
   #detail-panel { white-space: pre-wrap; font: 12px/1.55 var(--mono); background: var(--panel); border: 1px solid var(--line); border-radius: 3px; color: var(--ink); padding: 14px 16px; max-height: 260px; overflow: auto; }
   .plan-version { border-left: 2px solid var(--line-bright); padding: 4px 0 4px 12px; margin-bottom: 10px; font-size: 12px; color: var(--ink-dim); }
@@ -242,6 +243,13 @@ export function buildPage(): string {
       <span id="reason"></span>
     </div>
     <div class="run-goal" id="run-goal"></div>
+    <div class="gate-row" id="gate-row" style="display:none">
+      <span class="gate-label" id="gate-label"></span>
+      <button class="control-btn" id="btn-gate-approve" type="button">Approve</button>
+      <input type="text" id="gate-reject-input" placeholder="Reject with feedback…" maxlength="2000" />
+      <button class="control-btn danger" id="btn-gate-reject" type="button">Reject</button>
+      <span id="gate-status"></span>
+    </div>
     <div class="feedback-row" id="feedback-row" style="display:none">
       <input type="text" id="feedback-input" placeholder="Add a note for the next attempt…" maxlength="2000" />
       <button class="control-btn" id="btn-feedback" type="button">Send</button>
@@ -758,6 +766,7 @@ export function buildPage(): string {
     if (selected && byId[selected]) renderDetail(byId[selected]);
     renderLiveOutput(model);
     renderControls(model);
+    renderGateRow(model);
     renderFeedbackRow(model);
     renderResumeRow(model);
   }
@@ -821,6 +830,71 @@ export function buildPage(): string {
   document.getElementById('btn-cancel').addEventListener('click', function () {
     if (!confirm('Cancel this run? It will halt immediately and cannot be resumed.')) return;
     sendControl('cancel');
+  });
+
+  // Shown only while a gate is actually waiting on this run (model.pendingGate,
+  // sourced from the dashboard's in-process gate registry - see
+  // src/dashboard/gate-registry.ts) - a permanently-visible approve/reject
+  // control would be misleading since most of a run's life has no gate open.
+  // The plan-approval case relies entirely on the existing "Plan evolution"
+  // section to show the pending plan content - this row only ever renders
+  // the approve/reject controls, never a second copy of the plan itself.
+  function renderGateRow(model) {
+    var row = document.getElementById('gate-row');
+    if (model.status !== 'running' || !model.pendingGate) {
+      row.style.display = 'none';
+      return;
+    }
+    row.style.display = 'flex';
+    document.getElementById('gate-label').textContent = model.pendingGate.isPlanApproval
+      ? 'Plan awaiting approval'
+      : 'Gate awaiting approval';
+  }
+
+  function sendGateDecision(action, text) {
+    var statusEl = document.getElementById('gate-status');
+    var approveBtn = document.getElementById('btn-gate-approve');
+    var rejectBtn = document.getElementById('btn-gate-reject');
+    statusEl.className = '';
+    statusEl.textContent = '';
+    approveBtn.disabled = true;
+    rejectBtn.disabled = true;
+    var body = action === 'reject-gate' ? { action: action, text: text } : { action: action };
+    fetch('control', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function (r) {
+      if (r.ok) {
+        statusEl.className = 'ok';
+        statusEl.textContent = action === 'approve-gate' ? 'approved' : 'rejected';
+        var input = document.getElementById('gate-reject-input');
+        input.value = '';
+        return refresh();
+      }
+      return r.json().then(function (respBody) {
+        throw new Error(respBody.error || ('request failed (' + r.status + ')'));
+      });
+    }).catch(function (err) {
+      statusEl.className = 'err';
+      statusEl.textContent = err.message;
+    }).then(function () {
+      approveBtn.disabled = false;
+      rejectBtn.disabled = false;
+    });
+  }
+
+  document.getElementById('btn-gate-approve').addEventListener('click', function () {
+    sendGateDecision('approve-gate');
+  });
+  document.getElementById('btn-gate-reject').addEventListener('click', function () {
+    var input = document.getElementById('gate-reject-input');
+    var text = input.value.trim();
+    if (!text) return;
+    sendGateDecision('reject-gate', text);
+  });
+  document.getElementById('gate-reject-input').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') document.getElementById('btn-gate-reject').click();
   });
 
   // Shown only while the run is actually running (see renderFeedbackRow) -

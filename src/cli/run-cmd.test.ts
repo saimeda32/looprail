@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { expect, test, vi } from 'vitest'
-import { agentCostBreakdown, agentEstimatedCostBreakdown, makeGate, runAction } from './run-cmd.js'
+import {
+  agentCostBreakdown, agentEstimatedCostBreakdown, makeGate, makeUiGate, readGateWaitingMarker, runAction,
+} from './run-cmd.js'
 import { JournalWriter, MockAdapter, parseLoopfile } from '../index.js'
 import { runsRoot } from '../journal/runs.js'
 import { loadRunLoopDef } from '../journal/loopfile-persist.js'
@@ -14,6 +16,7 @@ import { startDashboardServer } from '../dashboard/server.js'
 import { buildViewModel } from '../dashboard/view-model.js'
 import { createRegistry } from '../adapters/registry.js'
 import type { NodeDef } from '../core/types.js'
+import { getPendingGate, resolvePendingGate } from '../dashboard/gate-registry.js'
 
 const FIXTURE = `
 name: cli-fixture
@@ -303,6 +306,37 @@ test('gate timeout halts the run as an infrastructure error, not a config error 
   expect(text).not.toContain('config error')
 })
 
+test('a plain `looprail run` (no --ui) never registers with the dashboard gate registry and never writes gate-waiting.json', async () => {
+  // Locks in the regression this task is about: when opts.ui is not set,
+  // run-cmd wires makeGate (not makeUiGate) as it always has - so a gate
+  // node must never call registerPendingGate, and no <runDir>/gate-waiting.json
+  // marker should ever appear, even mid-gate while the run is genuinely
+  // blocked waiting on the injected gate function below.
+  const { cwd, io } = setup(GATED)
+  let sawRunDirDuringGate: string | undefined
+  let pendingDuringGate: unknown
+  let markerDuringGate: unknown
+  const code = await runAction(undefined, { cwd }, {
+    io,
+    gate: async () => {
+      const runs = readdirSync(runsRoot(cwd))
+      const runId = runs[0]
+      const runDir = join(runsRoot(cwd), runId)
+      sawRunDirDuringGate = runDir
+      pendingDuringGate = getPendingGate(runId)
+      markerDuringGate = readGateWaitingMarker(runDir)
+      return true
+    },
+  })
+  expect(code).toBe(0)
+  expect(sawRunDirDuringGate).toBeDefined()
+  // No pending-gate registry entry was ever created for this run.
+  expect(pendingDuringGate).toBeUndefined()
+  // No gate-waiting.json marker was ever written for this run.
+  expect(markerDuringGate).toBeUndefined()
+  expect(existsSync(join(sawRunDirDuringGate!, 'gate-waiting.json'))).toBe(false)
+})
+
 test('answering "a" at a gate prompt stores the approval so a later run of the same loop does not prompt again', async () => {
   vi.useFakeTimers()
   const fakeStdin = new PassThrough()
@@ -350,6 +384,125 @@ test('makeGate: a plain y/n answer still returns a bare boolean-shaped GateAnswe
   const answerPromise = gate({ id: 'approve', role: 'gate' }, 'ctx')
   input.write('y\n')
   expect(await answerPromise).toEqual({ approved: true })
+})
+
+test('makeUiGate resolves via a dashboard-style resolvePendingGate approval, never touching stdin', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
+  const runDir = mkdtempSync(join(tmpdir(), 'lr-gate-run-'))
+  const gate = makeUiGate(
+    { maxIterations: 1, maxCostUsd: 1 }, { out: () => {} }, false, cwd, 'run-x', runDir,
+    [{ id: 'approve', role: 'gate' }],
+  )
+  const answerPromise = gate({ id: 'approve', role: 'gate' }, 'ctx')
+  await Promise.resolve()
+  await Promise.resolve() // let registerPendingGate land before we look it up
+  expect(getPendingGate('run-x')).toMatchObject({ nodeId: 'approve', runId: 'run-x', isPlanApproval: false })
+  const found = resolvePendingGate('run-x', 'approve', { approved: true })
+  expect(found).toBe(true)
+  await expect(answerPromise).resolves.toEqual({ approved: true })
+  expect(getPendingGate('run-x')).toBeUndefined()
+})
+
+test('makeUiGate resolves via a dashboard-style rejection carrying feedback', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
+  const runDir = mkdtempSync(join(tmpdir(), 'lr-gate-run-'))
+  const gate = makeUiGate(
+    { maxIterations: 1, maxCostUsd: 1 }, { out: () => {} }, false, cwd, 'run-y', runDir,
+    [{ id: 'approve', role: 'gate' }],
+  )
+  const answerPromise = gate({ id: 'approve', role: 'gate' }, 'ctx')
+  await Promise.resolve()
+  await Promise.resolve()
+  resolvePendingGate('run-y', 'approve', { approved: false, feedback: 'needs more tests' })
+  await expect(answerPromise).resolves.toEqual({ approved: false, feedback: 'needs more tests' })
+})
+
+test('makeUiGate still resolves via stdin when the dashboard never answers', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
+  const runDir = mkdtempSync(join(tmpdir(), 'lr-gate-run-'))
+  const input = new PassThrough()
+  const gate = makeUiGate(
+    { maxIterations: 1, maxCostUsd: 1 }, { out: () => {} }, false, cwd, 'run-z', runDir,
+    [{ id: 'approve', role: 'gate' }], {}, input,
+  )
+  const answerPromise = gate({ id: 'approve', role: 'gate' }, 'ctx')
+  input.write('y\n')
+  await expect(answerPromise).resolves.toEqual({ approved: true })
+  // the registry entry this gate call registered must not outlive it
+  expect(getPendingGate('run-z')).toBeUndefined()
+})
+
+test('makeUiGate times out via the injected gate timer exactly like makeGate, whether or not the dashboard ever answers', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
+  const runDir = mkdtempSync(join(tmpdir(), 'lr-gate-run-'))
+  const gate = makeUiGate(
+    { maxIterations: 1, maxCostUsd: 1, gateTimeoutSec: 5 }, { out: () => {} }, false, cwd, 'run-t', runDir,
+    [{ id: 'approve', role: 'gate' }],
+    { gateTimer: async (_ms, message) => { throw new Error(message) } },
+  )
+  await expect(gate({ id: 'approve', role: 'gate' }, 'ctx'))
+    .rejects.toThrow('infra: gate "approve" timed out after 5s awaiting human approval')
+  expect(getPendingGate('run-t')).toBeUndefined()
+})
+
+test('makeUiGate marks the gate-waiting.json marker while waiting and removes it once settled', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
+  const runDir = mkdtempSync(join(tmpdir(), 'lr-gate-run-'))
+  const gate = makeUiGate(
+    { maxIterations: 1, maxCostUsd: 1 }, { out: () => {} }, false, cwd, 'run-m', runDir,
+    [{ id: 'approve', role: 'gate' }],
+  )
+  const answerPromise = gate({ id: 'approve', role: 'gate' }, 'plan ok?')
+  await Promise.resolve()
+  await Promise.resolve()
+  expect(readGateWaitingMarker(runDir)).toEqual({ nodeId: 'approve', isPlanApproval: false, question: 'plan ok?' })
+  resolvePendingGate('run-m', 'approve', { approved: true })
+  await answerPromise
+  expect(readGateWaitingMarker(runDir)).toBeUndefined()
+})
+
+test('makeUiGate classifies a gate whose dependency chain leads to a generates:graph planner as a plan-approval gate', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
+  const runDir = mkdtempSync(join(tmpdir(), 'lr-gate-run-'))
+  const nodes: NodeDef[] = [
+    { id: 'plan', role: 'planner', generates: 'graph' },
+    { id: 'approve', role: 'gate', after: ['plan'] },
+  ]
+  const gate = makeUiGate(
+    { maxIterations: 1, maxCostUsd: 1 }, { out: () => {} }, false, cwd, 'run-p', runDir, nodes,
+  )
+  const answerPromise = gate(nodes[1]!, 'plan ok?')
+  await Promise.resolve()
+  await Promise.resolve()
+  expect(getPendingGate('run-p')).toMatchObject({ isPlanApproval: true })
+  expect(readGateWaitingMarker(runDir)).toMatchObject({ isPlanApproval: true })
+  resolvePendingGate('run-p', 'approve', { approved: true })
+  await answerPromise
+})
+
+test('makeUiGate honors --yes auto-approve without ever registering with the dashboard', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
+  const runDir = mkdtempSync(join(tmpdir(), 'lr-gate-run-'))
+  const gate = makeUiGate(
+    { maxIterations: 1, maxCostUsd: 1 }, { out: () => {} }, true, cwd, 'run-auto', runDir,
+    [{ id: 'approve', role: 'gate' }],
+  )
+  await expect(gate({ id: 'approve', role: 'gate' }, 'ctx')).resolves.toEqual({ approved: true })
+  expect(getPendingGate('run-auto')).toBeUndefined()
+  expect(readGateWaitingMarker(runDir)).toBeUndefined()
+})
+
+test('makeUiGate honors an already-stored approval without ever registering with the dashboard', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
+  const runDir = mkdtempSync(join(tmpdir(), 'lr-gate-run-'))
+  const node: NodeDef = { id: 'release-check', role: 'gate' }
+  storeApproval(cwd, node)
+  const gate = makeUiGate(
+    { maxIterations: 1, maxCostUsd: 1 }, { out: () => {} }, false, cwd, 'run-stored', runDir, [node],
+  )
+  await expect(gate(node, 'ctx')).resolves.toEqual({ approved: true })
+  expect(getPendingGate('run-stored')).toBeUndefined()
+  expect(readGateWaitingMarker(runDir)).toBeUndefined()
 })
 
 

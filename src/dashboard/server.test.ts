@@ -371,6 +371,126 @@ test('POST /control feedback refuses to act once the run is no longer running', 
   expect(res.status).toBe(409)
 })
 
+// Fakes the same PendingGate shape src/dashboard/gate-registry.ts's real
+// registry holds, letting these tests drive a real HTTP request against a
+// real started server and prove the underlying GateHandler's promise
+// actually resolves - not merely that some value got written somewhere.
+function fakePendingGateStore() {
+  const gates = new Map<string, import('./gate-registry.js').PendingGate>()
+  const resolved: { runId: string; nodeId: string; answer: import('../core/types.js').GateAnswer }[] = []
+  return {
+    gates,
+    resolved,
+    getPendingGate: (runId: string) => {
+      for (const g of gates.values()) if (g.runId === runId) return g
+      return undefined
+    },
+    resolvePendingGate: (runId: string, nodeId: string, answer: import('../core/types.js').GateAnswer) => {
+      const key = `${runId}:${nodeId}`
+      const pending = gates.get(key)
+      if (!pending) return false
+      gates.delete(key)
+      resolved.push({ runId, nodeId, answer })
+      pending.resolve(answer)
+      return true
+    },
+  }
+}
+
+test('POST /control approve-gate resolves the awaited gate promise with {approved:true}', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const store = fakePendingGateStore()
+  const awaited = new Promise((resolve) => {
+    store.gates.set('r:plan', { resolve, question: 'approve the plan?', nodeId: 'plan', runId: 'r', isPlanApproval: false })
+  })
+  dashboard = await startDashboardServer({
+    journalPath, getPendingGate: store.getPendingGate, resolvePendingGate: store.resolvePendingGate,
+  })
+  const res = await post(dashboard.url + '/control', { action: 'approve-gate' })
+  expect(res.status).toBe(200)
+  await expect(awaited).resolves.toEqual({ approved: true })
+})
+
+test('POST /control reject-gate resolves the awaited gate promise with {approved:false,feedback}', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const store = fakePendingGateStore()
+  const awaited = new Promise((resolve) => {
+    store.gates.set('r:plan', { resolve, question: 'approve the plan?', nodeId: 'plan', runId: 'r', isPlanApproval: true })
+  })
+  dashboard = await startDashboardServer({
+    journalPath, getPendingGate: store.getPendingGate, resolvePendingGate: store.resolvePendingGate,
+  })
+  const res = await post(dashboard.url + '/control', { action: 'reject-gate', text: 'split verifier into two nodes' })
+  expect(res.status).toBe(200)
+  await expect(awaited).resolves.toEqual({ approved: false, feedback: 'split verifier into two nodes' })
+})
+
+test('POST /control reject-gate 400s on missing or empty feedback text', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const store = fakePendingGateStore()
+  store.gates.set('r:plan', { resolve: () => {}, question: 'q', nodeId: 'plan', runId: 'r', isPlanApproval: false })
+  dashboard = await startDashboardServer({
+    journalPath, getPendingGate: store.getPendingGate, resolvePendingGate: store.resolvePendingGate,
+  })
+  const missing = await post(dashboard.url + '/control', { action: 'reject-gate' })
+  expect(missing.status).toBe(400)
+  const empty = await post(dashboard.url + '/control', { action: 'reject-gate', text: '   ' })
+  expect(empty.status).toBe(400)
+  expect(store.resolved).toEqual([])
+})
+
+test('POST /control approve-gate/reject-gate 409s when no gate is currently waiting for this run', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const store = fakePendingGateStore()
+  dashboard = await startDashboardServer({
+    journalPath, getPendingGate: store.getPendingGate, resolvePendingGate: store.resolvePendingGate,
+  })
+  const approve = await post(dashboard.url + '/control', { action: 'approve-gate' })
+  expect(approve.status).toBe(409)
+  const reject = await post(dashboard.url + '/control', { action: 'reject-gate', text: 'nope' })
+  expect(reject.status).toBe(409)
+})
+
+test('POST /control approve-gate/reject-gate 403s on cross-origin requests', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const store = fakePendingGateStore()
+  store.gates.set('r:plan', { resolve: () => {}, question: 'q', nodeId: 'plan', runId: 'r', isPlanApproval: false })
+  dashboard = await startDashboardServer({
+    journalPath, getPendingGate: store.getPendingGate, resolvePendingGate: store.resolvePendingGate,
+  })
+  const res = await post(dashboard.url + '/control', { action: 'approve-gate' }, { origin: 'http://evil.example' })
+  expect(res.status).toBe(403)
+  expect(store.resolved).toEqual([])
+})
+
+test('POST /control approve-gate/reject-gate 409s once the run is no longer running', async () => {
+  const journalPath = journalWith([
+    '{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}',
+    '{"ts":2,"type":"verified","data":{"reason":"all verifiers passed","costUsd":0}}',
+  ])
+  const store = fakePendingGateStore()
+  store.gates.set('r:plan', { resolve: () => {}, question: 'q', nodeId: 'plan', runId: 'r', isPlanApproval: false })
+  dashboard = await startDashboardServer({
+    journalPath, getPendingGate: store.getPendingGate, resolvePendingGate: store.resolvePendingGate,
+  })
+  const res = await post(dashboard.url + '/control', { action: 'approve-gate' })
+  expect(res.status).toBe(409)
+})
+
+test('GET /model exposes pendingGate:null when no gate is waiting, and the pending gate details when one is', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const store = fakePendingGateStore()
+  dashboard = await startDashboardServer({
+    journalPath, getPendingGate: store.getPendingGate, resolvePendingGate: store.resolvePendingGate,
+  })
+  const before = await get(dashboard.url + '/model')
+  expect(JSON.parse(before.body).pendingGate).toBeNull()
+
+  store.gates.set('r:plan', { resolve: () => {}, question: 'approve the plan?', nodeId: 'plan', runId: 'r', isPlanApproval: true })
+  const after = await get(dashboard.url + '/model')
+  expect(JSON.parse(after.body).pendingGate).toEqual({ nodeId: 'plan', isPlanApproval: true })
+})
+
 test('POST /resume 501s cleanly when this dashboard has no onResume wired up', async () => {
   const journalPath = journalWith([
     '{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}',

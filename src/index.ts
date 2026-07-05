@@ -10,7 +10,7 @@ export { MockAdapter, type MockStep } from './adapters/mock.js'
 export { executeNode, type EngineDeps } from './engine/nodes.js'
 export { invokeWithRetry, InfraError, isInfraError, type RetryDeps } from './engine/retry.js'
 export { runIteration } from './engine/scheduler.js'
-export { runLoop, contextHash, type RunOptions } from './engine/runner.js'
+export { runLoop, contextHash, findPlanGenerator, type RunOptions } from './engine/runner.js'
 export { JournalWriter, readJournal } from './journal/journal.js'
 export {
   runsRoot, latestRunId, listRunIds, summarizeJournal, reconstructRunState,
