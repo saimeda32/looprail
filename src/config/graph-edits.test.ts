@@ -79,7 +79,6 @@ test('applyGraphEdits rejects "remove" of an unknown node', () => {
 
 test('serializeGraphFragment round-trips through parseGraphFragment', () => {
   const text = serializeGraphFragment(BASE)
-  const reparsed = parseGraphFragment(`graph:\n${text.split('graph:\n')[1] ?? ''}` === text ? text : text)
   // simplest correctness check: re-parsing the serialized text yields an
   // equivalent fragment (same node ids/roles/agents), not the exact same
   // key ORDER YAML happens to choose.
@@ -158,7 +157,7 @@ test('measured claim: a compact edits block costs far fewer output tokens than a
   expect(fullReEmitText.length).toBeGreaterThan(15000)
 
   const reductionPct = Math.round((1 - editsTokens / fullReEmitTokens) * 100)
-  // eslint-disable-next-line no-console
+   
   console.log(`[graph-edits token measurement] full re-emit: ${fullReEmitTokens} tokens; edits block: ${editsTokens} tokens; ${reductionPct}% reduction`)
 
   expect(editsTokens).toBeLessThan(fullReEmitTokens)

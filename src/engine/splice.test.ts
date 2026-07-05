@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import { spliceFragment } from './splice.js'
-import type { AgentDef, NodeDef } from '../core/types.js'
+import type { AgentDef } from '../core/types.js'
 
 const WORKER: AgentDef = { adapter: 'copilot-cli', model: 'claude-sonnet-5' }
 

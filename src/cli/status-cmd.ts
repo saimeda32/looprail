@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Command } from 'commander'
-import { readJournal, type JournalEvent } from '../index.js'
+import { readJournal } from '../index.js'
 import { latestRunId, runsRoot, summarizeJournal, type RunSummary } from '../journal/runs.js'
 import { defaultIo, dim, err, heading, ok, warn, type CliIo } from './ui.js'
 

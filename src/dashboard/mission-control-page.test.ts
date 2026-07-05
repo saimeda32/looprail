@@ -57,7 +57,7 @@ test('session cards are plain, non-clickable divs distinct from the run-card/sta
   expect(html).not.toMatch(/el\('a',\s*'session-card'/)
   expect(html).toContain('session-badge')
 
-  const fnMatch = html.match(/function sessionCard\(session\) \{[\s\S]*?\n  \}/)
+  const fnMatch = html.match(/function sessionCard\(session\) \{[\s\S]*?\n {2}\}/)
   expect(fnMatch).not.toBeNull()
   const body = fnMatch![0]
   expect(body).not.toContain('.href')
@@ -83,7 +83,7 @@ test('the client renders a combined runs+sessions payload from both fetch and th
 
 test('an empty sessions array hides the sessions section instead of erroring', () => {
   const html = buildMissionControlPage()
-  const fnMatch = html.match(/function renderSessions\(sessions\) \{[\s\S]*?\n  \}/)
+  const fnMatch = html.match(/function renderSessions\(sessions\) \{[\s\S]*?\n {2}\}/)
   expect(fnMatch).not.toBeNull()
   const body = fnMatch![0]
   expect(body).toContain('sessions.length === 0')
@@ -127,11 +127,11 @@ function loadRunCard(): (run: unknown) => ReturnType<typeof makeFakeElement> {
   const html = buildMissionControlPage()
   const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
   const statusClassSrc = script.match(/var STATUS_CLASS = \{[\s\S]*?\};/)![0]
-  const elSrc = script.match(/function el\(tag, className, text\) \{[\s\S]*?\n  \}\n/)![0]
-  const formatTokensSrc = script.match(/function formatTokens\(n\) \{[\s\S]*?\n  \}\n/)![0]
-  const formatDurationSrc = script.match(/function formatDuration\(ms\) \{[\s\S]*?\n  \}\n/)![0]
-  const elapsedMsSrc = script.match(/function elapsedMs\(run\) \{[\s\S]*?\n  \}\n/)![0]
-  const runCardSrc = script.match(/function runCard\(run\) \{[\s\S]*?\n  \}\n/)![0]
+  const elSrc = script.match(/function el\(tag, className, text\) \{[\s\S]*?\n {2}\}\n/)![0]
+  const formatTokensSrc = script.match(/function formatTokens\(n\) \{[\s\S]*?\n {2}\}\n/)![0]
+  const formatDurationSrc = script.match(/function formatDuration\(ms\) \{[\s\S]*?\n {2}\}\n/)![0]
+  const elapsedMsSrc = script.match(/function elapsedMs\(run\) \{[\s\S]*?\n {2}\}\n/)![0]
+  const runCardSrc = script.match(/function runCard\(run\) \{[\s\S]*?\n {2}\}\n/)![0]
   const factory = new Function('document', `
     ${statusClassSrc}
     ${elSrc}
@@ -194,10 +194,10 @@ test('a run tile with costUsd 0 and no estimate still shows a flat $0.00 (nothin
 function loadRenderUsage() {
   const html = buildMissionControlPage()
   const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
-  const formatTokensSrc = script.match(/function formatTokens\(n\) \{[\s\S]*?\n  \}\n/)![0]
-  const formatDurationSrc = script.match(/function formatDuration\(ms\) \{[\s\S]*?\n  \}\n/)![0]
-  const elapsedMsSrc = script.match(/function elapsedMs\(run\) \{[\s\S]*?\n  \}\n/)![0]
-  const renderUsageSrc = script.match(/function renderUsage\(runs\) \{[\s\S]*?\n  \}\n/)![0]
+  const formatTokensSrc = script.match(/function formatTokens\(n\) \{[\s\S]*?\n {2}\}\n/)![0]
+  const formatDurationSrc = script.match(/function formatDuration\(ms\) \{[\s\S]*?\n {2}\}\n/)![0]
+  const elapsedMsSrc = script.match(/function elapsedMs\(run\) \{[\s\S]*?\n {2}\}\n/)![0]
+  const renderUsageSrc = script.match(/function renderUsage\(runs\) \{[\s\S]*?\n {2}\}\n/)![0]
   const factory = new Function('document', `
     ${formatTokensSrc}
     ${formatDurationSrc}
@@ -249,7 +249,7 @@ test('the aggregate cost total stays a flat $0.00 when no run has any real or es
 
 test('run tiles render a one-line reason for halted/canceled runs, distinctly classed, reusing run.reason verbatim', () => {
   const html = buildMissionControlPage()
-  const fnMatch = html.match(/function runCard\(run\) \{[\s\S]*?\n  \}/)
+  const fnMatch = html.match(/function runCard\(run\) \{[\s\S]*?\n {2}\}/)
   expect(fnMatch).not.toBeNull()
   const body = fnMatch![0]
   expect(body).toMatch(/run\.status === 'halted'/)
@@ -280,10 +280,10 @@ function loadTickWall() {
   const rangesSrc = script.match(/var RANGES = \[[\s\S]*?\];/)![0]
   const selectedRangeSrc = "var selectedRange = 'all';"
   const lastRunsSrc = 'var lastRuns = [];'
-  const filterByRangeSrc = script.match(/function filterByRange\(runs\) \{[\s\S]*?\n  \}\n/)![0]
-  const formatDurationSrc = script.match(/function formatDuration\(ms\) \{[\s\S]*?\n  \}\n/)![0]
-  const elapsedMsSrc = script.match(/function elapsedMs\(run\) \{[\s\S]*?\n  \}\n/)![0]
-  const tickWallSrc = script.match(/function tickWall\(\) \{[\s\S]*?\n  \}\n/)![0]
+  const filterByRangeSrc = script.match(/function filterByRange\(runs\) \{[\s\S]*?\n {2}\}\n/)![0]
+  const formatDurationSrc = script.match(/function formatDuration\(ms\) \{[\s\S]*?\n {2}\}\n/)![0]
+  const elapsedMsSrc = script.match(/function elapsedMs\(run\) \{[\s\S]*?\n {2}\}\n/)![0]
+  const tickWallSrc = script.match(/function tickWall\(\) \{[\s\S]*?\n {2}\}\n/)![0]
   const factory = new Function('document', `
     ${rangesSrc}
     ${selectedRangeSrc}

@@ -11,7 +11,7 @@ import { registerApproveGateTool } from './tools/approve-gate.js'
 
 const pkg = createRequire(import.meta.url)('../../package.json') as { version: string }
 
-export interface McpServerDeps extends McpToolDeps {}
+export type McpServerDeps = McpToolDeps
 
 export function createLooprailMcpServer(deps: McpServerDeps): McpServer {
   const server = new McpServer({ name: 'looprail', version: pkg.version })

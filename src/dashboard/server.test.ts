@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, writeFileSync, appendFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -186,11 +186,11 @@ test('GET /events against a journalPath that is a directory returns a clean resp
 
 test('the dashboard never writes to the journal file (read-only)', async () => {
   const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
-  const before = require('node:fs').readFileSync(journalPath, 'utf8')
+  const before = readFileSync(journalPath, 'utf8')
   dashboard = await startDashboardServer({ journalPath })
   await get(dashboard.url + '/')
   await get(dashboard.url + '/model')
-  const after = require('node:fs').readFileSync(journalPath, 'utf8')
+  const after = readFileSync(journalPath, 'utf8')
   expect(after).toBe(before)
 })
 
