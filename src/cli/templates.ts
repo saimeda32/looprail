@@ -47,7 +47,7 @@ function agentSpec(
   key: string,
 ): string {
   const model = models[key]
-  return `{ adapter: ${adapters[key]}${model ? `, model: ${model}` : ''} }`
+  return `{ adapter: ${adapters[key]}${model ? `, model: ${model}` : ''}, permissions: safe }`
 }
 
 export const TEMPLATES: Record<string, Template> = {

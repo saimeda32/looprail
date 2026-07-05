@@ -63,8 +63,8 @@ test('non-interactive (--yes): every agent role silently gets its recommended ti
   expect(code).toBe(0)
   const yaml = readFileSync(join(cwd, 'looprail.yaml'), 'utf8')
   // fix-tests: worker recommends 'medium' (sonnet), checker recommends 'cheap' (haiku)
-  expect(yaml).toContain('worker:  { adapter: claude-code, model: sonnet }')
-  expect(yaml).toContain('checker: { adapter: claude-code, model: haiku }')
+  expect(yaml).toContain('worker:  { adapter: claude-code, model: sonnet, permissions: safe }')
+  expect(yaml).toContain('checker: { adapter: claude-code, model: haiku, permissions: safe }')
 })
 
 test('no ask provided (e.g. non-TTY without --yes): every agent role still gets its recommended tier', async () => {
@@ -75,8 +75,8 @@ test('no ask provided (e.g. non-TTY without --yes): every agent role still gets 
     { detect: detected(['claude-code']), io })
   expect(code).toBe(0)
   const yaml = readFileSync(join(cwd, 'looprail.yaml'), 'utf8')
-  expect(yaml).toContain('worker:  { adapter: claude-code, model: sonnet }')
-  expect(yaml).toContain('checker: { adapter: claude-code, model: haiku }')
+  expect(yaml).toContain('worker:  { adapter: claude-code, model: sonnet, permissions: safe }')
+  expect(yaml).toContain('checker: { adapter: claude-code, model: haiku, permissions: safe }')
 })
 
 test('interactive: a real user choice of "strong" overrides the recommended tier in the generated yaml', async () => {
@@ -91,10 +91,10 @@ test('interactive: a real user choice of "strong" overrides the recommended tier
   expect(code).toBe(0)
   const yaml = readFileSync(join(cwd, 'looprail.yaml'), 'utf8')
   // worker's real answer ("strong") is reflected, not its "medium" recommendation
-  expect(yaml).toContain('worker:  { adapter: claude-code, model: opus }')
+  expect(yaml).toContain('worker:  { adapter: claude-code, model: opus, permissions: safe }')
   // checker's real answer ("cheap") happens to match its recommendation, but
   // it still came from the injected ask, not a bypass of it
-  expect(yaml).toContain('checker: { adapter: claude-code, model: haiku }')
+  expect(yaml).toContain('checker: { adapter: claude-code, model: haiku, permissions: safe }')
 })
 
 test('interactive tier prompt offers the recommended tier as the first (default-on-enter) choice', async () => {
