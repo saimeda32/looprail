@@ -55,6 +55,7 @@ export interface DashboardTotals {
   iteration: number
   maxIterations?: number
   maxWallMinutes?: number
+  replanLimit?: number
   replans: number
   tokens: number
   // Total real node invocations across the whole run - distinct from
@@ -269,6 +270,7 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
       maxCostUsd: def?.rails.maxCostUsd,
       maxIterations: def?.rails.maxIterations,
       maxWallMinutes: def?.rails.maxWallMinutes,
+      replanLimit: def?.rails.replanLimit,
     },
     plans,
   }

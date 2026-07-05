@@ -132,6 +132,60 @@ test('resume without a maxWallMinutes override leaves the loopfile\'s own rails.
   expect(lines.join('\n')).not.toContain('undefinedmin')
 })
 
+test('resume with raised replan_limit lets a run that already breached its old limit keep going and verify', async () => {
+  const { cwd, runId } = await haltedRun()
+  const { io, lines } = capture()
+  const code = await resumeAction(runId, { cwd, json: true, maxIterations: 3, replanLimit: 5 }, { io, registry: passingRegistry() })
+  expect(code).toBe(0)
+  expect((JSON.parse(lines.at(-1)!) as { status: string }).status).toBe('verified')
+})
+
+test('resume applies a replanLimit override to the run\'s own persisted def, so the resumed run actually runs with the raised limit', async () => {
+  const { cwd, runId } = await haltedRun()
+  const runDir = join(runsRoot(cwd), runId)
+  await resumeAction(runId, { cwd, json: true, maxIterations: 3, replanLimit: 7 }, { io: capture().io, registry: passingRegistry() })
+  const { loadRunLoopDef } = await import('../journal/loopfile-persist.js')
+  expect(loadRunLoopDef(runDir)?.rails.replanLimit).toBe(7)
+})
+
+test('resume without a replanLimit override leaves the loopfile\'s own rails.replanLimit untouched', async () => {
+  const { cwd, runId } = await haltedRun()
+  const runDir = join(runsRoot(cwd), runId)
+  await resumeAction(runId, { cwd, json: true, maxIterations: 3 }, { io: capture().io, registry: passingRegistry() })
+  // FIXTURE has no replan_limit, so resuming without an override must not
+  // silently invent one on the persisted def.
+  const { loadRunLoopDef } = await import('../journal/loopfile-persist.js')
+  expect(loadRunLoopDef(runDir)?.rails.replanLimit).toBeUndefined()
+})
+
+test('resume with a goal override actually changes the goal the resumed run executes with (executor prompt + persisted def)', async () => {
+  const { cwd, runId } = await haltedRun()
+  const runDir = join(runsRoot(cwd), runId)
+  const registry = createRegistry()
+  const mock = new MockAdapter([
+    { match: /EXECUTOR/, output: 'DONE', costUsd: 1 },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok', costUsd: 0.2 },
+  ])
+  registry.register(mock)
+  const newGoal = 'Say DONE, but clearly this time.'
+  const code = await resumeAction(runId, { cwd, json: true, maxIterations: 3, goal: newGoal }, { io: capture().io, registry })
+  expect(code).toBe(0)
+  // Behavioral: the executor actually saw the new goal in its prompt,
+  const executorCall = mock.calls.find((c) => /EXECUTOR/.test(c.prompt))
+  expect(executorCall?.prompt).toContain(newGoal)
+  // and the run's own persisted def (what the dashboard/resume reads) carries it.
+  const { loadRunLoopDef } = await import('../journal/loopfile-persist.js')
+  expect(loadRunLoopDef(runDir)?.goal).toBe(newGoal)
+})
+
+test('resume without a goal override leaves the loopfile\'s own goal untouched', async () => {
+  const { cwd, runId } = await haltedRun()
+  const runDir = join(runsRoot(cwd), runId)
+  await resumeAction(runId, { cwd, json: true, maxIterations: 3 }, { io: capture().io, registry: passingRegistry() })
+  const { loadRunLoopDef } = await import('../journal/loopfile-persist.js')
+  expect(loadRunLoopDef(runDir)?.goal).toBe('Say DONE.')
+})
+
 test('resume with no runs exits 1', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'lr-resume-empty-'))
   const { io, lines } = capture()

@@ -153,6 +153,20 @@ test('the resume row includes a wall-minutes input alongside iterations/cost, pr
   expect(html).toMatch(/maxWallMinutes:\s*wallMinutes/)
 })
 
+test('the resume row includes a replan-limit input alongside iterations/cost/wall-minutes, prefilled from totals.replanLimit and posted on resume', () => {
+  const html = buildPage()
+  expect(html).toContain('id="resume-replan-limit"')
+  expect(html).toContain('model.totals.replanLimit')
+  expect(html).toMatch(/replanLimit:\s*replanLimit/)
+})
+
+test('the resume row includes a goal editor (textarea) prefilled from model.goal and posted on resume', () => {
+  const html = buildPage()
+  expect(html).toContain('id="resume-goal"')
+  expect(html).toContain("document.getElementById('resume-goal').value = model.goal")
+  expect(html).toMatch(/goal:\s*goal/)
+})
+
 // Spend-by-agent's Nodes column previously joined every node id into one
 // comma-separated string (g.nodeIds.join(', ')), which the cell's nowrap +
 // ellipsis CSS then clipped once an agent backed many nodes. Each id must

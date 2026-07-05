@@ -16,6 +16,19 @@ export interface ResumeOverrides {
   maxIterations?: number
   maxCostUsd?: number
   maxWallMinutes?: number
+  // Named `replanLimit` to match the rails field of the same name (LoopDef.rails.replanLimit,
+  // sourced from YAML `replan_limit`) - this is the resume-time raise for that rail.
+  replanLimit?: number
+  // A resume-time override for the run's GOAL text. Threaded through the SAME
+  // override mechanism as the rails above rather than mutating the user's
+  // loopfile.yaml on disk from a web UI, because: (a) loadLoop (run-cmd.ts)
+  // re-reads and re-parses the loopfile fresh from disk on every resume, so an
+  // override applied to the in-memory `def` after load is honored for the
+  // resumed run without touching the source file; (b) it keeps one uniform
+  // override path matching maxIterations/maxCostUsd/maxWallMinutes/replanLimit;
+  // (c) it never silently rewrites the user's source file behind their back.
+  // SCOPE: goal-only for this first cut - per-node prompt editing is out of scope.
+  goal?: string
 }
 
 // Unlike replay (a deliberate fork: edit one prompt, compare the variant
@@ -53,15 +66,17 @@ export async function resumeAction(
   const priorIterations = summarizeJournal(events).iterations
   const { plan, feedback } = reconstructRunState(events)
   const cache = loadCache(journalPath, { excludeIteration: priorIterations })
-  const def: LoopDef = (opts.maxIterations === undefined && opts.maxCostUsd === undefined && opts.maxWallMinutes === undefined)
+  const def: LoopDef = (opts.maxIterations === undefined && opts.maxCostUsd === undefined && opts.maxWallMinutes === undefined && opts.replanLimit === undefined && opts.goal === undefined)
     ? loaded.def
     : {
         ...loaded.def,
+        goal: opts.goal ?? loaded.def.goal,
         rails: {
           ...loaded.def.rails,
           ...(opts.maxIterations === undefined ? {} : { maxIterations: opts.maxIterations }),
           ...(opts.maxCostUsd === undefined ? {} : { maxCostUsd: opts.maxCostUsd }),
           ...(opts.maxWallMinutes === undefined ? {} : { maxWallMinutes: opts.maxWallMinutes }),
+          ...(opts.replanLimit === undefined ? {} : { replanLimit: opts.replanLimit }),
         },
       }
   io.out(dim(
@@ -117,9 +132,11 @@ export function registerResume(program: Command): void {
     .option('--max-iterations <n>', 'raise rails.max_iterations for this run before continuing', (v: string) => parsePositiveNumber(v, '--max-iterations'))
     .option('--max-cost-usd <n>', 'raise rails.max_cost_usd for this run before continuing', (v: string) => parsePositiveNumber(v, '--max-cost-usd'))
     .option('--max-wall-minutes <n>', 'raise rails.max_wall_minutes for this run before continuing', (v: string) => parsePositiveNumber(v, '--max-wall-minutes'))
+    .option('--replan-limit <n>', 'raise rails.replan_limit for this run before continuing', (v: string) => parsePositiveNumber(v, '--replan-limit'))
+    .option('--goal <text>', 'override the run goal for this resume without editing the loopfile on disk')
     .action(async (
       runId: string | undefined,
-      opts: { file?: string; json?: boolean; yes?: boolean; maxIterations?: number; maxCostUsd?: number; maxWallMinutes?: number },
+      opts: { file?: string; json?: boolean; yes?: boolean; maxIterations?: number; maxCostUsd?: number; maxWallMinutes?: number; replanLimit?: number; goal?: string },
       cmd: Command,
     ) => {
       const { cwd } = cmd.optsWithGlobals<{ cwd: string }>()

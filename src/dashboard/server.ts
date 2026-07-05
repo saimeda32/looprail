@@ -16,6 +16,8 @@ export interface ResumeOverrides {
   maxIterations?: number
   maxCostUsd?: number
   maxWallMinutes?: number
+  replanLimit?: number
+  goal?: string
 }
 
 // The stable default the CLI layer (ui-cmd.ts, run-cmd.ts) passes so repeat
@@ -365,7 +367,7 @@ export async function serveResume(
   let overrides: ResumeOverrides
   try {
     const body = await readRequestBody(req)
-    const parsed = JSON.parse(body || '{}') as { maxIterations?: unknown; maxCostUsd?: unknown; maxWallMinutes?: unknown }
+    const parsed = JSON.parse(body || '{}') as { maxIterations?: unknown; maxCostUsd?: unknown; maxWallMinutes?: unknown; replanLimit?: unknown; goal?: unknown }
     if (parsed.maxIterations !== undefined && !isPositiveFiniteNumber(parsed.maxIterations)) {
       sendJson(res, 400, { error: 'maxIterations must be a positive number' })
       return
@@ -378,10 +380,23 @@ export async function serveResume(
       sendJson(res, 400, { error: 'maxWallMinutes must be a positive number' })
       return
     }
+    if (parsed.replanLimit !== undefined && !isPositiveFiniteNumber(parsed.replanLimit)) {
+      sendJson(res, 400, { error: 'replanLimit must be a positive number' })
+      return
+    }
+    // Goal-only override (GAP 2): a non-empty string when provided. Threaded
+    // through the same override path as the rails so the resumed run picks it
+    // up without ever mutating the user's loopfile.yaml on disk.
+    if (parsed.goal !== undefined && (typeof parsed.goal !== 'string' || parsed.goal.trim().length === 0)) {
+      sendJson(res, 400, { error: 'goal must be a non-empty string' })
+      return
+    }
     overrides = {
       maxIterations: parsed.maxIterations as number | undefined,
       maxCostUsd: parsed.maxCostUsd as number | undefined,
       maxWallMinutes: parsed.maxWallMinutes as number | undefined,
+      replanLimit: parsed.replanLimit as number | undefined,
+      goal: parsed.goal as string | undefined,
     }
   } catch {
     sendJson(res, 400, { error: 'invalid request body' })

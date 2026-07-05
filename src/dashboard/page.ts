@@ -188,6 +188,12 @@ export function buildPage(): string {
     width: 72px; font: 12px var(--mono); font-variant-numeric: tabular-nums; background: var(--panel);
     border: 1px solid var(--line); border-radius: 3px; color: var(--ink); padding: 5px 7px;
   }
+  .resume-row .resume-goal-label { flex: 1 1 100%; align-items: stretch; }
+  .resume-row textarea {
+    flex: 1; min-width: 200px; font: 12px var(--mono); background: var(--panel); resize: vertical;
+    border: 1px solid var(--line); border-radius: 3px; color: var(--ink); padding: 6px 9px;
+  }
+  .resume-row textarea:focus { outline: 1px solid var(--signal-dim); border-color: var(--line-bright); }
   .gate-row .gate-label { color: var(--ink-dim); font: 11px var(--sans); }
   #feedback-status, #resume-status, #gate-status { font-size: 11px; color: var(--ink-faint); }
   #feedback-status.ok, #resume-status.ok, #gate-status.ok { color: var(--pass); }
@@ -265,6 +271,8 @@ export function buildPage(): string {
       <label>Iterations <input type="number" id="resume-iterations" min="1" step="1" /></label>
       <label>Cost budget $ <input type="number" id="resume-cost" min="0" step="0.01" /></label>
       <label>Wall minutes <input type="number" id="resume-wall-minutes" min="1" step="1" /></label>
+      <label>Replan limit <input type="number" id="resume-replan-limit" min="1" step="1" /></label>
+      <label class="resume-goal-label">Goal <textarea id="resume-goal" rows="2"></textarea></label>
       <button class="control-btn" id="btn-resume" type="button">Resume with these limits</button>
       <span id="resume-status"></span>
     </div>
@@ -967,6 +975,11 @@ export function buildPage(): string {
         model.totals.maxCostUsd != null ? model.totals.maxCostUsd : '';
       document.getElementById('resume-wall-minutes').value =
         model.totals.maxWallMinutes != null ? model.totals.maxWallMinutes : '';
+      document.getElementById('resume-replan-limit').value =
+        model.totals.replanLimit != null ? model.totals.replanLimit : '';
+      // Prefill the goal editor with the run's current goal so a user can tweak
+      // unclear wording before resuming (GAP 2) - goal-only for this first cut.
+      document.getElementById('resume-goal').value = model.goal != null ? model.goal : '';
       // a stale "resuming…" from a previous click must not linger once this
       // is a fresh halted state (the run genuinely halted again, or for the
       // first time) - only sendResume() itself sets this text, nothing else
@@ -984,13 +997,17 @@ export function buildPage(): string {
     var iterations = Number(document.getElementById('resume-iterations').value);
     var cost = Number(document.getElementById('resume-cost').value);
     var wallMinutes = Number(document.getElementById('resume-wall-minutes').value);
+    var replanLimit = Number(document.getElementById('resume-replan-limit').value);
+    // Trimmed; undefined when blank so the server keeps the loopfile's own goal
+    // (the goal override never mutates the source file - see ResumeOverrides.goal).
+    var goal = document.getElementById('resume-goal').value.trim() || undefined;
     statusEl.className = '';
     statusEl.textContent = '';
     btn.disabled = true;
     fetch('resume', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ maxIterations: iterations, maxCostUsd: cost, maxWallMinutes: wallMinutes }),
+      body: JSON.stringify({ maxIterations: iterations, maxCostUsd: cost, maxWallMinutes: wallMinutes, replanLimit: replanLimit, goal: goal }),
     }).then(function (r) {
       if (r.ok) {
         statusEl.className = 'ok';
