@@ -123,6 +123,8 @@ export function serveModel(
     // rails (view-model.ts derives them from the same def) - the resume
     // form prefills from those, nothing extra to compute here.
     const payload = buildDashboardPayload(readEvents(opts.journalPath), opts.def)
+    // Canceling is a deliberate "stop this" action, not a rail-breach halt -
+    // it's not resumable. Someone who wants to continue starts a fresh run.
     const resumable = payload.status === 'halted' && !!opts.onResume
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ ...payload, ...controlState(opts.journalPath, resumable) }))

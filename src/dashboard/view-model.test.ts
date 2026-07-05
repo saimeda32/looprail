@@ -286,12 +286,32 @@ test('a halt reclassifies any still-running node as interrupted, instead of leav
     ev('node_end', { nodeId: 'do', role: 'executor', iteration: 1, costUsd: 0.1, verdict: null, output: 'done' }),
     ev('node_start', { nodeId: 'check', role: 'tester', iteration: 1 }),
     ev('node_start', { nodeId: 'crit', role: 'critic', iteration: 1 }),
-    ev('halt', { reason: 'canceled by user request', costUsd: 0.1 }),
+    ev('halt', { reason: 'rail breached (iterations): iteration 6 exceeds max 5', costUsd: 0.1 }),
   ])
   expect(m.status).toBe('halted')
   expect(m.nodes.find((n) => n.id === 'do')!.status).toBe('done') // already finished - untouched
   expect(m.nodes.find((n) => n.id === 'check')!.status).toBe('interrupted')
   expect(m.nodes.find((n) => n.id === 'crit')!.status).toBe('interrupted')
+})
+
+test('a halt with reason "canceled by user request" reports status canceled, not halted', () => {
+  // A user-initiated cancellation is a deliberate stop, not a rail-breach
+  // failure - conflating the two under one "halted" status misreports
+  // "I chose to stop this" as "this broke".
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('halt', { reason: 'canceled by user request', costUsd: 0 }),
+  ])
+  expect(m.status).toBe('canceled')
+  expect(m.reason).toBe('canceled by user request')
+})
+
+test('a halt with any other reason still reports status halted', () => {
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('halt', { reason: 'rail breached (cost): $20.00 spent of $20 budget', costUsd: 20 }),
+  ])
+  expect(m.status).toBe('halted')
 })
 
 test('verified also reclassifies any still-running node as interrupted (defensive, same guard as halt)', () => {

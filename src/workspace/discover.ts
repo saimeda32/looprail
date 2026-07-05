@@ -48,7 +48,7 @@ export interface RunListEntry {
   runId: string
   name: string
   goal: string
-  status: 'running' | 'verified' | 'halted'
+  status: 'running' | 'verified' | 'halted' | 'canceled'
   agents: string[]
   iteration: number
   costUsd: number

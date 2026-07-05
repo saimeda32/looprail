@@ -107,6 +107,7 @@ export function buildMissionControlPage(): string {
   .status-running::before { animation: pulse-dot 1.6s ease-in-out infinite; }
   .status-verified { color: var(--pass); background: rgba(127,166,107,0.12); border-color: rgba(127,166,107,0.3); }
   .status-halted { color: var(--warn); background: rgba(184,134,61,0.12); border-color: rgba(184,134,61,0.3); }
+  .status-canceled { color: var(--ink-dim); background: rgba(140,131,117,0.12); border-color: rgba(140,131,117,0.3); }
   @keyframes pulse-dot { 50% { opacity: 0.35; } }
   .run-card .agents { font-size: 11.5px; color: var(--ink-dim); margin-bottom: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .run-card .stats { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -173,7 +174,7 @@ export function buildMissionControlPage(): string {
 </footer>
 <script>
 (function () {
-  var STATUS_CLASS = { running: 'status-running', verified: 'status-verified', halted: 'status-halted' };
+  var STATUS_CLASS = { running: 'status-running', verified: 'status-verified', halted: 'status-halted', canceled: 'status-canceled' };
 
   function el(tag, className, text) {
     var e = document.createElement(tag);

@@ -84,6 +84,7 @@ export function buildPage(): string {
   .status-running::before { animation: pulse-dot 1.6s ease-in-out infinite; }
   .status-verified { color: var(--pass); background: rgba(127,166,107,0.12); border-color: rgba(127,166,107,0.3); }
   .status-halted { color: var(--warn); background: rgba(184,134,61,0.12); border-color: rgba(184,134,61,0.3); }
+  .status-canceled { color: var(--ink-dim); background: rgba(140,131,117,0.12); border-color: rgba(140,131,117,0.3); }
 
   .gauges { display: flex; align-items: center; gap: 26px; padding: 11px 18px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   .gauge { display: flex; align-items: center; gap: 9px; }

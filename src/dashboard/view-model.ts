@@ -56,7 +56,7 @@ export interface DashboardModel {
   runId: string
   name: string
   goal: string
-  status: 'running' | 'verified' | 'halted'
+  status: 'running' | 'verified' | 'halted' | 'canceled'
   reason?: string
   report?: FinalReport
   nodes: DashboardNode[]
@@ -182,7 +182,12 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
         break
       case 'verified':
       case 'halt':
-        status = e.type === 'verified' ? 'verified' : 'halted'
+        // A user-initiated cancellation (run-cmd.ts's installCancelHandler,
+        // the dashboard's own Cancel control) is a deliberate stop, not a
+        // failure the way a rail breach is - conflating the two under one
+        // "halted" status misreports "I chose to stop this" as "this broke".
+        status = e.type === 'verified' ? 'verified'
+          : d.reason === 'canceled by user request' ? 'canceled' : 'halted'
         reason = String(d.reason)
         report = d.report as FinalReport | undefined
         costUsd = Math.max(costUsd, Number(d.costUsd ?? costUsd))
