@@ -1,0 +1,50 @@
+name: judge-panel-demo
+goal: |
+  Decide how to solve this: describe your real problem or design decision
+  here (edit this line) - e.g. "pick a caching strategy for this repo's
+  read-heavy API endpoints" or "design the data model for feature X".
+  Three different models will each propose their own competing approach;
+  a panel of judges scores every approach against the same rubric; a
+  synthesizer merges the winner with the best ideas from the runners-up
+  into one final recommendation.
+
+agents:
+  # Three genuinely different models proposing independently - not the same
+  # model asked three times. Model diversity is the point: each one's own
+  # blind spots and defaults differ, so the spread of proposals is real,
+  # not three near-identical rephrasings.
+  approach-a: { adapter: claude-code, model: claude-opus-4-8 }
+  approach-b: { adapter: copilot-cli, model: claude-sonnet-5 }
+  approach-c: { adapter: copilot-cli, model: gpt-5-codex }
+  # Two judges, also on different models, scoring independently - a lone
+  # judge's own preferences (e.g. favoring verbosity, or a particular
+  # framework) would silently become the deciding factor; two different
+  # models scoring the same rubric catches that before it decides anything.
+  judge-a: { adapter: claude-code, model: claude-opus-4-8 }
+  judge-b: { adapter: copilot-cli, model: claude-sonnet-5 }
+  synth:   { adapter: claude-code, model: claude-opus-4-8 }
+
+graph:
+  # panel: one entry per named agent (not a count) - each clone gets its
+  # own agent/model, not the same one repeated. All three run concurrently
+  # (no dependency between them), not one after another.
+  propose: { role: executor, panel: [approach-a, approach-b, approach-c],
+             prompt: Propose your own concrete approach to the goal above. Commit to one direction rather than hedging across several - a real recommendation, not a survey of options. State the concrete tradeoffs of your own approach honestly. }
+  # `after: [propose]`, not `of:` - a judge/synthesizer reviewing a panel
+  # must depend on it via `after` so it sees every individual member's
+  # output side by side; `of:` on a panel target is rejected by validation
+  # (reviewing a fan-out through a single `of:` slot is ambiguous - see
+  # graph.ts). `after` has no such restriction: the panel expansion rewires
+  # it to every expanded clone automatically.
+  score:   { role: judge, agent: judge-a, panel: [judge-a, judge-b], after: propose, threshold: 0.5,
+             rubric: Score how well this approach actually solves the stated goal, how feasible it is to implement with this codebase's real constraints, and how honestly it names its own tradeoffs. A vague or hedged proposal scores low even if technically plausible. }
+  merge:   { role: synthesizer, agent: synth, after: [propose, score] }
+
+rails:
+  max_iterations: 6
+  max_cost_usd: 20
+  max_wall_minutes: 40
+  stall_after: 3
+  replan_limit: 1
+
+verdict: { policy: all-pass }
