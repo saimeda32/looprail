@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -141,6 +141,74 @@ test('GET /run/<hash>/<runId>/ serves the shared per-run dashboard page, and /mo
   const model = await get(`${dashboard.url}/run/${hash}/run-1/model`)
   const payload = JSON.parse(model.body) as { name: string }
   expect(payload.name).toBe('demo')
+})
+
+test('/model prefers a run\'s own persisted loopfile.json copy over the workspace path, so graph edges and agent/model survive the workspace being deleted', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'lr-mc-persisted-'))
+  const runDir = join(runsRoot(workspace), 'run-1')
+  mkdirSync(runDir, { recursive: true })
+  writeFileSync(join(runDir, 'journal.jsonl'), JSON.stringify({
+    ts: 1, type: 'run_start', data: { runId: 'run-1', name: 'demo', goal: 'g' },
+  }) + '\n')
+  const { persistRunLoopDef } = await import('../journal/loopfile-persist.js')
+  persistRunLoopDef(runDir, {
+    name: 'demo', goal: 'g',
+    agents: { worker: { adapter: 'mock', model: 'demo-model' } },
+    nodes: [
+      { id: 'do', role: 'executor', agent: 'worker' },
+      { id: 'crit', role: 'critic', agent: 'worker', of: 'do', after: ['do'] },
+    ],
+    rails: { maxIterations: 1, maxCostUsd: 1 },
+    verdictPolicy: { kind: 'all-pass' },
+  })
+  const hash = workspaceHash(workspace)
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-mc-reg-')), 'workspaces.json')
+  writeFileSync(registryPath, JSON.stringify({ workspaces: [workspace] }))
+
+  // the origin workspace - and its looprail.yaml - is gone entirely, e.g. a
+  // git worktree cleaned up after merging. The registry still lists its
+  // (now-nonexistent) path, exactly as it would for a real orphaned entry.
+  rmSync(workspace, { recursive: true, force: true })
+
+  dashboard = await startMissionControlServer({ registryPath })
+  const model = await get(`${dashboard.url}/run/${hash}/run-1/model`)
+  const payload = JSON.parse(model.body) as {
+    edges: [string, string][]
+    nodes: { id: string; agent?: string; model?: string; adapter?: string }[]
+  }
+  expect(payload.edges).toEqual([['do', 'crit']])
+  const doNode = payload.nodes.find((n) => n.id === 'do')
+  expect(doNode).toMatchObject({ agent: 'worker', adapter: 'mock', model: 'demo-model' })
+})
+
+test('/model falls back to re-reading the workspace\'s looprail.yaml when a run predates the persisted-copy fix (no loopfile.json)', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'lr-mc-legacy-'))
+  writeFileSync(join(workspace, 'looprail.yaml'), `
+name: legacy
+goal: g
+agents:
+  worker: { adapter: mock }
+graph:
+  do:   { role: executor, agent: worker }
+  crit: { role: critic, agent: worker, of: do, after: do }
+rails:
+  max_iterations: 1
+  max_cost_usd: 1
+`)
+  const runDir = join(runsRoot(workspace), 'run-1')
+  mkdirSync(runDir, { recursive: true })
+  writeFileSync(join(runDir, 'journal.jsonl'), JSON.stringify({
+    ts: 1, type: 'run_start', data: { runId: 'run-1', name: 'legacy', goal: 'g' },
+  }) + '\n')
+  // deliberately no loopfile.json in runDir - simulates a run from before this fix
+  const hash = workspaceHash(workspace)
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-mc-reg-')), 'workspaces.json')
+  writeFileSync(registryPath, JSON.stringify({ workspaces: [workspace] }))
+
+  dashboard = await startMissionControlServer({ registryPath })
+  const model = await get(`${dashboard.url}/run/${hash}/run-1/model`)
+  const payload = JSON.parse(model.body) as { edges: [string, string][] }
+  expect(payload.edges).toEqual([['do', 'crit']])
 })
 
 test('POST /run/<hash>/<runId>/control routes to serveControl, scoped to that workspace', async () => {

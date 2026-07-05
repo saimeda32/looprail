@@ -17,6 +17,7 @@ export {
   type RunSummary, type ReconstructedState,
 } from './journal/runs.js'
 export { loadCache } from './journal/cache.js'
+export { persistRunLoopDef, loadRunLoopDef, RUN_LOOPFILE_NAME } from './journal/loopfile-persist.js'
 export { queueHumanFeedback, drainHumanFeedback } from './journal/human-feedback.js'
 export { parseLoopfile } from './config/loopfile.js'
 export { parseBenchfile } from './bench/benchfile.js'

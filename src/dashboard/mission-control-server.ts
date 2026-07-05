@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { join, resolve } from 'node:path'
 import { expandPanels, parseLoopfile, validateGraph, type LoopDef } from '../index.js'
+import { loadRunLoopDef } from '../journal/loopfile-persist.js'
 import {
   discoverClaudeCodeSessions, discoverRuns, runsRootOf, workspaceHash,
   type RunListEntry, type SessionEntry,
@@ -13,7 +14,16 @@ import { fsWatcher, type Watcher } from './tail.js'
 
 // See discover.ts (Task 8) for why this is a small, deliberate duplicate of
 // loadExpandedLoopDef (src/cli/ui-cmd.ts) rather than an import of it.
-function bestEffortLoopDef(workspace: string): LoopDef | undefined {
+//
+// Prefers the run's OWN persisted LoopDef copy (runDir/loopfile.json -
+// see journal/loopfile-persist.ts) over re-reading the workspace's
+// looprail.yaml: a run's dashboard-ability must not depend on its origin
+// workspace still existing on disk (a deleted/moved git worktree, for
+// instance) - only a pre-existing run from before that fix ever falls
+// through to the workspace-path read below.
+function bestEffortLoopDef(workspace: string, runDir: string): LoopDef | undefined {
+  const persisted = loadRunLoopDef(runDir)
+  if (persisted) return persisted
   try {
     const path = resolve(workspace, 'looprail.yaml')
     if (!existsSync(path)) return undefined
@@ -188,10 +198,11 @@ export function startMissionControlServer(opts: MissionControlServerOptions = {}
         res.end('unknown workspace')
         return
       }
-      const journalPath = join(runsRootOf(workspace), route.runId, 'journal.jsonl')
+      const runDir = join(runsRootOf(workspace), route.runId)
+      const journalPath = join(runDir, 'journal.jsonl')
       if (req.method === 'GET' && route.sub === 'model') {
         serveModel(res, {
-          journalPath, def: bestEffortLoopDef(workspace), onResume: opts.resumeFor?.(workspace, route.runId),
+          journalPath, def: bestEffortLoopDef(workspace, runDir), onResume: opts.resumeFor?.(workspace, route.runId),
         })
         return
       }

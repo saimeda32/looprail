@@ -5,6 +5,7 @@ import { expandPanels, validateGraph, type LoopDef } from '../index.js'
 import { DEFAULT_DASHBOARD_PORT, startDashboardServer, type DashboardServer, type ResumeOverrides } from '../dashboard/server.js'
 import { DEFAULT_MISSION_CONTROL_PORT, startMissionControlServer, type MissionControlServer } from '../dashboard/mission-control-server.js'
 import { defaultRegistryPath, listWorkspaces } from '../workspace/registry.js'
+import { loadRunLoopDef } from '../journal/loopfile-persist.js'
 import { loadLoop } from './run-cmd.js'
 import { resumeAction } from './resume-cmd.js'
 import { latestRunId, runsRoot } from './status-cmd.js'
@@ -14,7 +15,18 @@ import { defaultIo, dim, err, heading, startWithStableDefault, type CliIo } from
 // additive on top of the observed-only view. A missing, unparsable, or
 // invalid loopfile must never block viewing a run's journal - it just means
 // a plainer dashboard (see design decision 4 in the plan).
-export function loadExpandedLoopDef(file: string | undefined, cwd: string): LoopDef | undefined {
+//
+// When `runDir` is given, the run's OWN persisted LoopDef copy
+// (runDir/loopfile.json - see journal/loopfile-persist.ts) is preferred
+// over re-reading `cwd`'s looprail.yaml: a run's dashboard-ability must not
+// depend on its origin workspace still being on disk (a deleted/moved git
+// worktree, for instance) - only a pre-existing run from before that fix
+// ever falls through to the workspace-path read below.
+export function loadExpandedLoopDef(file: string | undefined, cwd: string, runDir?: string): LoopDef | undefined {
+  if (runDir) {
+    const persisted = loadRunLoopDef(runDir)
+    if (persisted) return persisted
+  }
   try {
     const { def } = loadLoop(file, cwd)
     if (validateGraph(def).length > 0) return undefined
@@ -48,7 +60,7 @@ export async function uiAction(
     return { code: 1 }
   }
 
-  const def = loadExpandedLoopDef(opts.file, opts.cwd)
+  const def = loadExpandedLoopDef(opts.file, opts.cwd, join(runsRoot(opts.cwd), id))
   // Silent io: the dashboard's own /model and /events already surface every
   // node/iteration/verdict live, so resumeAction's terminal-oriented
   // progress lines and final summary have no one to print to here.
@@ -97,7 +109,7 @@ export async function uiAllAction(
 ): Promise<{ code: number; dashboard?: MissionControlServer }> {
   const registryPath = opts.registryPath ?? defaultRegistryPath()
   const resumeFor = (workspace: string, runId: string) => {
-    if (!loadExpandedLoopDef(undefined, workspace)) return undefined
+    if (!loadExpandedLoopDef(undefined, workspace, join(runsRoot(workspace), runId))) return undefined
     return async (overrides: ResumeOverrides): Promise<void> => {
       await resumeAction(runId, { cwd: workspace, json: true, ...overrides }, { io: { out: () => {} } })
     }

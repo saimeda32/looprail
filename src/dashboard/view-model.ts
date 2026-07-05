@@ -102,6 +102,16 @@ function ensureNode(
   if (!n) {
     n = { id, role, status: 'pending', costUsd: 0, estimatedCostUsd: 0, tokens: 0, iterations: [], agent, model, adapter }
     nodes.set(id, n)
+  } else {
+    // A LoopDef (persisted or freshly-read) pre-populates every node up
+    // front, but for a run with no loadable def at all (e.g. a pre-existing
+    // run whose workspace is gone AND predates the persisted-copy fix - see
+    // journal/loopfile-persist.ts), node_start/node_end are the only source
+    // of this info - backfill from whichever event reaches it first,
+    // without ever clobbering a value already known.
+    if (n.agent === undefined && agent !== undefined) n.agent = agent
+    if (n.model === undefined && model !== undefined) n.model = model
+    if (n.adapter === undefined && adapter !== undefined) n.adapter = adapter
   }
   return n
 }
@@ -154,7 +164,10 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
         report = undefined
         break
       case 'node_start': {
-        const n = ensureNode(nodes, String(d.nodeId), d.role as Role)
+        const n = ensureNode(
+          nodes, String(d.nodeId), d.role as Role,
+          d.agent as string | undefined, d.model as string | undefined, d.adapter as string | undefined,
+        )
         n.status = 'running'
         n.streamingOutput = ''
         n.streamingChunks = []
@@ -169,7 +182,10 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
       }
       case 'node_end': {
         const nodeId = String(d.nodeId)
-        const n = ensureNode(nodes, nodeId, d.role as Role)
+        const n = ensureNode(
+          nodes, nodeId, d.role as Role,
+          d.agent as string | undefined, d.model as string | undefined, d.adapter as string | undefined,
+        )
         const verdict = d.verdict as Verdict | null
         const iter = Number(d.iteration ?? 0)
         const cost = Number(d.costUsd ?? 0)

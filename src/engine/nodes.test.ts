@@ -27,6 +27,37 @@ test('executor returns output with no verdict', async () => {
   expect(out).toMatchObject({ nodeId: 'do', output: 'did the work', verdict: null, costUsd: 0.02 })
 })
 
+test('a successful invocation carries the resolved agent key, adapter, and configured model on its NodeOutcome', async () => {
+  const withModel: LoopDef = {
+    ...def,
+    agents: { a: { adapter: 'mock', model: 'configured-model' } },
+  }
+  const deps = depsWith(new MockAdapter([{ output: 'did the work', costUsd: 0.02 }]))
+  const out = await executeNode(withModel, { id: 'do', role: 'executor', agent: 'a' }, state, none, deps)
+  expect(out).toMatchObject({ agent: 'a', adapter: 'mock', model: 'configured-model' })
+})
+
+test("the adapter's own AgentResult.resolvedModel wins over the loopfile's configured model (e.g. \"auto\" resolves to a real model at invocation time)", async () => {
+  const withModel: LoopDef = {
+    ...def,
+    agents: { a: { adapter: 'mock', model: 'auto' } },
+  }
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    invoke: async () => ({ output: 'done', costUsd: 0.01, tokens: 0, durationMs: 1, resolvedModel: 'gpt-5.5' }),
+  })
+  const out = await executeNode(withModel, { id: 'do', role: 'executor', agent: 'a' }, state, none, { registry })
+  expect(out).toMatchObject({ agent: 'a', adapter: 'mock', model: 'gpt-5.5' })
+})
+
+test('a tester/gate node (no agent:) carries no agent/adapter/model on its NodeOutcome', async () => {
+  const out = await executeNode(def, { id: 't', role: 'tester', run: 'true', expect: 'exit 0' }, state, none, { registry: createRegistry() })
+  expect(out.agent).toBeUndefined()
+  expect(out.adapter).toBeUndefined()
+  expect(out.model).toBeUndefined()
+})
+
 test('permissions from AgentDef flows through to the adapter as part of the request', async () => {
   const seen: unknown[] = []
   const registry = createRegistry()

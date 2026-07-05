@@ -242,6 +242,53 @@ test('an observed-only node (no loopfile loaded) has no agent, model, or adapter
   expect(node.adapter).toBeUndefined()
 })
 
+test('node_start carries agent/adapter/model straight from the journal event, with no loopfile needed at all', () => {
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('node_start', {
+      nodeId: 'build', role: 'executor', iteration: 1,
+      agent: 'planner', adapter: 'mock', model: 'planner-model',
+    }),
+  ])
+  const node = m.nodes.find((n) => n.id === 'build')!
+  expect(node.agent).toBe('planner')
+  expect(node.adapter).toBe('mock')
+  expect(node.model).toBe('planner-model')
+})
+
+test('node_end backfills agent/adapter/model from the event when node_start never fired first (cache-hit outcomes) - a def-seeded value is never clobbered', () => {
+  const def: LoopDef = {
+    name: 'demo', goal: 'g',
+    agents: { worker: { adapter: 'claude-code', model: 'claude-opus-4' } },
+    nodes: [{ id: 'do', role: 'executor', agent: 'worker' }],
+    rails: { maxIterations: 5, maxCostUsd: 2.5 },
+    verdictPolicy: { kind: 'all-pass' },
+  }
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    // a spliced node with no def entry at all - agent/model/adapter must
+    // come straight from the event
+    ev('node_end', {
+      nodeId: 'build', role: 'executor', iteration: 1, costUsd: 0.1, verdict: null, output: 'done',
+      agent: 'planner', adapter: 'mock', model: 'planner-model',
+    }),
+    // a def-seeded node whose event carries a (hypothetically) different
+    // agent - the def-provided value must win, never be overwritten
+    ev('node_end', {
+      nodeId: 'do', role: 'executor', iteration: 1, costUsd: 0.1, verdict: null, output: 'done',
+      agent: 'someone-else', adapter: 'someone-elses-adapter', model: 'someone-elses-model',
+    }),
+  ], def)
+  const build = m.nodes.find((n) => n.id === 'build')!
+  expect(build.agent).toBe('planner')
+  expect(build.adapter).toBe('mock')
+  expect(build.model).toBe('planner-model')
+  const doNode = m.nodes.find((n) => n.id === 'do')!
+  expect(doNode.agent).toBe('worker')
+  expect(doNode.adapter).toBe('claude-code')
+  expect(doNode.model).toBe('claude-opus-4')
+})
+
 test('node_end tokens accumulate into DashboardNode.tokens and the matching NodeIterationRecord.tokens', () => {
   const m = buildViewModel([
     ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),

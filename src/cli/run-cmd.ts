@@ -10,6 +10,7 @@ import {
 } from '../index.js'
 import { DEFAULT_DASHBOARD_PORT, startDashboardServer, type DashboardServer } from '../dashboard/server.js'
 import { runsRoot } from '../journal/runs.js'
+import { persistRunLoopDef } from '../journal/loopfile-persist.js'
 import { hasStoredApproval, storeApproval } from '../journal/gate-approvals.js'
 import { defaultIo, dim, err, heading, ok, renderTable, startWithStableDefault, warn, wrapText, type CliIo } from './ui.js'
 import { addWorkspace, defaultRegistryPath } from '../workspace/registry.js'
@@ -379,6 +380,17 @@ export async function runAction(
   // safe no-op (recursive: true).
   mkdirSync(runDir, { recursive: true })
   writeRunPid(runDir)
+  // Self-contained history: the STATIC bootstrap graph, persisted into the
+  // run's OWN directory rather than only ever living in this workspace's
+  // looprail.yaml - so the dashboard's graph edges and per-node
+  // agent/model survive this workspace later being deleted or moved (e.g.
+  // a git worktree cleaned up after merging). Expanded (panels resolved)
+  // to match the ids the engine will actually journal, same as the
+  // dashboard `def:` passed to startDashboardServer below. Re-persisted
+  // with the splice-extended graph by engine/runner.ts's applySplice
+  // whenever a generates:'graph' fragment is approved. See
+  // journal/loopfile-persist.ts.
+  persistRunLoopDef(runDir, expandPanels(loaded.def))
   const uninstallCancelHandler = installCancelHandler(runDir, join(runDir, 'journal.jsonl'))
 
   let dashboard: DashboardServer | undefined
