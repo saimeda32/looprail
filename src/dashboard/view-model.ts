@@ -50,6 +50,12 @@ export interface DashboardTotals {
   maxIterations?: number
   replans: number
   tokens: number
+  // Total real node invocations across the whole run - distinct from
+  // iteration (which only counts execution-region passes). A planner with
+  // rounds > 1, or several replans, can rack up many calls while iteration
+  // stays low - this is the number that answers "how much has actually
+  // been tried", not "how many execution-region passes have completed".
+  calls: number
 }
 
 export interface DashboardModel {
@@ -112,6 +118,14 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
   let tokens = 0
   let iteration = 0
   let replans = 0
+  // Every node_end is one real, completed invocation - a round inside
+  // runPlanning(), a format-correction retry, a replan attempt, or a plain
+  // execution-region pass. Iteration only counts execution-region passes
+  // (see runner.ts) and can under-report real work by a wide margin: a
+  // planner with rounds > 1 or several replans can rack up many calls
+  // while iteration stays at 1 or 2, which reads as "barely anything has
+  // happened" when a lot actually has.
+  let calls = 0
   const plans: PlanVersion[] = []
 
   for (const e of events) {
@@ -158,6 +172,7 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
         })
         if (d.role === 'planner') plans.push({ replan: replans, iteration: iter, nodeId, output: String(d.output ?? '') })
         iteration = Math.max(iteration, iter)
+        calls += 1
         tokens += nodeTokens
         costUsd += cost
         break
@@ -211,7 +226,7 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
     nodes: [...nodes.values()],
     edges: def ? edgesFromDef(def) : [],
     totals: {
-      costUsd, iteration, replans, tokens,
+      costUsd, iteration, replans, tokens, calls,
       maxCostUsd: def?.rails.maxCostUsd,
       maxIterations: def?.rails.maxIterations,
     },

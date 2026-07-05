@@ -221,6 +221,27 @@ test('DashboardTotals.tokens sums tokens across multiple nodes and iterations', 
   expect(m.totals.tokens).toBe(175)
 })
 
+test('DashboardTotals.calls counts every real node invocation, distinct from iteration', () => {
+  // 3 node_end events across only 2 distinct iteration numbers - calls must
+  // reflect the real invocation count (3), not the max iteration seen (2).
+  // This is exactly the gap a rounds>1 planner or several replans create:
+  // iteration stays low while real work (and real cost) keeps happening.
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('node_start', { nodeId: 'plan', role: 'planner', iteration: 0 }),
+    ev('node_end', { nodeId: 'plan', role: 'planner', iteration: 0, costUsd: 0, tokens: 100, verdict: null, output: 'a' }),
+    ev('node_start', { nodeId: 'plan', role: 'planner', iteration: 0 }),
+    ev('node_end', { nodeId: 'plan', role: 'planner', iteration: 0, costUsd: 0, tokens: 90, verdict: null, output: 'b' }),
+    ev('node_start', { nodeId: 'approve', role: 'gate', iteration: 1 }),
+    ev('node_end', {
+      nodeId: 'approve', role: 'gate', iteration: 1, costUsd: 0, tokens: 0,
+      verdict: { node: 'approve', status: 'pass', evidence: 'human approved' }, output: 'approved',
+    }),
+  ])
+  expect(m.totals.calls).toBe(3)
+  expect(m.totals.iteration).toBe(1)
+})
+
 test('totals.costUsd updates live per node_end, before iteration_end fires (matching tokens cadence)', () => {
   const midIteration = buildViewModel([
     ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),

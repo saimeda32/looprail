@@ -107,3 +107,9 @@ test('the default tab is the first running node, and clicking a tab is wired via
   expect(html).toContain('selectedTab = running[0].id')
   expect(html).toContain('addEventListener')
 })
+
+test('the page has a Calls gauge, wired to totals.calls, distinct from iteration/replans', () => {
+  const html = buildPage()
+  expect(html).toContain('id="calls-label"')
+  expect(html).toContain("document.getElementById('calls-label').textContent = String(model.totals.calls)")
+})

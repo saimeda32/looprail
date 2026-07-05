@@ -250,6 +250,10 @@ export function buildPage(): string {
         <span class="label">Replans</span>
         <span id="replans-label" class="reading"></span>
       </div>
+      <div class="gauge">
+        <span class="label" title="Total node invocations - includes planning rounds and replan attempts iteration doesn't count">Calls</span>
+        <span id="calls-label" class="reading"></span>
+      </div>
     </div>
     <div class="run-body">
       <div id="canvas-wrap">
@@ -618,6 +622,7 @@ export function buildPage(): string {
     renderMeter('iter-fill', 'iter-label', model.totals.iteration, model.totals.maxIterations, '');
     document.getElementById('tokens-label').textContent = formatTokens(model.totals.tokens);
     document.getElementById('replans-label').textContent = String(model.totals.replans);
+    document.getElementById('calls-label').textContent = String(model.totals.calls);
 
     var byId = {};
     model.nodes.forEach(function (n) { byId[n.id] = n; });
