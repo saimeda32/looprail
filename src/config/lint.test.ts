@@ -110,3 +110,20 @@ test('L008: a quorum within the verifier count passes lint', () => {
     { verdictPolicy: { kind: 'quorum', atLeast: 2 } })
   expect(rules(def)).not.toContain('L008')
 })
+
+test('L009: a raw permissions key naming a different adapter than the agent itself is a warning, not an error', () => {
+  const def = make(
+    [{ id: 'do', role: 'executor', agent: 'worker' },
+     { id: 't', role: 'tester', run: 'true', after: ['do'] }],
+    { agents: { worker: { adapter: 'claude-code', permissions: { raw: { codex: ['--sandbox', 'danger-full-access'] } } } } })
+  const findings = lintLoop(def)
+  expect(findings).toContainEqual(expect.objectContaining({ rule: 'L009', level: 'warn', node: 'do' }))
+})
+
+test('L009: a raw permissions key matching the agent\'s own adapter produces no finding', () => {
+  const def = make(
+    [{ id: 'do', role: 'executor', agent: 'worker' },
+     { id: 't', role: 'tester', run: 'true', after: ['do'] }],
+    { agents: { worker: { adapter: 'claude-code', permissions: { raw: { 'claude-code': ['--add-dir', './scripts'] } } } } })
+  expect(rules(def)).not.toContain('L009')
+})
