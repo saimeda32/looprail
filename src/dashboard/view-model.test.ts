@@ -148,6 +148,20 @@ test('a fresh node_start clears whatever streamed on a previous run of the same 
     ev('node_start', { nodeId: 'do', role: 'executor', iteration: 2 }),
   ])
   expect(m.nodes.find((n) => n.id === 'do')!.streamingOutput).toBe('')
+  expect(m.nodes.find((n) => n.id === 'do')!.streamingChunks).toEqual([])
+})
+
+test('node_progress records each chunk with its own real journal timestamp, in arrival order', () => {
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('node_start', { nodeId: 'do', role: 'executor', iteration: 1 }, 100),
+    ev('node_progress', { nodeId: 'do', role: 'executor', iteration: 1, chunk: 'work' }, 150),
+    ev('node_progress', { nodeId: 'do', role: 'executor', iteration: 1, chunk: 'ing...' }, 220),
+  ])
+  expect(m.nodes.find((n) => n.id === 'do')!.streamingChunks).toEqual([
+    { text: 'work', ts: 150 },
+    { text: 'ing...', ts: 220 },
+  ])
 })
 
 test('a def-seeded node carries its agent key and model from the loopfile', () => {

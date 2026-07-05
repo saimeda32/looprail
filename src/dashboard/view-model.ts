@@ -13,6 +13,11 @@ export interface NodeIterationRecord {
   output?: string
 }
 
+export interface StreamChunk {
+  text: string
+  ts: number
+}
+
 export interface DashboardNode {
   id: string
   role: Role
@@ -23,6 +28,11 @@ export interface DashboardNode {
   agent?: string
   model?: string
   streamingOutput?: string
+  // Same content as streamingOutput, kept as discrete arrived-at-ts pieces -
+  // the live-output panel uses this to show real per-paragraph arrival
+  // times and fade older text, neither of which a flat concatenated string
+  // can answer once chunks are joined together.
+  streamingChunks?: StreamChunk[]
 }
 
 export interface PlanVersion {
@@ -114,11 +124,14 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
         const n = ensureNode(nodes, String(d.nodeId), d.role as Role)
         n.status = 'running'
         n.streamingOutput = ''
+        n.streamingChunks = []
         break
       }
       case 'node_progress': {
         const n = ensureNode(nodes, String(d.nodeId), d.role as Role)
-        n.streamingOutput = (n.streamingOutput ?? '') + String(d.chunk ?? '')
+        const chunk = String(d.chunk ?? '')
+        n.streamingOutput = (n.streamingOutput ?? '') + chunk
+        n.streamingChunks = [...(n.streamingChunks ?? []), { text: chunk, ts: e.ts }]
         break
       }
       case 'node_end': {

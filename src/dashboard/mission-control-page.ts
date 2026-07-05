@@ -36,7 +36,7 @@ export function buildMissionControlPage(): string {
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   * { box-sizing: border-box; }
-  html, body { background: var(--void); height: 100%; }
+  html, body { background: var(--void); min-height: 100%; }
   body {
     margin: 0; font: 14px/1.5 var(--sans); color: var(--ink);
     background-image:

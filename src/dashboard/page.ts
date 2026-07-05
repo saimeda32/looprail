@@ -27,7 +27,7 @@ export function buildPage(): string {
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   * { box-sizing: border-box; }
-  html, body { background: var(--void); height: 100%; }
+  html, body { background: var(--void); min-height: 100%; }
   body {
     margin: 0; font: 14px/1.5 var(--sans); color: var(--ink);
     background-image:
@@ -128,6 +128,10 @@ export function buildPage(): string {
   .tab.active { color: var(--ink); border-bottom-color: var(--signal); }
   .tab.active .tab-dot { background: var(--signal); animation: pulse-dot 1.6s ease-in-out infinite; }
   #live-output-body { flex: 1; margin: 0; padding: 14px 16px; font: 12px/1.65 var(--mono); color: var(--ink); white-space: pre-wrap; overflow: auto; max-height: 260px; background: linear-gradient(180deg, rgba(232,196,104,0.03), transparent 40px); }
+  .stream-para { margin-bottom: 10px; transition: opacity 0.3s; }
+  .stream-para:last-child { margin-bottom: 0; }
+  .stream-para-time { color: var(--ink-faint); font-size: 10.5px; margin-right: 8px; font-variant-numeric: tabular-nums; }
+  .stream-para-text strong { color: var(--signal); font-weight: 600; }
   .cursor { display: inline-block; width: 6px; height: 13px; background: var(--signal); vertical-align: text-bottom; margin-left: 1px; animation: blink 1s steps(2, jump-none) infinite; }
   @keyframes blink { 50% { opacity: 0; } }
   .live-meta { padding: 10px 16px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 3px; }
@@ -265,7 +269,7 @@ export function buildPage(): string {
       <div class="live-pane">
         <section id="live-output-section" style="display:none">
           <div id="live-tabs" class="tab-strip"></div>
-          <pre id="live-output-body"></pre>
+          <div id="live-output-body"></div>
           <div id="live-meta" class="live-meta"></div>
         </section>
       </div>
@@ -470,6 +474,54 @@ export function buildPage(): string {
     table.appendChild(total)
   }
 
+  // Streamed text is arbitrary model output rendered into a real DOM - escape
+  // first, always, before any markdown-lite transform touches it.
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // Deliberately minimal: **bold** only. A model's own reply routinely uses
+  // this, and rendering it literally (asterisks and all) is the single
+  // noisiest, most avoidable part of "wall of text" - full markdown parsing
+  // is out of scope for a live streaming pane.
+  function markdownLiteInline(escaped) {
+    return escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  }
+
+  function formatClockTime(ts) {
+    var d = new Date(ts);
+    var pad = function (n) { return n < 10 ? '0' + n : String(n); };
+    return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
+
+  // Chunks arrive as raw token-ish slices with no paragraph structure of
+  // their own; splitting the reconstructed full text on blank lines gives
+  // real paragraph boundaries, and walking chunk-end-offsets forward finds
+  // the real journal timestamp of whichever chunk completed each paragraph -
+  // an actual arrival time, not a render-time guess.
+  function paragraphsFromChunks(chunks) {
+    var full = '';
+    var boundaries = [];
+    chunks.forEach(function (c) {
+      full += c.text;
+      boundaries.push({ endPos: full.length, ts: c.ts });
+    });
+    var raw = full.split(/\n\s*\n/).filter(function (p) { return p.trim().length > 0; });
+    var result = [];
+    var searchFrom = 0;
+    raw.forEach(function (p) {
+      var idx = full.indexOf(p, searchFrom);
+      var endPos = idx + p.length;
+      searchFrom = endPos;
+      var ts = boundaries.length ? boundaries[boundaries.length - 1].ts : 0;
+      for (var i = 0; i < boundaries.length; i++) {
+        if (boundaries[i].endPos >= endPos) { ts = boundaries[i].ts; break; }
+      }
+      result.push({ text: p, ts: ts });
+    });
+    return result;
+  }
+
   function renderLiveOutput(model) {
     var section = document.getElementById('live-output-section');
     var running = model.nodes.filter(function (n) { return n.status === 'running'; });
@@ -490,7 +542,26 @@ export function buildPage(): string {
     });
     var current = findNode(running, selectedTab);
     var body = document.getElementById('live-output-body');
-    body.textContent = (current && current.streamingOutput) ? current.streamingOutput : '(waiting for output...)';
+    body.innerHTML = '';
+    if (!current || !current.streamingChunks || current.streamingChunks.length === 0) {
+      body.textContent = (current && current.streamingOutput) ? current.streamingOutput : '(waiting for output...)';
+    } else {
+      var paras = paragraphsFromChunks(current.streamingChunks);
+      paras.forEach(function (p, i) {
+        // Newest paragraph at full opacity, older ones progressively
+        // fainter - the point is making the newest text easy to find at a
+        // glance in a fast-scrolling stream, not a precise gradient.
+        var distanceFromEnd = paras.length - 1 - i;
+        var opacity = distanceFromEnd === 0 ? 1 : distanceFromEnd === 1 ? 0.7 : distanceFromEnd === 2 ? 0.5 : 0.35;
+        var div = htmlEl('div', 'stream-para');
+        div.style.opacity = String(opacity);
+        div.appendChild(htmlEl('span', 'stream-para-time', formatClockTime(p.ts)));
+        var textEl = htmlEl('span', 'stream-para-text');
+        textEl.innerHTML = markdownLiteInline(escapeHtml(p.text));
+        div.appendChild(textEl);
+        body.appendChild(div);
+      });
+    }
     if (current && current.status === 'running') {
       var cursor = htmlEl('span', 'cursor');
       body.appendChild(cursor);
@@ -504,7 +575,12 @@ export function buildPage(): string {
       r1.innerHTML = 'role <b>' + current.role + '</b>' + (current.agent ? ' \\u00b7 agent <b>' + current.agent + '</b>' : '');
       meta.appendChild(r1);
       var r2 = htmlEl('div', 'row');
-      r2.textContent = formatTokens(current.tokens) + ' tokens \\u00b7 $' + current.costUsd.toFixed(3) + ' so far';
+      // Explicitly "this node" - tokens/cost only land on node_end, so a
+      // still-running node honestly reads 0 even while the run's own total
+      // gauge already includes other, already-finished nodes. Without this
+      // label the two numbers next to each other read as a mismatch.
+      r2.textContent = 'this node: ' + formatTokens(current.tokens) + ' tokens \\u00b7 $' + current.costUsd.toFixed(3)
+        + (current.status === 'running' ? ' (updates once it finishes)' : '');
       meta.appendChild(r2);
     }
   }
