@@ -180,3 +180,35 @@ test('uiAllAction serves the mission-control page at /, not a single-run dashboa
   const res = await get(result.dashboard!.url + '/')
   expect(res.body).toContain('looprail mission control')
 })
+
+test("uiAction still serves graph edges and per-node agent/model for a run whose workspace directory was deleted, via the run's own persisted loopfile.json copy", async () => {
+  const cwd = await completedRun()
+  const { rmSync } = await import('node:fs')
+  rmSync(cwd, { recursive: true, force: true }) // the workspace (and its looprail.yaml) is gone entirely
+
+  const { io } = capture()
+  const result = await uiAction(undefined, { cwd, port: 41608 }, io)
+  cleanup = () => result.dashboard!.close()
+  expect(result.code).toBe(0)
+  const res = await get(result.dashboard!.url + '/model')
+  const payload = JSON.parse(res.body) as {
+    edges: [string, string][]
+    nodes: { id: string; agent?: string; adapter?: string }[]
+  }
+  expect(payload.edges).toEqual([['do', 'crit']])
+  const doNode = payload.nodes.find((n) => n.id === 'do')
+  expect(doNode).toMatchObject({ agent: 'worker', adapter: 'mock' })
+})
+
+test('loadExpandedLoopDef prefers a run\'s own persisted loopfile.json copy over re-reading the workspace path when a runDir is given', async () => {
+  const cwd = await completedRun()
+  const { runsRoot } = await import('./status-cmd.js')
+  const runId = (await import('node:fs')).readdirSync(runsRoot(cwd))[0]
+  const runDir = join(runsRoot(cwd), runId)
+  const { rmSync } = await import('node:fs')
+  rmSync(cwd, { recursive: true, force: true })
+
+  expect(loadExpandedLoopDef(undefined, cwd)).toBeUndefined() // no runDir given - no fallback left to use
+  const def = loadExpandedLoopDef(undefined, cwd, runDir)
+  expect(def?.nodes.map((n) => n.id).sort()).toEqual(['crit', 'do'])
+})

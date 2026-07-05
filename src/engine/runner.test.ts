@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { expect, test, vi } from 'vitest'
 import { runLoop } from './runner.js'
 import { readJournal } from '../journal/journal.js'
+import { loadRunLoopDef } from '../journal/loopfile-persist.js'
 import { MockAdapter } from '../adapters/mock.js'
 import { createRegistry } from '../adapters/registry.js'
 import type { AgentResult, LoopDef } from '../core/types.js'
@@ -130,6 +131,23 @@ test('journals run lifecycle when runDir is set', async () => {
   expect(types).toContain('node_end')
   expect(types.at(-1)).toBe('verified')
   expect(report.runId).toBe('r1')
+})
+
+test('node_start and node_end journal events carry the resolved agent, adapter, and model directly - no LoopDef re-read needed to know them later', async () => {
+  const mock = new MockAdapter([
+    { match: /PLANNER/, output: 'plan' },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok' },
+    { match: /EXECUTOR/, output: 'DONE' },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok' },
+  ])
+  const runDir = join(mkdtempSync(join(tmpdir(), 'lr-')), 'run')
+  const def = loop({ agents: { a: { adapter: 'mock', model: 'demo-model' } } })
+  await runLoop(def, { registry: reg(mock), runDir, runId: 'r1' })
+  const events = readJournal(join(runDir, 'journal.jsonl'))
+  const doStart = events.find((e) => e.type === 'node_start' && (e.data as { nodeId: string }).nodeId === 'do')
+  expect(doStart?.data).toMatchObject({ agent: 'a', adapter: 'mock', model: 'demo-model' })
+  const doEnd = events.find((e) => e.type === 'node_end' && (e.data as { nodeId: string }).nodeId === 'do')
+  expect(doEnd?.data).toMatchObject({ agent: 'a', adapter: 'mock', model: 'demo-model' })
 })
 
 test('startIteration continues counting instead of restarting at 1, for a rails check that means what a resumed run needs it to mean', async () => {
@@ -618,4 +636,53 @@ test('buildFinalReport populates filesTouched on the fallback report path too (n
   } finally {
     spy.mockRestore()
   }
+})
+
+test("a successful generates:'graph' splice re-persists the run's own loopfile.json copy with the extended graph, when a runDir is set", async () => {
+  const def: LoopDef = {
+    name: 'self-planning', goal: 'do the generated thing',
+    agents: { planner: { adapter: 'mock' } },
+    nodes: [
+      { id: 'plan', role: 'planner', agent: 'planner', generates: 'graph' },
+      { id: 'approve', role: 'gate', after: ['plan'] },
+    ],
+    rails: { maxIterations: 5, maxCostUsd: 1 },
+    verdictPolicy: { kind: 'all-pass' },
+  }
+  const mock = new MockAdapter([
+    { match: /PLANNER/, output: 'graph:\n  build: { role: executor, agent: planner }\n  check: { role: critic, of: build, agent: planner }\n' },
+    { output: '[mock] build done' },
+    { output: 'VERDICT: pass\nEVIDENCE: looks good' },
+  ])
+  const runDir = join(mkdtempSync(join(tmpdir(), 'lr-')), 'run')
+  const report = await runLoop(def, {
+    registry: reg(mock), runDir, gate: async () => ({ approved: true }),
+  })
+  expect(report.status).toBe('verified')
+
+  const persisted = loadRunLoopDef(runDir)
+  // "approve" is dropped once resolved (its job is done - see applySplice);
+  // "build"/"check" only exist because the splice extended the graph, and
+  // that extension must be reflected in the run's own persisted copy.
+  expect(persisted?.nodes.map((n) => n.id).sort()).toEqual(['build', 'check', 'plan'])
+})
+
+test("no runDir set means no persisted loopfile.json copy is written at all, on a splice or otherwise - runLoop never assumes one", async () => {
+  const def: LoopDef = {
+    name: 'self-planning', goal: 'do the generated thing',
+    agents: { planner: { adapter: 'mock' } },
+    nodes: [
+      { id: 'plan', role: 'planner', agent: 'planner', generates: 'graph' },
+      { id: 'approve', role: 'gate', after: ['plan'] },
+    ],
+    rails: { maxIterations: 5, maxCostUsd: 1 },
+    verdictPolicy: { kind: 'all-pass' },
+  }
+  const mock = new MockAdapter([
+    { match: /PLANNER/, output: 'graph:\n  build: { role: executor, agent: planner }\n  check: { role: critic, of: build, agent: planner }\n' },
+    { output: '[mock] build done' },
+    { output: 'VERDICT: pass\nEVIDENCE: looks good' },
+  ])
+  const report = await runLoop(def, { registry: reg(mock), gate: async () => ({ approved: true }) })
+  expect(report.status).toBe('verified') // splice itself still works with no runDir at all
 })

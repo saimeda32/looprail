@@ -120,6 +120,20 @@ export interface NodeOutcome {
   outputTokens?: number
   durationMs: number
   contextHash?: string
+  // The actually-resolved agent/adapter/model for this invocation - set
+  // whenever the node resolved a real AgentDef (absent for tester/gate
+  // roles, which have no `agent:`). Threaded through onto the node_end
+  // journal event by runner.ts's onNode so the dashboard can show agent/
+  // model info straight from the journal itself, without needing a LoopDef
+  // at all (a persisted or re-read one is still preferred when available -
+  // see journal/loopfile-persist.ts - but this survives even the harder
+  // case of resolving it from splice history). `model` prefers the
+  // adapter's own AgentResult.resolvedModel (the model the underlying CLI
+  // actually used) over the loopfile's configured AgentDef.model, since the
+  // configured value can be "auto" or omitted entirely.
+  agent?: string
+  adapter?: string
+  model?: string
 }
 
 export type RouterDecision =

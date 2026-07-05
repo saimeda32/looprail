@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
@@ -8,8 +8,10 @@ import { expect, test, vi } from 'vitest'
 import { agentCostBreakdown, agentEstimatedCostBreakdown, makeGate, runAction } from './run-cmd.js'
 import { JournalWriter, MockAdapter, parseLoopfile } from '../index.js'
 import { runsRoot } from '../journal/runs.js'
+import { loadRunLoopDef } from '../journal/loopfile-persist.js'
 import { hasStoredApproval, storeApproval } from '../journal/gate-approvals.js'
 import { startDashboardServer } from '../dashboard/server.js'
+import { buildViewModel } from '../dashboard/view-model.js'
 import { createRegistry } from '../adapters/registry.js'
 import type { NodeDef } from '../core/types.js'
 
@@ -534,6 +536,120 @@ rails:
   const runDir = join(runsRoot(cwd), latestRunId(cwd)!)
   const events = readJournal(join(runDir, 'journal.jsonl'))
   expect(events.some((e) => e.type === 'node_start' && (e.data as { nodeId: string }).nodeId === 'build')).toBe(true)
+})
+
+test("a run persists its own bootstrap LoopDef copy at run start, surviving the workspace it came from being deleted entirely", async () => {
+  const { cwd, io } = setup(FIXTURE)
+  const code = await runAction(undefined, { cwd }, { io })
+  expect(code).toBe(0)
+  const runId = readdirSync(runsRoot(cwd))[0]
+  const runDir = join(runsRoot(cwd), runId)
+
+  // the workspace (its looprail.yaml) is gone entirely - e.g. a git
+  // worktree cleaned up after merging - but the run's own directory
+  // (elsewhere, under ~/.looprail/runs/...) is untouched
+  rmSync(cwd, { recursive: true, force: true })
+
+  const persisted = loadRunLoopDef(runDir)
+  expect(persisted?.nodes.map((n) => n.id).sort()).toEqual(['crit', 'do'])
+  expect(persisted?.agents.worker).toEqual({ adapter: 'mock' })
+  // and the dashboard's view model can still derive real graph edges from
+  // it, exactly as if the workspace were still there
+  const model = buildViewModel([], persisted)
+  expect(model.edges).toEqual([['do', 'crit']])
+})
+
+test("a successful graph splice updates the run's own persisted loopfile.json copy with the extended graph - a LATER read (even after the workspace is deleted) shows the spliced nodes' edges", async () => {
+  const SELF_PLANNING = `
+name: self-planning-fixture
+goal: Do the generated thing.
+agents:
+  planner: { adapter: mock }
+graph:
+  plan:    { role: planner, agent: planner, generates: graph }
+  approve: { role: gate, after: plan }
+rails:
+  max_iterations: 5
+  max_cost_usd: 1
+`
+  const { cwd, io } = setup(SELF_PLANNING)
+  const registry = createRegistry()
+  registry.register(new MockAdapter([
+    { match: /PLANNER/, output: 'graph:\n  build: { role: executor, agent: planner }\n  check: { role: critic, of: build, agent: planner }\n' },
+    { output: '[mock] build done' },
+    { output: 'VERDICT: pass\nEVIDENCE: looks good' },
+  ]))
+  const code = await runAction(undefined, { cwd }, {
+    io, registry, gate: async () => ({ approved: true }),
+  })
+  expect(code).toBe(0)
+  const runId = readdirSync(runsRoot(cwd))[0]
+  const runDir = join(runsRoot(cwd), runId)
+
+  rmSync(cwd, { recursive: true, force: true })
+
+  const persisted = loadRunLoopDef(runDir)
+  const ids = persisted?.nodes.map((n) => n.id).sort()
+  // the STATIC bootstrap graph only ever had plan/approve - build/check
+  // only exist because the splice extended it, and that extension must
+  // have been re-persisted for a later read to see it at all. (`approve`
+  // itself is dropped once resolved - see runner.ts's applySplice - its
+  // job is done and it must never be asked again.)
+  expect(ids).toEqual(['build', 'check', 'plan'])
+  const { readJournal } = await import('../journal/journal.js')
+  const events = readJournal(join(runDir, 'journal.jsonl'))
+  const model = buildViewModel(events, persisted)
+  expect(model.edges).toContainEqual(['build', 'check'])
+})
+
+test("a spliced node's actually-resolved agent/adapter/model is visible directly on its node_end journal event, with no LoopDef needed at all", async () => {
+  const SELF_PLANNING = `
+name: self-planning-agent-fixture
+goal: Do the generated thing.
+agents:
+  planner: { adapter: mock, model: planner-model }
+graph:
+  plan:    { role: planner, agent: planner, generates: graph }
+  approve: { role: gate, after: plan }
+rails:
+  max_iterations: 5
+  max_cost_usd: 1
+`
+  const { cwd, io } = setup(SELF_PLANNING)
+  const registry = createRegistry()
+  registry.register(new MockAdapter([
+    { match: /PLANNER/, output: 'graph:\n  build: { role: executor, agent: planner }\n  check: { role: critic, of: build, agent: planner }\n' },
+    { output: '[mock] build done' },
+    { output: 'VERDICT: pass\nEVIDENCE: looks good' },
+  ]))
+  const code = await runAction(undefined, { cwd }, {
+    io, registry, gate: async () => ({ approved: true }),
+  })
+  expect(code).toBe(0)
+  const runId = readdirSync(runsRoot(cwd))[0]
+  const runDir = join(runsRoot(cwd), runId)
+  const { readJournal } = await import('../journal/journal.js')
+  const events = readJournal(join(runDir, 'journal.jsonl'))
+  const buildEnd = events.find((e) => e.type === 'node_end' && (e.data as { nodeId: string }).nodeId === 'build')
+  expect(buildEnd?.data).toMatchObject({ agent: 'planner', adapter: 'mock', model: 'planner-model' })
+  // the model with NO def at all (buildViewModel(events) - undefined def)
+  // still shows the same agent/adapter/model, straight from the events
+  const model = buildViewModel(events)
+  const build = model.nodes.find((n) => n.id === 'build')
+  expect(build).toMatchObject({ agent: 'planner', adapter: 'mock', model: 'planner-model' })
+})
+
+test('an ordinary non-spliced run with an intact workspace is completely unaffected by the persisted-copy fix', async () => {
+  const { cwd, io } = setup(FIXTURE)
+  const code = await runAction(undefined, { cwd }, { io })
+  expect(code).toBe(0)
+  const runId = readdirSync(runsRoot(cwd))[0]
+  const runDir = join(runsRoot(cwd), runId)
+  // the workspace is left intact this time - both the persisted copy and
+  // the original looprail.yaml exist and agree
+  expect(existsSync(join(cwd, 'looprail.yaml'))).toBe(true)
+  const persisted = loadRunLoopDef(runDir)
+  expect(persisted?.nodes.map((n) => n.id).sort()).toEqual(['crit', 'do'])
 })
 
 test('a plan-approval gate rejection with feedback triggers an immediate replan, not a flat halt', async () => {

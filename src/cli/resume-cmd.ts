@@ -2,8 +2,10 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Command } from 'commander'
 import {
-  createDefaultRegistry, loadCache, readJournal, reconstructRunState, summarizeJournal, type LoopDef,
+  createDefaultRegistry, expandPanels, loadCache, readJournal, reconstructRunState, summarizeJournal,
+  type LoopDef,
 } from '../index.js'
+import { persistRunLoopDef } from '../journal/loopfile-persist.js'
 import {
   executeRun, installCancelHandler, loadLoop, makeGate, removeRunPid, writeRunPid, type RunDeps,
 } from './run-cmd.js'
@@ -71,6 +73,12 @@ export async function resumeAction(
   // resumed run is a real, controllable process too (pause/cancel from the
   // dashboard must work on it exactly as well as on the original).
   writeRunPid(runDir)
+  // Refresh the run's own persisted LoopDef copy too - a resume is not just
+  // a fresh run's bootstrap write; it can also load a DIFFERENT loopfile
+  // (--file) or override rails, and either change must be reflected in the
+  // self-contained copy the dashboard reads, not just in memory for this
+  // process. See journal/loopfile-persist.ts and cli/run-cmd.ts's runAction.
+  persistRunLoopDef(runDir, expandPanels(def))
   const uninstallCancelHandler = installCancelHandler(runDir, journalPath)
   try {
     return await executeRun(def, {

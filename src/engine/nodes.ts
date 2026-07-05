@@ -185,6 +185,10 @@ export async function executeNode(
     return {
       ...base, output: res.output, verdict, costUsd: cost, tokens, estimatedCostUsd: estimatedCost,
       durationMs: res.durationMs, contextHash: key,
+      // prefer the adapter's own resolved model (e.g. copilot's
+      // session.tools_updated data.model) over the loopfile's configured
+      // one, which can be "auto" or omitted entirely - see AgentResult.
+      agent: node.agent, adapter: agentDef.adapter, model: res.resolvedModel ?? agentDef.model,
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -196,6 +200,11 @@ export async function executeNode(
         status: 'error',
         evidence: err instanceof InfraError ? `infra: ${msg}` : msg,
       },
+      // agent/adapter were already resolved above (this catch is only
+      // reachable once invokeWithRetry itself throws) - kept even on a
+      // failed invocation, since agent/adapter is a fact about which node
+      // was attempted, not about whether it succeeded.
+      agent: node.agent, adapter: agentDef.adapter, model: agentDef.model,
     }
   }
 }

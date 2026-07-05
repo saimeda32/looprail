@@ -158,3 +158,18 @@ test('resume writes a fresh pid file before invoking any node, so the resumed ru
   expect(sawPid).toBe(true)
   expect(existsSync(join(runDir, 'pid'))).toBe(false) // cleaned up after completion
 })
+
+test("resume refreshes the run's own persisted loopfile.json copy too, not just a fresh `run` - so a later dashboard read still shows the graph even after this workspace is deleted", async () => {
+  const { cwd, runId } = await haltedRun()
+  const runDir = join(runsRoot(cwd), runId)
+  const code = await resumeAction(runId, { cwd, json: true, maxIterations: 3 }, { io: capture().io, registry: passingRegistry() })
+  expect(code).toBe(0)
+
+  const { rmSync } = await import('node:fs')
+  rmSync(cwd, { recursive: true, force: true })
+
+  const { loadRunLoopDef } = await import('../journal/loopfile-persist.js')
+  const persisted = loadRunLoopDef(runDir)
+  expect(persisted?.nodes.map((n) => n.id).sort()).toEqual(['crit', 'do'])
+  expect(persisted?.agents.worker).toEqual({ adapter: 'mock' })
+})

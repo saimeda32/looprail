@@ -16,6 +16,7 @@ import { runIteration } from './scheduler.js'
 import type { EngineDeps } from './nodes.js'
 import { parseGraphFragment } from '../config/loopfile.js'
 import { spliceFragment } from './splice.js'
+import { persistRunLoopDef } from '../journal/loopfile-persist.js'
 
 export interface RunOptions {
   registry: AdapterRegistry
@@ -109,10 +110,18 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
       nodeId: o.nodeId, role: o.role, verdict: o.verdict, iteration: state.iteration,
       costUsd: o.costUsd, estimatedCostUsd: o.estimatedCostUsd, tokens: o.tokens, durationMs: o.durationMs,
       output: o.output, contextHash: o.contextHash,
+      agent: o.agent, adapter: o.adapter, model: o.model,
     })
   }
   const onNodeStart = (n: NodeDef) => {
-    emit('node_start', { nodeId: n.id, role: n.role, iteration: state.iteration })
+    // `runAgents` (rather than expanded.agents) so a spliced-in node whose
+    // `agent:` key only exists because a fragment declared it still
+    // resolves an adapter/model here - see applySplice below.
+    const agentDef = n.agent ? runAgents[n.agent] : undefined
+    emit('node_start', {
+      nodeId: n.id, role: n.role, iteration: state.iteration,
+      agent: n.agent, adapter: agentDef?.adapter, model: agentDef?.model,
+    })
   }
   const onChunk = (nodeId: string, chunk: string): void => {
     const node = expanded.nodes.find((n) => n.id === nodeId)
@@ -180,6 +189,22 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
         .filter((n) => n.id !== gateNodeId)
         .concat(spliced.nodes)
         .map((n) => ({ ...n, after: n.after?.filter((d) => d !== gateNodeId) }))
+      // Re-persist the run's own loopfile copy with the now splice-extended
+      // graph, so a LATER dashboard read (even after this workspace is
+      // deleted) still shows the extended graph's edges and per-node
+      // agent/model - not just the STATIC bootstrap graph written once at
+      // run start (see cli/run-cmd.ts's runAction). `planning` is untouched
+      // by a splice (fragments only ever extend the execution region), so
+      // the persisted node list is simply planning's original nodes plus
+      // execution's current (possibly spliced) ones. `expanded.rails` was
+      // already tightened in place by guard.tighten above (RailsGuard holds
+      // the very same object), so it reflects any fragment-declared rails
+      // too.
+      if (opts.runDir) {
+        persistRunLoopDef(opts.runDir, {
+          ...expanded, agents: runAgents, nodes: [...planning, ...execution],
+        })
+      }
       return { ok: true }
     } catch (err) {
       return { ok: false, reason: err instanceof Error ? err.message : String(err) }
