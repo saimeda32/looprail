@@ -1,5 +1,5 @@
 import { parse } from 'yaml'
-import type { LoopDef, NodeDef, Role, VerdictPolicy } from '../core/types.js'
+import type { AgentDef, LoopDef, NodeDef, Rails, Role, VerdictPolicy } from '../core/types.js'
 
 const VALID_ROLES: readonly Role[] = [
   'planner', 'critic', 'executor', 'tester', 'judge', 'gate', 'synthesizer',
@@ -67,7 +67,25 @@ export function parseLoopfile(text: string): LoopDef {
 
   if (problems.length > 0) throw new Error(`invalid loopfile:\n${problems.join('\n')}`)
 
-  const nodes: NodeDef[] = Object.entries(graph).map(([id, n]) => {
+  const nodes: NodeDef[] = parseGraphNodes(graph)
+
+  return {
+    name: raw.name as string,
+    goal: raw.goal as string,
+    agents: raw.agents as LoopDef['agents'],
+    nodes,
+    rails: {
+      maxIterations: rawRails.max_iterations,
+      maxCostUsd: rawRails.max_cost_usd,
+      ...parseRailsPartial(rawRails),
+    },
+    verdictPolicy,
+    ...(raw.concurrency !== undefined ? { concurrency: raw.concurrency as number } : {}),
+  }
+}
+
+export function parseGraphNodes(graph: Record<string, Record<string, unknown>>): NodeDef[] {
+  return Object.entries(graph).map(([id, n]) => {
     const after = n.after === undefined
       ? undefined
       : Array.isArray(n.after) ? (n.after as string[]) : [n.after as string]
@@ -82,6 +100,7 @@ export function parseLoopfile(text: string): LoopDef {
       of: n.of as string | undefined,
       panel: n.panel as NodeDef['panel'],
       rounds: n.rounds as number | undefined,
+      generates: n.generates as NodeDef['generates'],
       prompt: n.prompt as string | undefined,
       run: n.run as string | undefined,
       expect: n.expect as string | undefined,
@@ -91,21 +110,52 @@ export function parseLoopfile(text: string): LoopDef {
       timeoutMs: n.timeout_ms as number | undefined,
     }
   })
+}
 
+function parseRailsPartial(rawRails: Record<string, number> | undefined): Partial<Rails> {
+  if (!rawRails) return {}
   return {
-    name: raw.name as string,
-    goal: raw.goal as string,
-    agents: raw.agents as LoopDef['agents'],
+    ...(rawRails.max_iterations !== undefined ? { maxIterations: rawRails.max_iterations } : {}),
+    ...(rawRails.max_cost_usd !== undefined ? { maxCostUsd: rawRails.max_cost_usd } : {}),
+    ...(rawRails.max_wall_minutes !== undefined ? { maxWallMinutes: rawRails.max_wall_minutes } : {}),
+    ...(rawRails.stall_after !== undefined ? { stallAfter: rawRails.stall_after } : {}),
+    ...(rawRails.replan_limit !== undefined ? { replanLimit: rawRails.replan_limit } : {}),
+    ...(rawRails.gate_timeout !== undefined ? { gateTimeoutSec: rawRails.gate_timeout } : {}),
+  }
+}
+
+export interface GraphFragment {
+  nodes: NodeDef[]
+  agents?: Record<string, AgentDef>
+  rails?: Partial<Rails>
+}
+
+// Parses a planner's own output when its node has `generates: 'graph'` (see
+// docs/superpowers/specs/2026-07-04-self-planning-loop-design.md) - a
+// smaller, looser sibling of parseLoopfile: only `graph:` is required,
+// `agents:`/`rails:` are optional, and there is no `name:`/`goal:` at all
+// (the fragment inherits the bootstrap loopfile's goal). Reuses
+// parseGraphNodes so node-shape rules never drift between the two parsers.
+export function parseGraphFragment(text: string): GraphFragment {
+  let raw: Record<string, unknown>
+  try {
+    raw = parse(text) as Record<string, unknown>
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new Error(`invalid graph fragment:\n${msg}`)
+  }
+  if (!raw || typeof raw !== 'object' || raw.graph === undefined) {
+    throw new Error('invalid graph fragment:\ngraph is required')
+  }
+  if (typeof raw.graph !== 'object' || Array.isArray(raw.graph)) {
+    throw new Error('invalid graph fragment:\ngraph must be a map of node id to node definition')
+  }
+  const nodes = parseGraphNodes(raw.graph as Record<string, Record<string, unknown>>)
+  const agents = raw.agents as Record<string, AgentDef> | undefined
+  const rails = parseRailsPartial(raw.rails as Record<string, number> | undefined)
+  return {
     nodes,
-    rails: {
-      maxIterations: rawRails.max_iterations,
-      maxCostUsd: rawRails.max_cost_usd,
-      ...(rawRails.max_wall_minutes !== undefined ? { maxWallMinutes: rawRails.max_wall_minutes } : {}),
-      ...(rawRails.stall_after !== undefined ? { stallAfter: rawRails.stall_after } : {}),
-      ...(rawRails.replan_limit !== undefined ? { replanLimit: rawRails.replan_limit } : {}),
-      ...(rawRails.gate_timeout !== undefined ? { gateTimeoutSec: rawRails.gate_timeout } : {}),
-    },
-    verdictPolicy,
-    ...(raw.concurrency !== undefined ? { concurrency: raw.concurrency as number } : {}),
+    ...(agents !== undefined ? { agents } : {}),
+    ...(Object.keys(rails).length > 0 ? { rails } : {}),
   }
 }
