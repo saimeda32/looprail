@@ -1,0 +1,29 @@
+name: Dependabot auto-merge
+
+# Patch-only, on purpose: a patch bump is (by semver convention, not a
+# guarantee) supposed to be backward-compatible - minor and major bumps
+# still get a human look before merging. CI (the "CI" workflow) still has
+# to pass; this only flips auto-merge on, it never bypasses required checks.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  pull-requests: write
+  contents: write
+
+jobs:
+  auto-merge:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - if: steps.metadata.outputs.update-type == 'version-update:semver-patch'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

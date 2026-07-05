@@ -1,0 +1,56 @@
+name: Bug report
+description: Something in looprail isn't working the way it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: loopfile
+    attributes:
+      label: Loopfile
+      description: The `looprail.yaml` you ran (trim anything unrelated, but keep the real structure).
+      render: yaml
+
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      description: The exact command you ran.
+      placeholder: looprail run --ui
+
+  - type: textarea
+    id: journal
+    attributes:
+      label: Relevant journal output
+      description: >-
+        If a run misbehaved, `looprail status <runId>` points you at the journal
+        under `~/.looprail/runs/` - paste the relevant part (or attach the file).
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: looprail version
+      description: Output of `looprail --version`.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: adapter
+    attributes:
+      label: Adapter(s) involved
+      multiple: true
+      options:
+        - claude-code
+        - codex
+        - copilot-cli
+        - aider
+        - shell
+        - mock
+        - Not adapter-specific
