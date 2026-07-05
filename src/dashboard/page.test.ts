@@ -113,3 +113,66 @@ test('the page has a Calls gauge, wired to totals.calls, distinct from iteration
   expect(html).toContain('id="calls-label"')
   expect(html).toContain("document.getElementById('calls-label').textContent = String(model.totals.calls)")
 })
+
+// Spend-by-agent's Nodes column previously joined every node id into one
+// comma-separated string (g.nodeIds.join(', ')), which the cell's nowrap +
+// ellipsis CSS then clipped once an agent backed many nodes. Each id must
+// now render as its own child element instead, so nothing is ever hidden
+// regardless of how many nodes one agent has.
+test('the agent table renders each node id as a distinct element, not one joined string', () => {
+  const html = buildPage()
+  expect(html).not.toContain("g.nodeIds.join(', ')")
+  expect(html).toContain('g.nodeIds.forEach(function (id) { nodeIdsCell.appendChild(htmlEl(\'div\', null, id)) })')
+})
+
+// The "this node: N tokens · $X (updates once it finishes)" line duplicated
+// info already shown elsewhere (the per-node iteration list / Spend by
+// Agent table) once a node finishes, and was misleading while running -
+// it should be gone entirely, leaving only the role/agent line (r1).
+test('the redundant "this node" tokens/cost line is removed from live-meta', () => {
+  const html = buildPage()
+  expect(html).not.toContain('this node: ')
+  expect(html).not.toContain('updates once it finishes')
+  // r1 (role/agent line) must still be present, untouched
+  expect(html).toContain("r1.innerHTML = 'role <b>' + current.role + '</b>'")
+})
+
+// A single long plan version's <pre> must scroll internally instead of
+// expanding the whole page's height without bound.
+test('.plan-version pre has a bounded height with its own internal scroll', () => {
+  const html = buildPage()
+  const match = html.match(/\.plan-version pre\s*\{([^}]*)\}/)
+  expect(match).not.toBeNull()
+  const rule = match![1]!
+  expect(rule).toMatch(/max-height:\s*\d/)
+  expect(rule).toMatch(/overflow-y:\s*auto/)
+})
+
+// The DAG's svg viewBox/height already grow unbounded with node count -
+// its container (#canvas-wrap) must cap that visually with its own
+// max-height + scroll, and render() must auto-tail it the same way
+// live-output-body already auto-tails itself.
+test('#canvas-wrap caps the DAG height and auto-scrolls to follow new nodes', () => {
+  const html = buildPage()
+  const match = html.match(/#canvas-wrap\s*\{([^}]*)\}/)
+  expect(match).not.toBeNull()
+  const rule = match![1]!
+  expect(rule).toMatch(/max-height:\s*\d/)
+  expect(rule).toMatch(/overflow:\s*auto/)
+  expect(html).toContain("canvasWrap.scrollTop = canvasWrap.scrollHeight")
+})
+
+// The svg's markup pins width to "100%"; leaving that attribute
+// unoverridden means preserveAspectRatio shrinks the ENTIRE graph to
+// stay visible as the viewBox's width grows, rather than ever
+// overflowing #canvas-wrap - a linear dependency chain (a self-planning
+// splice's mostly one-node-per-layer sequence) grows by x, not y, so this
+// left it progressively squished and unreadable instead of scrollable.
+// width must be set to the real content width, the same way height
+// already is, and BOTH scroll axes must auto-tail - a chain grows by x,
+// a bushy fan-out grows by y.
+test('the DAG svg width is set to the real content width, not left at "100%", and both scroll axes auto-tail', () => {
+  const html = buildPage()
+  expect(html).toContain("svg.setAttribute('width', String(Math.max(maxX, 400)))")
+  expect(html).toContain('canvasWrap.scrollLeft = canvasWrap.scrollWidth')
+})

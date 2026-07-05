@@ -97,7 +97,7 @@ export function buildPage(): string {
 
   .run-body { display: grid; grid-template-columns: 1fr 360px; }
   @media (max-width: 800px) { .run-body { grid-template-columns: 1fr; } }
-  #canvas-wrap { position: relative; overflow: auto; border-right: 1px solid var(--line); padding: 16px; }
+  #canvas-wrap { position: relative; overflow: auto; border-right: 1px solid var(--line); padding: 16px; max-height: 480px; }
   @media (max-width: 800px) { #canvas-wrap { border-right: none; border-bottom: 1px solid var(--line); } }
   #dag { display: block; }
   .node-plate { fill: var(--panel-raised); stroke: var(--line-bright); stroke-width: 1.5; cursor: pointer; }
@@ -147,6 +147,8 @@ export function buildPage(): string {
   .agent-row.total { font-weight: 600; background: var(--panel-raised); }
   .agent-row .num { text-align: right; font-variant-numeric: tabular-nums; }
   .agent-row .role { color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .agent-row .node-ids { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.5; }
+  .agent-row .node-ids > div { overflow-wrap: anywhere; }
   @media (max-width: 640px) { .agent-row { grid-template-columns: 1fr 60px 70px; } .agent-row span:nth-child(2), .agent-row span:nth-child(3), .agent-row span:nth-child(4) { display: none; } }
 
   .run-controls { display: flex; gap: 8px; align-items: center; }
@@ -179,7 +181,7 @@ export function buildPage(): string {
 
   #detail-panel { white-space: pre-wrap; font: 12px/1.55 var(--mono); background: var(--panel); border: 1px solid var(--line); border-radius: 3px; color: var(--ink); padding: 14px 16px; max-height: 260px; overflow: auto; }
   .plan-version { border-left: 2px solid var(--line-bright); padding: 4px 0 4px 12px; margin-bottom: 10px; font-size: 12px; color: var(--ink-dim); }
-  .plan-version pre { white-space: pre-wrap; margin: 4px 0 0; color: var(--ink); font-family: var(--mono); }
+  .plan-version pre { white-space: pre-wrap; margin: 4px 0 0; color: var(--ink); font-family: var(--mono); max-height: 240px; overflow-y: auto; }
   .report-summary { font-size: 13px; line-height: 1.6; color: var(--ink); margin-bottom: 14px; }
   .report-source { font-size: 11px; color: var(--ink-faint); margin-left: 8px; }
   .claim-row { display: flex; align-items: baseline; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
@@ -464,7 +466,9 @@ export function buildPage(): string {
       row.appendChild(htmlEl('span', null, g.label))
       row.appendChild(htmlEl('span', 'role', g.adapter || '-'))
       row.appendChild(htmlEl('span', 'role', g.model || '-'))
-      row.appendChild(htmlEl('span', 'role', g.nodeIds.join(', ')))
+      var nodeIdsCell = htmlEl('span', 'role node-ids')
+      g.nodeIds.forEach(function (id) { nodeIdsCell.appendChild(htmlEl('div', null, id)) })
+      row.appendChild(nodeIdsCell)
       row.appendChild(htmlEl('span', 'num', String(g.calls)))
       row.appendChild(htmlEl('span', 'num', formatTokens(g.tokens)))
       row.appendChild(htmlEl('span', 'num', '$' + g.costUsd.toFixed(3)))
@@ -593,14 +597,6 @@ export function buildPage(): string {
       var r1 = htmlEl('div', 'row');
       r1.innerHTML = 'role <b>' + current.role + '</b>' + (current.agent ? ' \\u00b7 agent <b>' + current.agent + '</b>' : '');
       meta.appendChild(r1);
-      var r2 = htmlEl('div', 'row');
-      // Explicitly "this node" - tokens/cost only land on node_end, so a
-      // still-running node honestly reads 0 even while the run's own total
-      // gauge already includes other, already-finished nodes. Without this
-      // label the two numbers next to each other read as a mismatch.
-      r2.textContent = 'this node: ' + formatTokens(current.tokens) + ' tokens \\u00b7 $' + current.costUsd.toFixed(3)
-        + (current.status === 'running' ? ' (updates once it finishes)' : '');
-      meta.appendChild(r2);
     }
   }
 
@@ -666,6 +662,26 @@ export function buildPage(): string {
     model.layout.forEach(function (l) { maxX = Math.max(maxX, l.x + BOX_W + 40); maxY = Math.max(maxY, l.y + BOX_H + 40); });
     svg.setAttribute('viewBox', '0 0 ' + Math.max(maxX, 400) + ' ' + Math.max(maxY, 200));
     svg.setAttribute('height', Math.max(maxY, 200));
+    // width previously stayed the static markup's "100%": with a growing
+    // viewBox but a fixed-percentage width, the SVG's default
+    // preserveAspectRatio scales the WHOLE graph down to keep it fully
+    // visible instead of ever overflowing - so a deep dependency chain
+    // (e.g. a self-planning splice's mostly-linear node sequence, which
+    // grows by layer i.e. by x, not by y) just got progressively squished
+    // and unreadable rather than actually needing to scroll. Setting width
+    // to the real content width, the same way height already is, lets the
+    // graph render at a real, legible scale and only then genuinely
+    // overflow #canvas-wrap when it doesn't fit.
+    svg.setAttribute('width', String(Math.max(maxX, 400)));
+    // Same auto-tail convention as live-output-body: keep the newest node
+    // in view as it streams in, instead of leaving the container scrolled
+    // to wherever the user last left it. Both axes, since a layered DAG
+    // can grow in either direction depending on its shape - a linear chain
+    // grows by x (layer/column), a bushy fan-out grows by y (rows within
+    // a layer).
+    var canvasWrap = document.getElementById('canvas-wrap');
+    canvasWrap.scrollTop = canvasWrap.scrollHeight;
+    canvasWrap.scrollLeft = canvasWrap.scrollWidth;
 
     renderAgentTable(model.nodes, model.totals);
     renderPlans(model.plans);
