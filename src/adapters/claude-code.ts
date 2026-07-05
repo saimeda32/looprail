@@ -96,6 +96,17 @@ export function claudeStreamLine(line: string): string | null {
   return null
 }
 
+// No `permissionDetector` is wired here (see cli-adapter.ts's
+// PermissionDetector seam). Investigated live against a real claude v2.1.199
+// install with stdin closed, using this exact adapter's --permission-mode
+// acceptEdits flag and also --disallowedTools Bash to try to force a hard
+// denial: every attempt still ran the requested tool successfully - no
+// blocked-prompt line was ever observed to build a detector against. The
+// final stream-json `type:"result"` envelope does carry a `permission_denials`
+// field, but it was empty ([]) in every run, so its populated shape is
+// unconfirmed. Wiring a detector against a guessed shape would violate this
+// project's "no invented prompt format" rule - deferred pending a fresh,
+// un-configured claude install where a real denial can be captured.
 export function createClaudeCodeAdapter(
   opts: { exec?: ExecFn; cwd?: string } = {},
 ): Adapter {

@@ -155,3 +155,26 @@ test('runIteration works unchanged when onChunk is omitted', async () => {
     { plan: null, iteration: 1, feedback: null }, { registry })
   expect(outcomes.map((o) => o.nodeId)).toEqual(['do'])
 })
+
+test('onPermission is labeled per node id even when nodes run concurrently', async () => {
+  const registry = createRegistry()
+  registry.register({
+    name: 'probe',
+    async invoke(req, _onChunk, onPermission) {
+      await onPermission?.({ question: `q-for-${req.prompt}`, answer: (a) => (a ? 'y' : 'n') })
+      return { output: 'x', costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  })
+  const seen: Record<string, string> = {}
+  await runIteration(
+    makeDef(2),
+    [
+      { id: 'n1', role: 'executor', agent: 'a', prompt: 'UNIQUE-N1-MARKER' },
+      { id: 'n2', role: 'executor', agent: 'a', prompt: 'UNIQUE-N2-MARKER' },
+    ],
+    { plan: null, iteration: 1, feedback: null }, { registry },
+    undefined, undefined, undefined, undefined,
+    async (nodeId, req) => { seen[nodeId] = req.question; return true })
+  expect(seen.n1).toContain('UNIQUE-N1-MARKER')
+  expect(seen.n2).toContain('UNIQUE-N2-MARKER')
+})

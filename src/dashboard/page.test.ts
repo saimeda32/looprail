@@ -697,3 +697,96 @@ test('sendResume sends every field\'s real value when all are filled in', () => 
   const body = getLastBody()!
   expect(body).toEqual({ maxIterations: 10, maxCostUsd: 5.5, maxWallMinutes: 30, replanLimit: 4, goal: 'a clearer goal' })
 })
+
+// Mirrors the existing gate-row tests but scoped to the live-output panel's
+// NEW per-node permission row (src/dashboard/permission-registry.ts's
+// mid-node prompt), which is deliberately a separate markup/action from
+// the run-wide gate-row above it.
+test('the live-output panel defines a permission row for a mid-node prompt, hidden by default, with approve/deny controls', () => {
+  const html = buildPage()
+  expect(html).toContain('id="permission-row"')
+  const rowMatch = html.match(/<div class="gate-row" id="permission-row"([^>]*)>/)
+  expect(rowMatch).not.toBeNull()
+  expect(rowMatch![1]).toContain('display:none')
+  expect(html).toContain('id="btn-permission-approve"')
+  expect(html).toContain('id="btn-permission-reject"')
+  expect(html).toContain('id="permission-reject-input"')
+  expect(html).toContain('id="permission-label"')
+})
+
+// The permission row lives inside live-output-section (scoped to the node
+// currently shown in the live-output panel), not as a sibling of the
+// run-wide gate-row.
+test('the permission row is nested inside the live-output section, not the run-wide gate row', () => {
+  const html = buildPage()
+  const sectionMatch = html.match(/<section id="live-output-section"[\s\S]*?<\/section>/)
+  expect(sectionMatch).not.toBeNull()
+  expect(sectionMatch![0]).toContain('id="permission-row"')
+})
+
+// Approve/deny must POST the new answer-permission action to the SAME
+// /control endpoint, carrying nodeId + approved - not the gate action name.
+test('the inline client posts answer-permission to /control with nodeId and approved, distinct from the gate action', () => {
+  const html = buildPage()
+  expect(html).toMatch(/action:\s*'answer-permission'/)
+  expect(html).toMatch(/nodeId:\s*pendingPermissionNodeId/)
+  expect(html).toMatch(/approved:\s*approved/)
+})
+
+// renderLiveOutput must drive the new permission row on every re-render,
+// the same way it already drives tabs/body/meta from the current node.
+test('renderLiveOutput renders the permission row for the current node', () => {
+  const html = buildPage()
+  const fnMatch = html.match(/function renderLiveOutput\(model\) \{[\s\S]*?\n {2}\}/)
+  expect(fnMatch).not.toBeNull()
+  expect(fnMatch![0]).toContain('renderLivePermission(current)')
+})
+
+// Executes the real renderLivePermission function extracted from the built
+// page against a minimal fake DOM, proving the row shows if and only if the
+// current node is running AND has a pendingPermission.
+function loadRenderLivePermission(): ((current: unknown) => void) & {
+  store: Record<string, { style: Record<string, string>; textContent: string }>
+  getNodeId: () => string | null
+} {
+  const html = buildPage()
+  const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
+  const fnSrc = script.match(/function renderLivePermission\(current\) \{[\s\S]*?\n {2}\}\n/)![0]
+  const factory = new Function('document', `
+    var pendingPermissionNodeId = null;
+    ${fnSrc}
+    return { renderLivePermission: renderLivePermission, getNodeId: function () { return pendingPermissionNodeId; } };
+  `)
+  function makeFakeElement() {
+    return { style: {} as Record<string, string>, textContent: '' }
+  }
+  const store: Record<string, ReturnType<typeof makeFakeElement>> = {
+    'permission-row': makeFakeElement(),
+    'permission-label': makeFakeElement(),
+  }
+  const fakeDocument = { getElementById: (id: string) => store[id] }
+  const { renderLivePermission, getNodeId } = factory(fakeDocument) as {
+    renderLivePermission: (current: unknown) => void
+    getNodeId: () => string | null
+  }
+  return Object.assign(renderLivePermission, { store, getNodeId })
+}
+
+test('renderLivePermission shows the row only for a running current node with a pendingPermission', () => {
+  const renderLivePermission = loadRenderLivePermission()
+
+  renderLivePermission(undefined)
+  expect(renderLivePermission.store['permission-row'].style.display).toBe('none')
+  expect(renderLivePermission.getNodeId()).toBeNull()
+
+  renderLivePermission({ id: 'do', status: 'done', pendingPermission: { question: 'q?' } })
+  expect(renderLivePermission.store['permission-row'].style.display).toBe('none')
+
+  renderLivePermission({ id: 'do', status: 'running', pendingPermission: undefined })
+  expect(renderLivePermission.store['permission-row'].style.display).toBe('none')
+
+  renderLivePermission({ id: 'do', status: 'running', pendingPermission: { question: 'allow write to /etc/hosts?' } })
+  expect(renderLivePermission.store['permission-row'].style.display).toBe('flex')
+  expect(renderLivePermission.store['permission-label'].textContent).toBe('allow write to /etc/hosts?')
+  expect(renderLivePermission.getNodeId()).toBe('do')
+})

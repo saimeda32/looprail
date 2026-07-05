@@ -233,15 +233,38 @@ agents:
 
 `safe` accepts edits but keeps the adapter's own sandbox for anything
 riskier; `standard` turns that sandboxing off; `full` also skips the
-adapter's own approval gating entirely. Looprail runs every agent
-non-interactively (no stdin attached), so "riskier" here means the
-adapter's own CLI denies or errors on the action rather than prompting a
-human through looprail - there's no live approval step surfaced back to
-you the way a loopfile's own `gate` node has. Leaving `permissions` unset
+adapter's own approval gating entirely. Leaving `permissions` unset
 reproduces each adapter's own pre-existing default (`safe` for
 claude-code/codex/aider; `full` for copilot-cli, which had no
 sandboxed mode to begin with) - set it explicitly rather than relying on
 that, since `full` is real reduced safety, not just less prompting.
+
+Looprail runs every agent non-interactively (no stdin attached), so for
+most adapters "riskier" still just means the adapter's own CLI denies or
+errors on the action - there is no live prompt to answer. There is one
+mechanism that can relay a real, live prompt back to you: if an adapter is
+wired with a `permissionDetector` (see `src/adapters/cli-adapter.ts`), a
+node whose underlying agent CLI subprocess blocks mid-execution waiting on
+its own tool-permission prompt has that prompt surfaced as an approvable
+moment right in the dashboard's live-output panel for that node, and your
+answer is relayed back into that exact subprocess's stdin so the CLI
+continues instead of failing or auto-denying. This is genuinely distinct
+from a loopfile's own `role: gate` node: a gate pauses the ENGINE between
+nodes (nothing is running while it waits); a mid-node permission prompt
+happens *inside* an already-running node's own subprocess, with the
+scheduler untouched and no other node affected.
+
+This chain (detect → surface in the dashboard → answer → relay into the
+subprocess's stdin) is demonstrated end-to-end in
+`src/engine/permission-e2e.test.ts`, exercised against a `MockAdapter`
+standing in for the CLI subprocess. None of the four real adapters
+(claude-code, codex, copilot-cli, aider) has a `permissionDetector` wired
+up yet - each adapter file has a code comment explaining why: live
+investigation with the real installed `claude`/`copilot` CLIs could not
+confirm an actual permission-prompt output shape to detect, and the
+codex/aider binaries weren't even installed to test against, so nothing
+was invented. Wiring a real detector for any of them is deferred until
+that shape can be verified against the real CLI's actual output.
 
 ### Mixing models
 

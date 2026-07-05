@@ -615,3 +615,116 @@ test('startDashboardServer rejects with a clear error when the requested port is
   await expect(startDashboardServer({ journalPath, port })).rejects.toThrow(/port 41568 is already in use/)
 })
 
+
+// Fakes the same PendingPermission shape src/dashboard/permission-registry.ts's
+// real registry holds, letting these tests drive a real HTTP request against
+// a real started server and prove the underlying onPermission promise
+// actually resolves - not merely that some value got written somewhere.
+function fakePendingPermissionStore() {
+  const permissions = new Map<string, import('./permission-registry.js').PendingPermission>()
+  const resolved: { runId: string; nodeId: string; answer: string }[] = []
+  return {
+    permissions,
+    resolved,
+    getPendingPermission: (runId: string) => {
+      for (const p of permissions.values()) if (p.runId === runId) return p
+      return undefined
+    },
+    resolvePendingPermission: (runId: string, nodeId: string, answer: string) => {
+      const key = `${runId}:${nodeId}`
+      const pending = permissions.get(key)
+      if (!pending) return false
+      permissions.delete(key)
+      resolved.push({ runId, nodeId, answer })
+      pending.resolve(answer)
+      return true
+    },
+  }
+}
+
+test('POST /control answer-permission approved:true resolves the awaited permission promise with an answer parsePermissionAnswer reads as approved', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const store = fakePendingPermissionStore()
+  const awaited = new Promise((resolve) => {
+    store.permissions.set('r:do', { resolve, question: 'allow write?', nodeId: 'do', runId: 'r' })
+  })
+  dashboard = await startDashboardServer({
+    journalPath, getPendingPermission: store.getPendingPermission, resolvePendingPermission: store.resolvePendingPermission,
+  })
+  const res = await post(dashboard.url + '/control', { action: 'answer-permission', nodeId: 'do', approved: true })
+  expect(res.status).toBe(200)
+  const answer = await awaited
+  const { parsePermissionAnswer } = await import('../engine/runner.js')
+  expect(parsePermissionAnswer(answer as string)).toEqual({ approved: true })
+})
+
+test('POST /control answer-permission approved:false with feedback resolves with an answer parsePermissionAnswer reads as rejection+feedback', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const store = fakePendingPermissionStore()
+  const awaited = new Promise((resolve) => {
+    store.permissions.set('r:do', { resolve, question: 'allow write?', nodeId: 'do', runId: 'r' })
+  })
+  dashboard = await startDashboardServer({
+    journalPath, getPendingPermission: store.getPendingPermission, resolvePendingPermission: store.resolvePendingPermission,
+  })
+  const res = await post(dashboard.url + '/control', {
+    action: 'answer-permission', nodeId: 'do', approved: false, text: 'do not touch that file',
+  })
+  expect(res.status).toBe(200)
+  const answer = await awaited
+  const { parsePermissionAnswer } = await import('../engine/runner.js')
+  expect(parsePermissionAnswer(answer as string)).toEqual({ approved: false, feedback: 'do not touch that file' })
+})
+
+test('POST /control answer-permission 409s when no permission is currently waiting for that node', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const store = fakePendingPermissionStore()
+  dashboard = await startDashboardServer({
+    journalPath, getPendingPermission: store.getPendingPermission, resolvePendingPermission: store.resolvePendingPermission,
+  })
+  const res = await post(dashboard.url + '/control', { action: 'answer-permission', nodeId: 'do', approved: true })
+  expect(res.status).toBe(409)
+  expect(store.resolved).toEqual([])
+})
+
+test('POST /control answer-permission 400s when nodeId or approved is missing/malformed', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const store = fakePendingPermissionStore()
+  store.permissions.set('r:do', { resolve: () => {}, question: 'q', nodeId: 'do', runId: 'r' })
+  dashboard = await startDashboardServer({
+    journalPath, getPendingPermission: store.getPendingPermission, resolvePendingPermission: store.resolvePendingPermission,
+  })
+  const missingNodeId = await post(dashboard.url + '/control', { action: 'answer-permission', approved: true })
+  expect(missingNodeId.status).toBe(400)
+  const missingApproved = await post(dashboard.url + '/control', { action: 'answer-permission', nodeId: 'do' })
+  expect(missingApproved.status).toBe(400)
+  expect(store.resolved).toEqual([])
+})
+
+test('POST /control answer-permission 403s on cross-origin requests', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const store = fakePendingPermissionStore()
+  store.permissions.set('r:do', { resolve: () => {}, question: 'q', nodeId: 'do', runId: 'r' })
+  dashboard = await startDashboardServer({
+    journalPath, getPendingPermission: store.getPendingPermission, resolvePendingPermission: store.resolvePendingPermission,
+  })
+  const res = await post(
+    dashboard.url + '/control', { action: 'answer-permission', nodeId: 'do', approved: true }, { origin: 'http://evil.example' },
+  )
+  expect(res.status).toBe(403)
+  expect(store.resolved).toEqual([])
+})
+
+test('POST /control answer-permission 409s once the run is no longer running', async () => {
+  const journalPath = journalWith([
+    '{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}',
+    '{"ts":2,"type":"verified","data":{"reason":"all verifiers passed","costUsd":0}}',
+  ])
+  const store = fakePendingPermissionStore()
+  store.permissions.set('r:do', { resolve: () => {}, question: 'q', nodeId: 'do', runId: 'r' })
+  dashboard = await startDashboardServer({
+    journalPath, getPendingPermission: store.getPendingPermission, resolvePendingPermission: store.resolvePendingPermission,
+  })
+  const res = await post(dashboard.url + '/control', { action: 'answer-permission', nodeId: 'do', approved: true })
+  expect(res.status).toBe(409)
+})

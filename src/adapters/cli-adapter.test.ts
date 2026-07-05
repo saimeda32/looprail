@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { CliAdapter, type ExecFn, type ExecResult } from './cli-adapter.js'
+import { CliAdapter, defaultExec, type ExecFn, type ExecResult, type PermissionRequest } from './cli-adapter.js'
 
 function fakeExec(result: Partial<ExecResult> = {}) {
   const calls: { file: string; args: string[]; input?: string; timeoutMs?: number }[] = []
@@ -153,5 +153,123 @@ describe('CliAdapter', () => {
     const a = new CliAdapter({ name: 'x', command: 'mytool {prompt}', exec, streamHandler })
     await a.invoke({ prompt: 'p' })
     expect(called).toBe(false)
+  })
+
+  describe('permission detection seam', () => {
+    test('a configured permissionDetector is passed through to exec, and a matching line surfaces a PermissionRequest to onPermission', async () => {
+      const seen: PermissionRequest[] = []
+      const exec: ExecFn = async (_file, _args, opts = {}) => {
+        expect(opts.permissionDetector).toBeTypeOf('function')
+        const req = opts.permissionDetector?.('Allow tool "write_file"? (y/n)')
+        expect(req).not.toBeNull()
+        if (req) await opts.onPermission?.(req)
+        return { stdout: 'done', stderr: '', exitCode: 0 }
+      }
+      const permissionDetector = (line: string): PermissionRequest | null => {
+        if (!line.startsWith('Allow tool')) return null
+        return {
+          question: line,
+          answer: (approved) => (approved ? 'y\n' : 'n\n'),
+        }
+      }
+      const a = new CliAdapter({ name: 'x', command: 'mytool {prompt}', exec, permissionDetector })
+      await a.invoke({ prompt: 'p' }, undefined, async (req) => {
+        seen.push(req)
+        return true
+      })
+      expect(seen).toHaveLength(1)
+      expect(seen[0].question).toBe('Allow tool "write_file"? (y/n)')
+    })
+
+    test('a non-matching line yields null from the detector', async () => {
+      const exec: ExecFn = async (_file, _args, opts = {}) => {
+        expect(opts.permissionDetector?.('just some ordinary output')).toBeNull()
+        return { stdout: 'done', stderr: '', exitCode: 0 }
+      }
+      const permissionDetector = (line: string): PermissionRequest | null =>
+        line.startsWith('Allow tool') ? { question: line, answer: () => 'y\n' } : null
+      const a = new CliAdapter({ name: 'x', command: 'mytool {prompt}', exec, permissionDetector })
+      await a.invoke({ prompt: 'p' })
+    })
+
+    test('no permissionDetector configured means exec receives undefined for it', async () => {
+      const exec: ExecFn = async (_file, _args, opts = {}) => {
+        expect(opts.permissionDetector).toBeUndefined()
+        expect(opts.onPermission).toBeUndefined()
+        return { stdout: 'done', stderr: '', exitCode: 0 }
+      }
+      const a = new CliAdapter({ name: 'x', command: 'mytool {prompt}', exec })
+      await a.invoke({ prompt: 'p' })
+    })
+  })
+
+  describe('defaultExec stdin behavior for permission relay', () => {
+    test('with no permissionDetector, stdin stays closed/ignored: a child that waits for stdin EOF sees it immediately (no open, unfed pipe)', async () => {
+      const script = `
+        process.stdin.resume();
+        process.stdin.on('end', () => { process.stdout.write('END'); process.exit(0); });
+      `
+      const res = await defaultExec(process.execPath, ['-e', script], { timeoutMs: 5000 })
+      expect(res.exitCode).toBe(0)
+      expect(res.stdout).toBe('END')
+    })
+
+    test('a configured permissionDetector opens a writable stdin, and writing an answer back reaches the exact in-flight subprocess', async () => {
+      const script = `
+        process.stdout.write('Allow tool "write_file"? (y/n)\\n');
+        process.stdin.resume();
+        process.stdin.setEncoding('utf8');
+        let buf = '';
+        process.stdin.on('data', (d) => {
+          buf += d;
+          if (buf.includes('\\n')) {
+            process.stdout.write('GOT:' + buf);
+            process.exit(0);
+          }
+        });
+      `
+      const receivedQuestions: string[] = []
+      const permissionDetector = (line: string): PermissionRequest | null =>
+        line.startsWith('Allow tool')
+          ? { question: line, answer: (approved: boolean) => (approved ? 'y\n' : 'n\n') }
+          : null
+      const res = await defaultExec(process.execPath, ['-e', script], {
+        timeoutMs: 5000,
+        permissionDetector,
+        onPermission: async (req) => {
+          receivedQuestions.push(req.question)
+          return true
+        },
+      })
+      expect(receivedQuestions).toEqual(['Allow tool "write_file"? (y/n)'])
+      expect(res.stdout).toContain('GOT:y')
+      expect(res.exitCode).toBe(0)
+    })
+
+    test('a configured permissionDetector honors a denied answer, writing the deny bytes back', async () => {
+      const script = `
+        process.stdout.write('Allow tool "write_file"? (y/n)\\n');
+        process.stdin.resume();
+        process.stdin.setEncoding('utf8');
+        let buf = '';
+        process.stdin.on('data', (d) => {
+          buf += d;
+          if (buf.includes('\\n')) {
+            process.stdout.write('GOT:' + buf);
+            process.exit(0);
+          }
+        });
+      `
+      const permissionDetector = (line: string): PermissionRequest | null =>
+        line.startsWith('Allow tool')
+          ? { question: line, answer: (approved: boolean) => (approved ? 'y\n' : 'n\n') }
+          : null
+      const res = await defaultExec(process.execPath, ['-e', script], {
+        timeoutMs: 5000,
+        permissionDetector,
+        onPermission: async () => false,
+      })
+      expect(res.stdout).toContain('GOT:n')
+    })
   })
 })

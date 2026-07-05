@@ -353,3 +353,21 @@ test('a tester node never calls onChunk (no adapter is invoked)', async () => {
   await executeNode(def, { id: 't1', role: 'tester', run: 'true' }, state, none, deps, (c) => seen.push(c))
   expect(seen).toEqual([])
 })
+
+test('onPermission is forwarded to the adapter for an executor node', async () => {
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    async invoke(_req, _onChunk, onPermission) {
+      const answer = await onPermission?.({ question: 'allow tool?', answer: (a) => (a ? 'y\n' : 'n\n') })
+      const approved = typeof answer === 'boolean' ? answer : answer?.approved
+      return { output: approved ? 'ok-approved' : 'ok-denied', costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  })
+  const seenQuestions: string[] = []
+  const out = await executeNode(
+    def, { id: 'do', role: 'executor', agent: 'a' }, state, none, { registry }, undefined,
+    async (req) => { seenQuestions.push(req.question); return true })
+  expect(seenQuestions).toEqual(['allow tool?'])
+  expect(out.output).toBe('ok-approved')
+})

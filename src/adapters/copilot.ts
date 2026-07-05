@@ -77,6 +77,15 @@ export function copilotStreamLine(line: string): string | null {
 // --help`; without it, any tool call (writing a file, running a command)
 // has nothing to prompt for approval and the model just declines or
 // describes what it would do.
+// No `permissionDetector` is wired here (see cli-adapter.ts's
+// PermissionDetector seam). Investigated live against a real copilot v1.0.68
+// install with stdin closed, using this exact adapter's safe-preset flags
+// (--allow-tool write --allow-tool "shell(npm:*)") against a shell command
+// outside that allowlist: the tool still ran to completion - no
+// tool.execution_denied (or similarly-shaped) event was ever observed on this
+// machine to build a detector against. Deferred pending a fresh,
+// un-configured copilot install where a real denial can be captured; do not
+// guess this CLI's format.
 export function createCopilotAdapter(
   opts: { exec?: ExecFn; cwd?: string; loadPricingTable?: () => Promise<PricingTable> | PricingTable } = {},
 ): Adapter {

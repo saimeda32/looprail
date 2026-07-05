@@ -51,9 +51,34 @@ export interface AgentResult {
   durationMs: number
 }
 
+// A mid-node permission prompt an underlying agent CLI has printed to its own
+// stdout while it blocks waiting for a human answer on its own stdin (e.g.
+// codex's --ask-for-approval on-request, claude-code's acceptEdits prompt).
+// `question` is the text worth showing a person; `answer` turns their
+// yes/no (+ optional free-text feedback) into the exact stdin bytes that
+// unblock that specific CLI's prompt. Defined here (rather than only in
+// adapters/cli-adapter.ts, which re-exports it for compatibility) because
+// it appears in the Adapter.invoke signature below, and core/types.ts must
+// not import back from an adapter module for its own interface shapes.
+export interface PermissionRequest {
+  question: string
+  answer: (approved: boolean, feedback?: string) => string
+}
+
+// Handles a live-surfaced PermissionRequest and resolves once a human (or a
+// test) has answered it. A bare boolean is a plain approve/deny; the object
+// form carries optional free-text feedback alongside a denial.
+export type PermissionAnswerer = (
+  req: PermissionRequest,
+) => Promise<boolean | { approved: boolean; feedback?: string }>
+
 export interface Adapter {
   name: string
-  invoke(req: AgentRequest, onChunk?: (text: string) => void): Promise<AgentResult>
+  invoke(
+    req: AgentRequest,
+    onChunk?: (text: string) => void,
+    onPermission?: PermissionAnswerer,
+  ): Promise<AgentResult>
 }
 
 export interface AgentDef { adapter: string; model?: string; command?: string; permissions?: PermissionConfig }
@@ -202,5 +227,16 @@ export interface JournalEvent {
   ts: number
   type: 'run_start' | 'node_start' | 'node_end' | 'node_skipped' | 'node_progress' | 'iteration_end'
         | 'replan' | 'verified' | 'halt'
+        // Emitted when an agent CLI subprocess running inside a node blocks
+        // mid-execution waiting for its OWN tool-permission answer (see
+        // dashboard/permission-registry.ts) - distinct from a `role: gate`
+        // node, which pauses the engine BETWEEN nodes rather than inside
+        // one. data: { nodeId: string; question: string }.
+        | 'permission_request'
+        // Emitted once a human's answer (relayed via the dashboard's
+        // /control answer-permission action) has been written back into
+        // that exact subprocess's stdin. data: { nodeId: string;
+        // question: string; approved: boolean; feedback?: string }.
+        | 'permission_resolved'
   data: Record<string, unknown>
 }

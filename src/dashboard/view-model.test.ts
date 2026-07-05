@@ -491,3 +491,40 @@ test('verified also reclassifies any still-running node as interrupted (defensiv
   ])
   expect(m.nodes.find((n) => n.id === 'stray')!.status).toBe('interrupted')
 })
+
+test('permission_request sets pendingPermission on the running node; permission_resolved clears it', () => {
+  const events: JournalEvent[] = [
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('node_start', { nodeId: 'do', role: 'executor', iteration: 1 }),
+    ev('permission_request', { nodeId: 'do', question: 'allow write to /etc/hosts?' }),
+  ]
+  const withRequest = buildViewModel(events)
+  const node = withRequest.nodes.find((n) => n.id === 'do')!
+  expect(node.pendingPermission).toEqual({ question: 'allow write to /etc/hosts?' })
+
+  const resolved = buildViewModel([
+    ...events,
+    ev('permission_resolved', { nodeId: 'do', question: 'allow write to /etc/hosts?', approved: true }),
+  ])
+  expect(resolved.nodes.find((n) => n.id === 'do')!.pendingPermission).toBeUndefined()
+})
+
+test('permission_resolved with approved:false and feedback still clears pendingPermission', () => {
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('node_start', { nodeId: 'do', role: 'executor', iteration: 1 }),
+    ev('permission_request', { nodeId: 'do', question: 'q?' }),
+    ev('permission_resolved', { nodeId: 'do', question: 'q?', approved: false, feedback: 'no, try a different path' }),
+  ])
+  expect(m.nodes.find((n) => n.id === 'do')!.pendingPermission).toBeUndefined()
+})
+
+test('a fresh node_start clears any leftover pendingPermission from a previous run of the same node id', () => {
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
+    ev('node_start', { nodeId: 'do', role: 'executor', iteration: 1 }),
+    ev('permission_request', { nodeId: 'do', question: 'stale question' }),
+    ev('node_start', { nodeId: 'do', role: 'executor', iteration: 2 }),
+  ])
+  expect(m.nodes.find((n) => n.id === 'do')!.pendingPermission).toBeUndefined()
+})

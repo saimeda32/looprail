@@ -1,4 +1,4 @@
-import type { LoopDef, NodeDef, NodeOutcome } from '../core/types.js'
+import type { LoopDef, NodeDef, NodeOutcome, PermissionRequest } from '../core/types.js'
 import { topoLayers } from '../core/graph.js'
 import type { RunState } from '../core/context.js'
 import { executeNode, type EngineDeps } from './nodes.js'
@@ -32,6 +32,10 @@ export async function runIteration(
   shouldContinue?: () => boolean,
   onNodeStart?: (node: NodeDef) => void,
   onChunk?: (nodeId: string, chunk: string) => void,
+  onPermission?: (
+    nodeId: string,
+    req: PermissionRequest,
+  ) => Promise<boolean | { approved: boolean; feedback?: string }>,
 ): Promise<NodeOutcome[]> {
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const outcomes = new Map<string, NodeOutcome>()
@@ -45,6 +49,7 @@ export async function runIteration(
         let outcome = await executeNode(
           def, node, state, outcomes, deps,
           onChunk && ((chunk: string) => onChunk(node.id, chunk)),
+          onPermission && ((req: PermissionRequest) => onPermission(node.id, req)),
         )
         if (outcome.verdict && node.weight !== undefined) {
           outcome = { ...outcome, verdict: { ...outcome.verdict, weight: node.weight } }

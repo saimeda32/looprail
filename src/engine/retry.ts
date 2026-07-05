@@ -1,4 +1,4 @@
-import type { Adapter, AgentRequest, AgentResult } from '../core/types.js'
+import type { Adapter, AgentRequest, AgentResult, PermissionAnswerer } from '../core/types.js'
 
 // Infrastructural failures (expired auth, logged-out CLI) can never be fixed
 // by retrying or iterating - the run must halt and point at `looprail doctor`.
@@ -20,13 +20,14 @@ export async function invokeWithRetry(
   req: AgentRequest,
   deps: RetryDeps = {},
   onChunk?: (text: string) => void,
+  onPermission?: PermissionAnswerer,
 ): Promise<AgentResult> {
   const retries = deps.retries ?? 2
   const sleep = deps.sleep ?? defaultSleep
   let lastErr: unknown
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      return await adapter.invoke(req, onChunk)
+      return await adapter.invoke(req, onChunk, onPermission)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       if (isInfraError(msg)) {

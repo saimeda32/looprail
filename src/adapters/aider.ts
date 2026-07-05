@@ -47,6 +47,13 @@ export function parseAiderOutput(stdout: string): ParsedResponse {
   return { output: output || stdout.trim(), tokens: inputTokens + outputTokens, inputTokens, outputTokens }
 }
 
+// No `permissionDetector` is wired here (see cli-adapter.ts's
+// PermissionDetector seam). The `aider` binary was not discoverable on PATH
+// in this project's development environment - there is zero live evidence of
+// any kind for its permission-block output shape, and no existing test
+// fixture in this repo captures one either. Deferred pending a real,
+// un-configured aider install to observe an actual blocked-prompt line
+// against; do not guess this CLI's format.
 export function createAiderAdapter(
   opts: { exec?: ExecFn; cwd?: string; loadPricingTable?: () => Promise<PricingTable> | PricingTable } = {},
 ): Adapter {

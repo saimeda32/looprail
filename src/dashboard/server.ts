@@ -7,6 +7,11 @@ import { queueHumanFeedback } from '../journal/human-feedback.js'
 import {
   getPendingGate as defaultGetPendingGate, resolvePendingGate as defaultResolvePendingGate, type PendingGate,
 } from './gate-registry.js'
+import {
+  getPendingPermission as defaultGetPendingPermission,
+  resolvePendingPermission as defaultResolvePendingPermission,
+  type PendingPermission,
+} from './permission-registry.js'
 import { buildDashboardPayload } from './layout.js'
 import { buildPage } from './page.js'
 import { buildReplay, encodeSseFrame } from './sse.js'
@@ -59,6 +64,13 @@ export interface DashboardServerOptions {
   // import cli/ (gate-registry.ts already lives in dashboard/ itself).
   getPendingGate?: (runId: string) => PendingGate | undefined
   resolvePendingGate?: (runId: string, nodeId: string, answer: GateAnswer) => boolean
+  // Same wiring rationale as getPendingGate/resolvePendingGate just above,
+  // but backed by the SEPARATE mid-node registry in permission-registry.ts
+  // (see that file's header comment for why the two must not be
+  // conflated) - a `looprail run --ui` process wires this to its real,
+  // process-lifetime Map "for free"; tests inject their own fake store.
+  getPendingPermission?: (runId: string) => PendingPermission | undefined
+  resolvePendingPermission?: (runId: string, nodeId: string, answer: string) => boolean
 }
 
 export interface DashboardServer {
@@ -215,6 +227,8 @@ export async function serveControl(
     journalPath: string
     getPendingGate?: (runId: string) => PendingGate | undefined
     resolvePendingGate?: (runId: string, nodeId: string, answer: GateAnswer) => boolean
+    getPendingPermission?: (runId: string) => PendingPermission | undefined
+    resolvePendingPermission?: (runId: string, nodeId: string, answer: string) => boolean
   },
 ): Promise<void> {
   if (!isSameOrigin(req)) {
@@ -223,24 +237,36 @@ export async function serveControl(
   }
   let action: string | undefined
   let text: string | undefined
+  let nodeId: string | undefined
+  let approved: boolean | undefined
   try {
     const body = await readRequestBody(req)
-    const parsed = JSON.parse(body || '{}') as { action?: string; text?: string }
+    const parsed = JSON.parse(body || '{}') as { action?: string; text?: string; nodeId?: string; approved?: boolean }
     action = parsed.action
     text = parsed.text
+    nodeId = parsed.nodeId
+    approved = parsed.approved
   } catch {
     sendJson(res, 400, { error: 'invalid request body' })
     return
   }
   if (
     action !== 'pause' && action !== 'resume' && action !== 'cancel' && action !== 'feedback'
-    && action !== 'approve-gate' && action !== 'reject-gate'
+    && action !== 'approve-gate' && action !== 'reject-gate' && action !== 'answer-permission'
   ) {
     sendJson(res, 400, { error: `unknown action "${String(action)}"` })
     return
   }
   if (action === 'reject-gate' && (typeof text !== 'string' || text.trim().length === 0)) {
     sendJson(res, 400, { error: 'reject-gate requires a non-empty feedback text' })
+    return
+  }
+  if (action === 'answer-permission' && (typeof nodeId !== 'string' || nodeId.trim().length === 0)) {
+    sendJson(res, 400, { error: 'answer-permission requires a non-empty nodeId' })
+    return
+  }
+  if (action === 'answer-permission' && typeof approved !== 'boolean') {
+    sendJson(res, 400, { error: 'answer-permission requires a boolean approved field' })
     return
   }
 
@@ -279,6 +305,32 @@ export async function serveControl(
       ? { approved: true }
       : { approved: false, feedback: text as string }
     resolvePending(runId, pending.nodeId, answer)
+    sendJson(res, 200, { ok: true })
+    return
+  }
+
+  // Answers a mid-node agent-CLI permission prompt currently blocking
+  // ONE node's own subprocess - looked up (and resolved) via
+  // dashboard/permission-registry.ts, deliberately NOT gate-registry.ts
+  // (see that file's own header comment for why the two are not the same
+  // mechanism). Unlike a gate, more than one node's prompt could be
+  // pending in the same run at once, so nodeId is required in the body
+  // rather than inferred from "the one gate this run has". The raw answer
+  // string handed to resolvePendingPermission is built to survive the
+  // exact parsing engine/runner.ts's parsePermissionAnswer does downstream:
+  // approved -> 'y', rejected -> the feedback text verbatim (or an empty
+  // string when no feedback was given, which parsePermissionAnswer reads
+  // as a plain, feedback-less rejection).
+  if (action === 'answer-permission') {
+    const getPending = opts.getPendingPermission ?? defaultGetPendingPermission
+    const resolvePending = opts.resolvePendingPermission ?? defaultResolvePendingPermission
+    const pending = getPending(runId)
+    if (!pending || pending.nodeId !== nodeId) {
+      sendJson(res, 409, { error: 'no permission is currently waiting for this node' })
+      return
+    }
+    const answer = approved ? 'y' : (text ?? '')
+    resolvePending(runId, nodeId as string, answer)
     sendJson(res, 200, { ok: true })
     return
   }

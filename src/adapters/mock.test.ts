@@ -44,6 +44,65 @@ describe('MockAdapter', () => {
     await mock.invoke({ prompt: 'go' }, (c) => seen.push(c))
     expect(seen).toEqual([])
   })
+
+  test('a step with no promptPermission behaves exactly as today, even when onPermission is provided', async () => {
+    const mock = new MockAdapter([{ output: 'plain result' }])
+    const onPermission = () => {
+      throw new Error('onPermission must not be called for a step with no promptPermission')
+    }
+    const result = await mock.invoke({ prompt: 'go' }, undefined, onPermission)
+    expect(result.output).toBe('plain result')
+  })
+
+  test('a step with promptPermission fires onPermission and blocks the resolved output until answered', async () => {
+    const mock = new MockAdapter([
+      { output: 'did the risky thing', promptPermission: { question: 'delete file.txt?' } },
+    ])
+    let resolveAnswer!: (v: boolean) => void
+    const answerPromise = new Promise<boolean>((resolve) => {
+      resolveAnswer = resolve
+    })
+    const seenQuestions: string[] = []
+    const onPermission = async (req: { question: string }) => {
+      seenQuestions.push(req.question)
+      return answerPromise
+    }
+
+    let settled = false
+    const invocation = mock.invoke({ prompt: 'go' }, undefined, onPermission).then((r) => {
+      settled = true
+      return r
+    })
+
+    // Give the microtask queue a chance to run; invoke() must not have
+    // resolved yet because onPermission's promise is still pending.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    expect(seenQuestions).toEqual(['delete file.txt?'])
+
+    resolveAnswer(true)
+    const result = await invocation
+    expect(settled).toBe(true)
+    expect(result.output).toBe('did the risky thing')
+  })
+
+  test('the answer received by onPermission is recorded on the mock, proving it reached the simulated subprocess', async () => {
+    const mock = new MockAdapter([
+      { output: 'ok', promptPermission: { question: 'proceed?' } },
+    ])
+    await mock.invoke({ prompt: 'go' }, undefined, async () => ({ approved: true, feedback: 'looks fine' }))
+    expect(mock.permissionAnswers).toEqual([{ approved: true, feedback: 'looks fine' }])
+  })
+
+  test('a denied permission answer is still recorded and invoke still resolves (no throw on denial)', async () => {
+    const mock = new MockAdapter([
+      { output: 'ok', promptPermission: { question: 'proceed?' } },
+    ])
+    const result = await mock.invoke({ prompt: 'go' }, undefined, async () => false)
+    expect(mock.permissionAnswers).toEqual([{ approved: false, feedback: undefined }])
+    expect(result.output).toBe('ok')
+  })
 })
 
 describe('registry', () => {

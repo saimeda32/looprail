@@ -1,5 +1,7 @@
 import { execa } from 'execa'
-import type { Adapter, AgentDef, GateHandler, LoopDef, NodeDef, NodeOutcome } from '../core/types.js'
+import type {
+  Adapter, AgentDef, GateHandler, LoopDef, NodeDef, NodeOutcome, PermissionAnswerer,
+} from '../core/types.js'
 import { DEFAULT_VERDICT_THRESHOLD, normalizeGateAnswer } from '../core/types.js'
 import { composeContext, type RunState } from '../core/context.js'
 import { parseVerdict } from '../core/verdict.js'
@@ -35,6 +37,7 @@ export async function executeNode(
   outcomes: Map<string, NodeOutcome>,
   deps: EngineDeps,
   onChunk?: (text: string) => void,
+  onPermission?: PermissionAnswerer,
 ): Promise<NodeOutcome> {
   const base = { nodeId: node.id, role: node.role, costUsd: 0, tokens: 0, durationMs: 0 }
   // A node with no explicit timeout still gets one when a wall rail is set, so a
@@ -151,7 +154,7 @@ export async function executeNode(
     let res = await invokeWithRetry(adapter, {
       prompt, timeoutMs,
       model: agentDef.model, command: agentDef.command, permissions: agentDef.permissions,
-    }, deps, onChunk)
+    }, deps, onChunk, onPermission)
     let verdict = VERIFYING.has(node.role) ? parseVerdict(node.id, res.output) : null
     let cost = res.costUsd
     let tokens = res.tokens
@@ -162,7 +165,7 @@ export async function executeNode(
         prompt: `${prompt}\n\nYour previous reply had no verdict block. Reply again ending with:\nVERDICT: pass|fail\nEVIDENCE: <reason>`,
         timeoutMs,
         model: agentDef.model, command: agentDef.command, permissions: agentDef.permissions,
-      }, deps, onChunk)
+      }, deps, onChunk, onPermission)
       cost += retry.costUsd
       tokens += retry.tokens
       // estimatedCostUsd is optional (undefined means "no estimate

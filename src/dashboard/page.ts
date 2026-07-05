@@ -356,6 +356,13 @@ export function buildPage(): string {
         <section id="live-output-section" style="display:none">
           <div id="live-tabs" class="tab-strip"></div>
           <div id="live-output-body"></div>
+          <div class="gate-row" id="permission-row" style="display:none">
+            <span class="gate-label" id="permission-label"></span>
+            <button class="control-btn" id="btn-permission-approve" type="button">Approve</button>
+            <input type="text" id="permission-reject-input" placeholder="Deny with feedback…" maxlength="2000" />
+            <button class="control-btn danger" id="btn-permission-reject" type="button">Deny</button>
+            <span id="permission-status"></span>
+          </div>
           <div id="live-meta" class="live-meta"></div>
         </section>
       </div>
@@ -792,7 +799,75 @@ export function buildPage(): string {
       r1.innerHTML = 'role <b>' + current.role + '</b>' + (current.agent ? ' \\u00b7 agent <b>' + current.agent + '</b>' : '');
       meta.appendChild(r1);
     }
+    renderLivePermission(current);
   }
+
+  // Shown only while the node currently displayed in the live-output panel
+  // has a pendingPermission (model.nodes[i].pendingPermission, sourced from
+  // dashboard/permission-registry.ts via view-model.ts's event fold) - a
+  // genuinely different moment from a "role: gate" node's pendingGate: the
+  // node's own subprocess is still running, blocked on ITS OWN stdin, not
+  // the engine pausing between nodes (see permission-registry.ts's header
+  // comment). Scoped to the live-output section, not the run-wide gate-row.
+  var pendingPermissionNodeId = null;
+  function renderLivePermission(current) {
+    var row = document.getElementById('permission-row');
+    if (!current || current.status !== 'running' || !current.pendingPermission) {
+      row.style.display = 'none';
+      pendingPermissionNodeId = null;
+      return;
+    }
+    row.style.display = 'flex';
+    pendingPermissionNodeId = current.id;
+    document.getElementById('permission-label').textContent = current.pendingPermission.question;
+  }
+
+  function sendPermissionDecision(approved, text) {
+    var statusEl = document.getElementById('permission-status');
+    var approveBtn = document.getElementById('btn-permission-approve');
+    var rejectBtn = document.getElementById('btn-permission-reject');
+    if (!pendingPermissionNodeId) return;
+    statusEl.className = '';
+    statusEl.textContent = '';
+    approveBtn.disabled = true;
+    rejectBtn.disabled = true;
+    var body = { action: 'answer-permission', nodeId: pendingPermissionNodeId, approved: approved };
+    if (!approved && text) body.text = text;
+    fetch('control', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function (r) {
+      if (r.ok) {
+        statusEl.className = 'ok';
+        statusEl.textContent = approved ? 'approved' : 'denied';
+        var input = document.getElementById('permission-reject-input');
+        input.value = '';
+        return refresh();
+      }
+      return r.json().then(function (respBody) {
+        throw new Error(respBody.error || ('request failed (' + r.status + ')'));
+      });
+    }).catch(function (err) {
+      statusEl.className = 'err';
+      statusEl.textContent = err.message;
+    }).then(function () {
+      approveBtn.disabled = false;
+      rejectBtn.disabled = false;
+    });
+  }
+
+  document.getElementById('btn-permission-approve').addEventListener('click', function () {
+    sendPermissionDecision(true);
+  });
+  document.getElementById('btn-permission-reject').addEventListener('click', function () {
+    var input = document.getElementById('permission-reject-input');
+    var text = input.value.trim();
+    sendPermissionDecision(false, text);
+  });
+  document.getElementById('permission-reject-input').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') document.getElementById('btn-permission-reject').click();
+  });
 
   function render(model) {
     document.getElementById('empty-state').style.display = model.nodes.length === 0 ? 'block' : 'none';

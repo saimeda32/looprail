@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import type {
-  FinalReport, GateHandler, JournalEvent, LoopDef, NodeDef, NodeOutcome, RunReport,
+  FinalReport, GateHandler, JournalEvent, LoopDef, NodeDef, NodeOutcome, PermissionRequest, RunReport,
 } from '../core/types.js'
 import { expandPanels, validateGraph } from '../core/graph.js'
 import type { RunState } from '../core/context.js'
@@ -20,6 +20,7 @@ import {
 } from '../config/loopfile.js'
 import { spliceFragment } from './splice.js'
 import { persistRunLoopDef } from '../journal/loopfile-persist.js'
+import { registerPendingPermission, sweepPendingPermissions } from '../dashboard/permission-registry.js'
 
 export interface RunOptions {
   registry: AdapterRegistry
@@ -87,6 +88,21 @@ export function findPlanGenerator(nodes: NodeDef[], gateNode: NodeDef): NodeDef 
 
 export function contextHash(nodeId: string, prompt: string): string {
   return createHash('sha256').update(`${nodeId}\0${prompt}`).digest('hex')
+}
+
+// Parses the raw answer string a human relays through the dashboard's
+// permission-registry (see resolvePendingPermission) into an approved/
+// feedback pair, mirroring the exact convention makeUiGate's own readline
+// answer parsing already uses for gates (y/yes approves, empty text
+// rejects with no feedback, anything else is captured as rejection
+// feedback) - deliberately NOT reusing the "a/always" gate convention,
+// since a mid-node permission prompt has no "always approve this node"
+// concept the way a gate's stored-approval does.
+export function parsePermissionAnswer(raw: string): { approved: boolean; feedback?: string } {
+  const trimmed = raw.trim()
+  if (/^y(es)?$/i.test(trimmed)) return { approved: true }
+  if (trimmed.length === 0) return { approved: false }
+  return { approved: false, feedback: trimmed }
 }
 
 function splitRegions(nodes: NodeDef[]): { planning: NodeDef[]; execution: NodeDef[] } {
@@ -162,6 +178,39 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   const onChunk = (nodeId: string, chunk: string): void => {
     const node = expanded.nodes.find((n) => n.id === nodeId)
     emit('node_progress', { nodeId, role: node?.role, iteration: state.iteration, chunk })
+  }
+  // Surfaces a mid-node agent-CLI permission prompt (see
+  // adapters/cli-adapter.ts's PermissionDetector/PermissionRequest) as a
+  // durable, dashboard-answerable moment - genuinely distinct from a
+  // `role: gate` node, which pauses the ENGINE between nodes via the
+  // GateHandler above. Here the node's own subprocess is already running
+  // and blocked on ITS OWN stdin; the scheduler is not paused and no other
+  // node's scheduling is affected. registerPendingPermission gives a human
+  // (via the dashboard's /control answer-permission action, routed through
+  // resolvePendingPermission) a promise to resolve; once resolved, the raw
+  // answer string is parsed with the exact same convention a gate's own
+  // readline answer uses (see parsePermissionAnswer) and handed back to
+  // the adapter, which computes the CLI-specific stdin bytes itself via
+  // PermissionRequest.answer and writes them into that exact subprocess.
+  const onPermission = (
+    nodeId: string,
+    req: PermissionRequest,
+  ): Promise<boolean | { approved: boolean; feedback?: string }> => {
+    const node = expanded.nodes.find((n) => n.id === nodeId)
+    emit('permission_request', { nodeId, role: node?.role, iteration: state.iteration, question: req.question })
+    return new Promise((resolve) => {
+      registerPendingPermission({
+        runId, nodeId, question: req.question,
+        resolve: (answer: string) => {
+          const parsed = parsePermissionAnswer(answer)
+          emit('permission_resolved', {
+            nodeId, role: node?.role, iteration: state.iteration,
+            question: req.question, approved: parsed.approved, feedback: parsed.feedback,
+          })
+          resolve(parsed)
+        },
+      })
+    })
   }
   // pre-start rail enforcement: halt BEFORE starting a node that would breach
   const shouldContinue = () => guard.check(state.iteration) === null
@@ -292,6 +341,11 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     emit(status === 'verified' ? 'verified' : 'halt', {
       reason, costUsd: guard.spentUsd, estimatedCostUsd: guard.estimatedSpentUsd, report,
     })
+    // A permission prompt that never got answered (an abandoned dashboard
+    // tab, a run that halted for an unrelated reason) can't be left pending
+    // forever once the run itself has settled - same rationale as
+    // gate-registry.ts's sweepPendingGates.
+    sweepPendingPermissions(runId)
     return {
       runId, status, reason,
       iterations: state.iteration, replans,
@@ -314,7 +368,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
       const maxRounds = Math.max(1, ...planning.map((n) => n.rounds ?? 1))
       let formatError: string | null = null
       for (let round = 1; round <= maxRounds; round++) {
-        const outs = await runIteration({ ...expanded, agents: runAgents }, planning, state, deps, onNode, shouldContinue, onNodeStart, onChunk)
+        const outs = await runIteration({ ...expanded, agents: runAgents }, planning, state, deps, onNode, shouldContinue, onNodeStart, onChunk, onPermission)
         const planner = outs.find((o) => o.role === 'planner')
         if (planner) state.plan = planner.output
         if (guard.check(state.iteration)) return { ok: true } // breached mid-planning; loop halts on entry
@@ -439,7 +493,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     // its own agents was spliced in) - execution nodes referencing a
     // freshly-merged agent key must resolve it, so the merged set is
     // threaded through here rather than the run's original, fixed one.
-    outcomes = await runIteration({ ...expanded, agents: runAgents }, execution, state, deps, onNode, shouldContinue, onNodeStart, onChunk)
+    outcomes = await runIteration({ ...expanded, agents: runAgents }, execution, state, deps, onNode, shouldContinue, onNodeStart, onChunk, onPermission)
     const verdicts = outcomes.flatMap((o) => (o.verdict ? [o.verdict] : []))
     fingerprints.push(verdictFingerprint(verdicts))
     emit('iteration_end', { iteration: state.iteration, costUsd: guard.spentUsd, estimatedCostUsd: guard.estimatedSpentUsd })

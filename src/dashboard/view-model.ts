@@ -39,6 +39,15 @@ export interface DashboardNode {
   // times and fade older text, neither of which a flat concatenated string
   // can answer once chunks are joined together.
   streamingChunks?: StreamChunk[]
+  // Set while this node's own subprocess is blocked mid-execution on a
+  // real agent-CLI tool-permission prompt (see adapters/cli-adapter.ts's
+  // PermissionDetector and engine/runner.ts's onPermission), cleared the
+  // moment a matching permission_resolved event lands. Deliberately NOT the
+  // same shape/field as a `role: gate` node's pendingGate (see
+  // dashboard/permission-registry.ts's header comment for why the two are
+  // not interchangeable): this is per-node, rendered in the live-output
+  // panel next to that node's own streamed output, not a run-wide gate row.
+  pendingPermission?: { question: string }
 }
 
 export interface PlanVersion {
@@ -188,6 +197,10 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
         n.status = 'running'
         n.streamingOutput = ''
         n.streamingChunks = []
+        // A fresh start of the same node id must not carry a stale pending
+        // prompt from an earlier run of it forward - same rationale as
+        // resetting streamingOutput/streamingChunks just above.
+        n.pendingPermission = undefined
         break
       }
       case 'node_progress': {
@@ -247,6 +260,16 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
         costUsd = Math.max(costUsd, Number(d.costUsd ?? costUsd))
         estimatedCostUsd = Math.max(estimatedCostUsd, Number(d.estimatedCostUsd ?? estimatedCostUsd))
         break
+      case 'permission_request': {
+        const n = ensureNode(nodes, String(d.nodeId), d.role as Role)
+        n.pendingPermission = { question: String(d.question ?? '') }
+        break
+      }
+      case 'permission_resolved': {
+        const n = ensureNode(nodes, String(d.nodeId), d.role as Role)
+        n.pendingPermission = undefined
+        break
+      }
       case 'replan':
         replans += 1
         break

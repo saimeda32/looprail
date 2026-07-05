@@ -1,5 +1,12 @@
 import { execa } from 'execa'
-import type { Adapter, AgentRequest, AgentResult } from '../core/types.js'
+import type {
+  Adapter, AgentRequest, AgentResult, PermissionAnswerer, PermissionRequest,
+} from '../core/types.js'
+// Re-exported so existing imports of PermissionRequest/PermissionAnswerer
+// from this module (e.g. cli-adapter.test.ts) keep working - the canonical
+// definitions now live in core/types.ts because PermissionAnswerer appears
+// in the Adapter.invoke signature there.
+export type { PermissionAnswerer, PermissionRequest } from '../core/types.js'
 
 export interface ExecResult {
   stdout: string
@@ -7,13 +14,35 @@ export interface ExecResult {
   exitCode: number
 }
 
+// Per-adapter seam: given one complete stdout line, decide whether it is an
+// ordinary line (return null) or a permission-prompt moment (return the
+// PermissionRequest describing it). See cli-adapter.test.ts for the shape
+// each adapter implements this against.
+export type PermissionDetector = (line: string) => PermissionRequest | null
+
 export type ExecFn = (
   file: string,
   args: string[],
-  opts?: { input?: string; timeoutMs?: number; cwd?: string; onChunk?: (text: string) => void },
+  opts?: {
+    input?: string
+    timeoutMs?: number
+    cwd?: string
+    onChunk?: (text: string) => void
+    // Configuring a permissionDetector is what turns on the writable-stdin
+    // path below - the common no-prompt case never sets this and keeps
+    // today's stdin:'ignore' behavior untouched.
+    permissionDetector?: PermissionDetector
+    onPermission?: PermissionAnswerer
+  },
 ) => Promise<ExecResult>
 
 export const defaultExec: ExecFn = async (file, args, opts = {}) => {
+  // Only a configured permissionDetector opens a writable stdin pipe. The
+  // common no-prompt path (opts.permissionDetector unset) is completely
+  // unaffected: stdin still closes immediately rather than sitting open and
+  // unfed, which is exactly the claude -p stall this default was written to
+  // avoid in the first place.
+  const needsWritableStdin = opts.permissionDetector !== undefined
   const subprocess = execa(file, args, {
     input: opts.input, timeout: opts.timeoutMs, cwd: opts.cwd, reject: false,
     // Without an explicit input, leave stdin closed rather than an open,
@@ -21,8 +50,10 @@ export const defaultExec: ExecFn = async (file, args, opts = {}) => {
     // can stall for several seconds waiting to see if anything arrives on
     // an ambiguous open pipe, then fail. There is never anything to pipe
     // when opts.input is unset (every adapter using {prompt}-substitution
-    // instead of stdin mode), so there is nothing lost by closing it.
-    stdin: opts.input === undefined ? 'ignore' : undefined,
+    // instead of stdin mode), so there is nothing lost by closing it -
+    // *unless* a permissionDetector is configured, in which case a human
+    // answer may need to reach this exact subprocess's stdin later.
+    stdin: opts.input === undefined ? (needsWritableStdin ? 'pipe' : 'ignore') : undefined,
   })
   // Streaming is best-effort: execa's own stdout stream is available on the
   // in-flight subprocess handle before it resolves. A caller that never
@@ -32,6 +63,34 @@ export const defaultExec: ExecFn = async (file, args, opts = {}) => {
   if (opts.onChunk) {
     const onChunk = opts.onChunk
     subprocess.stdout?.on('data', (chunk: Buffer) => onChunk(chunk.toString('utf8')))
+  }
+  if (opts.permissionDetector) {
+    const detect = opts.permissionDetector
+    const onPermission = opts.onPermission
+    // A second, independent line-buffer over the same stdout stream. This is
+    // deliberately separate from the onChunk/streamHandler buffer above:
+    // detection is orthogonal to what gets displayed, and must keep working
+    // even for adapters with no streamHandler configured at all.
+    let buffer = ''
+    subprocess.stdout?.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString('utf8')
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line.trim()) continue
+        const req = detect(line)
+        if (!req || !onPermission) continue
+        // Fire-and-forget from this handler's point of view: the subprocess
+        // itself is already blocked on its own stdin read, so there is
+        // nothing further to pause here - awaiting the human's answer and
+        // then writing it back is all that's needed to unblock it.
+        void onPermission(req).then((result) => {
+          const approved = typeof result === 'boolean' ? result : result.approved
+          const feedback = typeof result === 'boolean' ? undefined : result.feedback
+          subprocess.stdin?.write(req.answer(approved, feedback))
+        })
+      }
+    })
   }
   const res = await subprocess
   return {
@@ -105,6 +164,10 @@ export interface CliAdapterOptions {
   cwd?: string
   extraArgs?: (req: AgentRequest) => string[]  // per-request args appended after the template
   estimator?: CostEstimator
+  // Recognizes this CLI's own mid-node tool-permission prompt on its stdout,
+  // and describes how to answer it back on stdin. Leaving this unset (every
+  // adapter today) keeps stdin closed exactly as before - see defaultExec.
+  permissionDetector?: PermissionDetector
 }
 
 export class CliAdapter implements Adapter {
@@ -121,7 +184,11 @@ export class CliAdapter implements Adapter {
     }
   }
 
-  async invoke(req: AgentRequest, onChunk?: (text: string) => void): Promise<AgentResult> {
+  async invoke(
+    req: AgentRequest,
+    onChunk?: (text: string) => void,
+    onPermission?: PermissionAnswerer,
+  ): Promise<AgentResult> {
     const started = Date.now()
     const tokens = this.opts.command.split(/\s+/).filter(Boolean)
     const [file, ...args] = tokens.map((t) => (t === '{prompt}' ? req.prompt : t))
@@ -134,6 +201,8 @@ export class CliAdapter implements Adapter {
       timeoutMs: req.timeoutMs,
       cwd: this.opts.cwd,
       onChunk: wrappedOnChunk,
+      permissionDetector: this.opts.permissionDetector,
+      onPermission,
     })
     if (res.exitCode !== 0) {
       throw new Error(

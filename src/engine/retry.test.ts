@@ -67,3 +67,16 @@ test('forwards onChunk straight through to the adapter on every attempt', async 
   expect(res.output).toBe('ok')
   expect(seenChunks).toEqual(['attempt-1 ', 'attempt-2 '])
 })
+
+test('forwards onPermission straight through to the adapter', async () => {
+  const adapter: Adapter = {
+    name: 'asks-permission',
+    async invoke(_req, _onChunk, onPermission) {
+      const result = await onPermission?.({ question: 'allow write?', answer: (a) => (a ? 'y\n' : 'n\n') })
+      return { output: result && (result === true || result.approved) ? 'approved-path' : 'denied-path', costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  }
+  const res = await invokeWithRetry(adapter, { prompt: 'p' }, { sleep: async () => {} }, undefined,
+    async (req) => { expect(req.question).toBe('allow write?'); return true })
+  expect(res.output).toBe('approved-path')
+})

@@ -9,6 +9,7 @@ import { MockAdapter } from '../adapters/mock.js'
 import { createRegistry } from '../adapters/registry.js'
 import type { AgentResult, LoopDef } from '../core/types.js'
 import * as git from '../core/git.js'
+import { getPendingPermission, resolvePendingPermission } from '../dashboard/permission-registry.js'
 
 const loop = (over: Partial<LoopDef> = {}): LoopDef => ({
   name: 'demo',
@@ -558,6 +559,63 @@ test('a loop with no streaming adapter never emits node_progress (opt-in, zero o
   const seen: string[] = []
   await runLoop(def, { registry: reg(mock), onEvent: (e) => seen.push(e.type) })
   expect(seen).not.toContain('node_progress')
+})
+
+test('a mid-node permission prompt is surfaced, registered, answered through the permission-registry, and the answer reaches the subprocess', async () => {
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    async invoke(req, _onChunk, onPermission) {
+      if (req.prompt.includes('EXECUTOR')) {
+        const answer = await onPermission?.({
+          question: 'allow write_file?',
+          answer: (approved) => (approved ? 'y\n' : 'n\n'),
+        })
+        const approved = typeof answer === 'boolean' ? answer : answer?.approved
+        return { output: approved ? 'DONE' : 'REFUSED', costUsd: 0, tokens: 0, durationMs: 1 }
+      }
+      return { output: 'VERDICT: pass\nEVIDENCE: ok', costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  })
+  const runDir = join(mkdtempSync(join(tmpdir(), 'lr-')), 'run')
+  const def = loop({
+    nodes: [
+      { id: 'do', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'do', after: ['do'] },
+    ],
+  })
+  const runId = 'run-permission-test'
+
+  // Answer the pending permission as soon as it appears in the registry -
+  // exactly the channel the dashboard's /control answer-permission action
+  // will use (see dashboard/permission-registry.ts).
+  const answered = (async () => {
+    for (let i = 0; i < 200; i++) {
+      const pending = getPendingPermission(runId)
+      if (pending) {
+        expect(pending.nodeId).toBe('do')
+        expect(pending.question).toBe('allow write_file?')
+        expect(resolvePendingPermission(runId, 'do', 'y\n')).toBe(true)
+        return
+      }
+      await new Promise((r) => setTimeout(r, 5))
+    }
+    throw new Error('permission never appeared as pending')
+  })()
+
+  const report = await runLoop(def, { registry, runId, runDir })
+  await answered
+
+  expect(report.status).toBe('verified')
+  const events = readJournal(join(runDir, 'journal.jsonl'))
+  const requestEvent = events.find((e) => e.type === 'permission_request' && e.data.nodeId === 'do')
+  const resolvedEvent = events.find((e) => e.type === 'permission_resolved' && e.data.nodeId === 'do')
+  expect(requestEvent?.data.question).toBe('allow write_file?')
+  expect(resolvedEvent?.data.approved).toBe(true)
+  // proves the answer actually reached the "subprocess" (the mock adapter's
+  // own invoke, which only returns 'DONE' once it sees approved === true)
+  expect(events.find((e) => e.type === 'node_end' && e.data.nodeId === 'do')?.data.output).toBe('DONE')
+  expect(getPendingPermission(runId)).toBeUndefined() // swept once the run settled
 })
 
 // The core bug this feature exists to fix: an adapter (copilot/codex/aider)

@@ -56,6 +56,13 @@ export function codexStreamLine(line: string): string | null {
   return null
 }
 
+// No `permissionDetector` is wired here (see cli-adapter.ts's
+// PermissionDetector seam). The `codex` binary was not discoverable on PATH
+// in this project's development environment - there is zero live evidence of
+// any kind for its permission-block output shape, and no existing test
+// fixture in this repo captures one either. Deferred pending a real,
+// un-configured codex install to observe an actual blocked-prompt line
+// against; do not guess this CLI's format.
 export function createCodexAdapter(
   opts: { exec?: ExecFn; cwd?: string; loadPricingTable?: () => Promise<PricingTable> | PricingTable } = {},
 ): Adapter {
