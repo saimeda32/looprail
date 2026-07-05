@@ -523,3 +523,40 @@ rails:
   expect(code).toBe(0)
   expect(gateCalls).toBe(2) // first rejection replanned, second approved
 })
+
+test('a plan-approval gate rejection with feedback stops replanning once replan_limit is hit', async () => {
+  const SELF_PLANNING_FEEDBACK_LIMIT = `
+name: self-planning-feedback-limit-fixture
+goal: Do the generated thing.
+agents:
+  planner: { adapter: mock }
+graph:
+  plan:    { role: planner, agent: planner, generates: graph }
+  approve: { role: gate, after: plan }
+rails:
+  max_iterations: 8
+  max_cost_usd: 1
+  replan_limit: 2
+`
+  const { cwd, io } = setup(SELF_PLANNING_FEEDBACK_LIMIT)
+  const registry = createRegistry()
+  // the planner is asked once up front plus once per replan (bounded by
+  // replan_limit: 2) - never a 4th time, since the run must halt once the
+  // limit is exhausted instead of replanning forever
+  registry.register(new MockAdapter([
+    { match: /PLANNER/, output: 'graph:\n  build: { role: executor, agent: planner }\n' },
+    { match: /PLANNER/, output: 'graph:\n  build: { role: executor, agent: planner }\n' },
+    { match: /PLANNER/, output: 'graph:\n  build: { role: executor, agent: planner }\n' },
+  ]))
+  let gateCalls = 0
+  const code = await runAction(undefined, { cwd }, {
+    io, registry,
+    // always rejects with feedback - would replan forever without a limit
+    gate: async () => {
+      gateCalls += 1
+      return { approved: false, feedback: `still not right (${gateCalls})` }
+    },
+  })
+  expect(code).toBe(2) // halted, not verified - the limit was hit, not satisfied
+  expect(gateCalls).toBe(3) // 1 initial approval attempt + 2 replans (replan_limit) - no 4th
+})

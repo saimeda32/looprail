@@ -283,7 +283,13 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     // (no-feedback) rejection is not a plan-approval-specific case at all -
     // it falls through unchanged to the existing iterate/stall/halt routing
     // every other gate already gets.
+    // Same bound routeIteration's own stall-replan path enforces
+    // (spec §10) - a plan-approval replan is still a replan, and must not
+    // be able to loop past replan_limit just because it's driven inline
+    // here instead of through routeIteration.
+    const replanLimit = def.rails.replanLimit ?? Infinity
     let planApprovalHandled = false
+    let planApprovalHalt: string | null = null
     for (const o of outcomes) {
       if (o.role !== 'gate' || !o.verdict) continue
       const gateNode = executionAtStart.find((n) => n.id === o.nodeId)
@@ -297,22 +303,31 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
           // treated like any other config-shaped failure: replan, bounded
           // by the existing limit, carrying the parse/validation error as
           // feedback
-          state.feedback = result.reason
+          if (replans >= replanLimit) {
+            planApprovalHalt = `replan limit exhausted: ${result.reason}`
+          } else {
+            state.feedback = result.reason
+            replans += 1
+            fingerprints.length = 0
+            emit('replan', { replans, feedback: state.feedback })
+            await runPlanning()
+          }
+        }
+        planApprovalHandled = true
+      } else if (o.verdict.evidence.startsWith('human feedback:')) {
+        if (replans >= replanLimit) {
+          planApprovalHalt = 'replan limit exhausted: human feedback still pending'
+        } else {
+          state.feedback = o.verdict.evidence.replace(/^human feedback:\s*/, '')
           replans += 1
           fingerprints.length = 0
           emit('replan', { replans, feedback: state.feedback })
           await runPlanning()
         }
         planApprovalHandled = true
-      } else if (o.verdict.evidence.startsWith('human feedback:')) {
-        state.feedback = o.verdict.evidence.replace(/^human feedback:\s*/, '')
-        replans += 1
-        fingerprints.length = 0
-        emit('replan', { replans, feedback: state.feedback })
-        await runPlanning()
-        planApprovalHandled = true
       }
     }
+    if (planApprovalHalt) return await finish('halted', planApprovalHalt)
     if (planApprovalHandled) continue
 
     const decision = routeIteration({
