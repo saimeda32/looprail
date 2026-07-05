@@ -9,6 +9,7 @@ export interface ApproveGateInput {
   runId: string
   nodeId: string
   approved: boolean
+  feedback?: string
 }
 
 export async function approveGateHandler(
@@ -28,7 +29,11 @@ export async function approveGateHandler(
   // gate_timeout race firing at the same instant - sees a clean miss instead
   // of a stale entry.
   pendingGates.delete(key)
-  pending.resolve(input.approved)
+  pending.resolve(
+    input.approved
+      ? { approved: true }
+      : { approved: false, ...(input.feedback ? { feedback: input.feedback } : {}) },
+  )
   return textResult({
     runId: input.runId,
     nodeId: input.nodeId,
@@ -47,6 +52,10 @@ export function registerApproveGateTool(server: McpServer, deps: McpToolDeps): v
       runId: z.string().describe('Run id returned by run_loop'),
       nodeId: z.string().describe('The gate node id currently pending (see run_status.waitingOnGates[].nodeId)'),
       approved: z.boolean().describe('true to approve the gate, false to reject it'),
+      feedback: z.string().optional().describe(
+        'Optional free-text reason when rejecting (approved: false) - fed back to the planner ' +
+        'as a replan reason instead of a flat rejection. Ignored when approved is true.',
+      ),
     },
   }, async (args) => approveGateHandler(args, deps))
 }

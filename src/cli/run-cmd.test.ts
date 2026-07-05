@@ -194,7 +194,7 @@ test('makeGate --yes auto-approves without touching stdin', async () => {
   const lines: string[] = []
   const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
   const gate = makeGate({ maxIterations: 1, maxCostUsd: 1 }, { out: (l) => lines.push(l) }, true, cwd)
-  await expect(gate({ id: 'approve', role: 'gate' }, 'ctx')).resolves.toBe(true)
+  await expect(gate({ id: 'approve', role: 'gate' }, 'ctx')).resolves.toEqual({ approved: true })
   expect(lines.join('\n')).toContain('auto-approved')
 })
 
@@ -228,7 +228,7 @@ test('makeGate clears the timeout when the human answers first, leaving no linge
     const p = gate({ id: 'approve', role: 'gate' }, 'ctx')
     await Promise.resolve() // let readline wire up its line listener
     fakeStdin.write('y\n')
-    await expect(p).resolves.toBe(true)
+    await expect(p).resolves.toEqual({ approved: true })
     // the 1h timeout must have been cleared, not left pending for the process
     expect(vi.getTimerCount()).toBe(0)
   } finally {
@@ -284,7 +284,7 @@ test('answering "a" at a gate prompt stores the approval so a later run of the s
     const p = gate(node, 'ctx')
     await Promise.resolve() // let readline wire up its line listener
     fakeStdin.write('a\n')
-    await expect(p).resolves.toBe(true)
+    await expect(p).resolves.toEqual({ approved: true })
     expect(hasStoredApproval(cwd, node)).toBe(true)
   } finally {
     Object.defineProperty(process, 'stdin', origStdin)
@@ -298,8 +298,26 @@ test('a gate whose approval was already stored is auto-approved without promptin
   storeApproval(cwd, node)
   const lines: string[] = []
   const gate = makeGate({ maxIterations: 1, maxCostUsd: 1 }, { out: (l) => lines.push(l) }, false, cwd)
-  await expect(gate(node, 'ctx')).resolves.toBe(true)
+  await expect(gate(node, 'ctx')).resolves.toEqual({ approved: true })
   expect(lines.join('\n')).toContain('previously approved')
+})
+
+test('makeGate: a non-y/n answer is captured as feedback, not treated as rejection', async () => {
+  const lines: string[] = []
+  const input = new PassThrough()
+  const gate = makeGate({ maxIterations: 1, maxCostUsd: 1 }, { out: (l) => lines.push(l) }, false, 'cwd', {}, input)
+  const answerPromise = gate({ id: 'approve', role: 'gate' }, 'ctx')
+  input.write('the tests node is missing, add one\n')
+  const answer = await answerPromise
+  expect(answer).toEqual({ approved: false, feedback: 'the tests node is missing, add one' })
+})
+
+test('makeGate: a plain y/n answer still returns a bare boolean-shaped GateAnswer with no feedback', async () => {
+  const input = new PassThrough()
+  const gate = makeGate({ maxIterations: 1, maxCostUsd: 1 }, { out: () => {} }, false, 'cwd', {}, input)
+  const answerPromise = gate({ id: 'approve', role: 'gate' }, 'ctx')
+  input.write('y\n')
+  expect(await answerPromise).toEqual({ approved: true })
 })
 
 

@@ -32,17 +32,18 @@ export interface GateTimerDeps {
 
 export function makeGate(
   rails: Rails, io: CliIo, autoApprove: boolean, cwd: string, timerDeps: GateTimerDeps = {},
+  stdin: NodeJS.ReadableStream = process.stdin,
 ): GateHandler {
   return async (node) => {
     if (autoApprove) {
       io.out(warn(`gate "${node.id}" auto-approved (--yes)`))
-      return true
+      return { approved: true }
     }
     if (hasStoredApproval(cwd, node)) {
       io.out(warn(`gate "${node.id}" - previously approved, skipping prompt`))
-      return true
+      return { approved: true }
     }
-    const rl = createInterface({ input: process.stdin, output: process.stdout })
+    const rl = createInterface({ input: stdin, output: process.stdout })
     // Abort seam for the readline question: readline never rejects a pending
     // question on rl.close(), so the timeout path aborts it explicitly to
     // settle it instead of leaving a promise dangling for the process lifetime.
@@ -59,9 +60,12 @@ export function makeGate(
         const answer = await question
         if (/^a(lways)?$/i.test(answer.trim())) {
           storeApproval(cwd, node)
-          return true
+          return { approved: true }
         }
-        return /^y(es)?$/i.test(answer.trim())
+        const trimmed = answer.trim()
+        if (/^y(es)?$/i.test(trimmed)) return { approved: true }
+        if (trimmed.length === 0) return { approved: false }
+        return { approved: false, feedback: trimmed }
       }
       // the infra: tag makes the router HALT (spec §10) instead of treating the
       // timeout as an ordinary gate rejection
@@ -80,9 +84,12 @@ export function makeGate(
         const answer = await Promise.race([question, timer])
         if (/^a(lways)?$/i.test(answer.trim())) {
           storeApproval(cwd, node)
-          return true
+          return { approved: true }
         }
-        return /^y(es)?$/i.test(answer.trim())
+        const trimmed = answer.trim()
+        if (/^y(es)?$/i.test(trimmed)) return { approved: true }
+        if (trimmed.length === 0) return { approved: false }
+        return { approved: false, feedback: trimmed }
       } finally {
         // human answered first: stop the real timer so it never fires later
         // (no-op when a test injected its own gateTimer)
