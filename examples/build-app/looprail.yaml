@@ -1,0 +1,30 @@
+name: build-app
+goal: |
+  Build SPEC (edit this line: describe the app, website, or feature you
+  want, including your language/framework if you have one). Done means:
+  the code builds, its own tests pass, and a critic confirms the result
+  actually satisfies the spec, not just that something runs.
+
+agents:
+  worker:  { adapter: copilot-cli, model: claude-sonnet-5 }
+  checker: { adapter: copilot-cli, model: claude-sonnet-5 }  # independent reviewer - a different context catches what the worker's own review misses
+  # recommended tier for the critic is a real model, not a cheap default:
+  # checking "does this actually satisfy the spec" requires real
+  # understanding, not a mechanical check.
+
+graph:
+  plan:  { role: planner, agent: worker }
+  build: { role: executor, agent: worker, after: plan,
+           prompt: Build the app described in the goal above and write its own tests - there is no pre-existing test suite to run. }
+  tests: { role: tester, after: build, run: npm test, expect: exit 0 }  # swap "npm test" for your stack's real test command if different, e.g. pytest, go test ./..., or cargo test
+  crit:  { role: critic, agent: checker, of: build, after: tests,
+           prompt: Fail if the result doesn't actually satisfy the spec above, even if its own tests pass - this catches the case where the agent wrote weak tests for weak work. }
+
+rails:
+  max_iterations: 10
+  max_cost_usd: 20
+  max_wall_minutes: 60
+  stall_after: 3
+  replan_limit: 2
+
+verdict: { policy: all-pass }

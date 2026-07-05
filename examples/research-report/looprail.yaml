@@ -1,0 +1,32 @@
+name: research-report
+goal: |
+  Produce a cited research report on this repository's own architecture
+  and the most consequential decisions in its history - inspect the
+  README, git log, and source to ground every claim in what you find.
+  Done means: every claim has a source and independent critics find no
+  unsupported claims. To research a different topic instead, replace
+  the sentence above describing the subject with your own topic.
+
+agents:
+  worker:  { adapter: copilot-cli, model: claude-sonnet-5 }
+  checker: { adapter: copilot-cli, model: claude-sonnet-5 }  # independent reviewer - a different model catches what the worker's own model misses
+  # checker stays on a real (not cheap-tier) model: catching an unsupported
+  # or hallucinated claim requires real understanding of the domain claim,
+  # not a mechanical pattern check.
+
+graph:
+  plan:      { role: planner, agent: worker }
+  plan-crit: { role: critic, agent: checker, of: plan, after: plan, rounds: 2 }
+  draft:     { role: executor, agent: worker, after: plan-crit }
+  crit:      { role: critic, agent: checker, of: draft, after: draft, panel: 2,
+               prompt: Refute any unsupported or uncited claim. }
+  merge:     { role: synthesizer, agent: checker, after: crit }
+
+rails:
+  max_iterations: 8
+  max_cost_usd: 25
+  max_wall_minutes: 90
+  stall_after: 3
+  replan_limit: 2
+
+verdict: { policy: all-pass }

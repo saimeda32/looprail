@@ -1,0 +1,28 @@
+name: review-diff
+goal: |
+  Review the currently pending changes (run 'git diff') in whatever
+  directory this loop is run from. List every correctness, security,
+  and style issue you find, each with a file:line reference. No code
+  changes are made - this is a read-only review of the CURRENT PENDING
+  diff. Done means: an independent critic re-examines the same diff and
+  finds nothing the review missed and nothing it wrongly flagged.
+
+agents:
+  worker:   { adapter: copilot-cli, model: claude-sonnet-5 }
+  reviewer: { adapter: copilot-cli, model: claude-sonnet-5 }  # independent reviewer - a different context catches what the worker's own review misses
+  # recommended tier for the critic is a real model, not a cheap default:
+  # code review requires real judgment, not mechanical pattern-matching.
+
+graph:
+  review: { role: executor, agent: worker,
+            prompt: Run 'git diff' and list every correctness, security, and style issue you find, each with a file:line reference. }
+  crit:   { role: critic, agent: reviewer, of: review, after: review,
+            prompt: Re-examine the same 'git diff' yourself. Fail if the review missed a real issue, or if it flagged something that is not actually a problem. }
+
+rails:
+  max_iterations: 4
+  max_cost_usd: 8
+  stall_after: 2
+  replan_limit: 1
+
+verdict: { policy: all-pass }

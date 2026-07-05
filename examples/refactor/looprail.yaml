@@ -1,0 +1,30 @@
+name: refactor
+goal: |
+  Refactor the largest or most complex file under src/ without changing
+  behavior - use your own judgment to pick one if a specific file isn't
+  named. Done means: the test suite still passes, a correctness critic
+  finds no behavior change, API break, or dropped edge case, and a
+  quality critic confirms the refactor measurably improves readability
+  or reduces complexity. To target a specific file instead, replace
+  "the largest or most complex file under src/" above with its path.
+
+agents:
+  worker:      { adapter: copilot-cli, model: claude-sonnet-5 }
+  correctness: { adapter: copilot-cli, model: claude-sonnet-5 }  # independent reviewer - a different context catches what the worker's own review misses
+  quality:     { adapter: copilot-cli, model: claude-sonnet-5 }
+
+graph:
+  refactor:     { role: executor, agent: worker }
+  tests:        { role: tester, after: refactor, run: npm test, expect: exit 0 }  # swap "npm test" for your stack's real test command if different
+  crit-correct: { role: critic, agent: correctness, of: refactor, after: refactor,
+                  prompt: Fail on any behavior change, API break, or dropped edge case. }
+  crit-quality: { role: critic, agent: quality, of: refactor, after: refactor,
+                  prompt: Fail unless the refactor measurably improves readability or reduces complexity. }
+
+rails:
+  max_iterations: 6
+  max_cost_usd: 15
+  stall_after: 3
+  replan_limit: 1
+
+verdict: { policy: all-pass }

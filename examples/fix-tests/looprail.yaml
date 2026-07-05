@@ -1,0 +1,22 @@
+name: fix-tests
+goal: |
+  Make the test suite pass. Done means: npm test exits 0 and a critic
+  confirms no test was deleted, skipped, or weakened to force a pass.
+
+agents:
+  worker:  { adapter: copilot-cli, model: claude-sonnet-5 }
+  checker: { adapter: copilot-cli, model: claude-sonnet-5 }  # independent reviewer - a different context catches what the worker's own review misses
+
+graph:
+  fix:   { role: executor, agent: worker }
+  tests: { role: tester, after: fix, run: npm test, expect: exit 0 }  # swap "npm test" for your stack's real test command if different, e.g. pytest, go test ./..., or cargo test
+  crit:  { role: critic, agent: checker, of: fix, after: fix,
+           prompt: Fail if any test was deleted, skipped, or weakened to force a pass. }
+
+rails:
+  max_iterations: 6
+  max_cost_usd: 10
+  stall_after: 3
+  replan_limit: 1
+
+verdict: { policy: all-pass }

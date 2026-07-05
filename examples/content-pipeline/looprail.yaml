@@ -1,0 +1,33 @@
+name: content-pipeline
+goal: |
+  Draft, edit, and fact-check a short, publishable article explaining
+  what this repository does and why it exists, written for engineers
+  who have never seen it before. Done means: the weighted critique
+  passes and a human signs off. To write about a different topic
+  instead, replace the sentence above describing the subject.
+
+agents:
+  worker: { adapter: copilot-cli, model: claude-sonnet-5 }
+  editor: { adapter: copilot-cli, model: claude-sonnet-5 }  # independent reviewer - a different context catches what the worker's own review misses
+  # fact-editor gets its own agent key on a real model rather than a cheap
+  # default: fact-checking needs real reasoning (same logic as
+  # research-report's critics), while style judgment is bounded enough to
+  # weight lower below instead of needing a stronger model.
+  fact-editor: { adapter: copilot-cli, model: claude-sonnet-5 }
+
+graph:
+  outline: { role: planner, agent: worker }
+  draft:   { role: executor, agent: worker, after: outline }
+  style:   { role: critic, agent: editor, of: draft, after: draft, weight: 1,
+             prompt: Critique clarity, tone, and structure. }
+  facts:   { role: critic, agent: fact-editor, of: draft, after: draft, weight: 2,
+             prompt: Fail on any claim you cannot verify. }
+  approve: { role: gate, after: [style, facts], weight: 2 }  # gate = pauses for human approval (y/n) before the loop can finish
+
+rails:
+  max_iterations: 5
+  max_cost_usd: 15
+  stall_after: 3
+  replan_limit: 1
+
+verdict: { policy: { weighted: 0.8 } }
