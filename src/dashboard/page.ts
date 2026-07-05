@@ -70,7 +70,20 @@ export function buildPage(): string {
   .run-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
   .run-title .name { font-size: 14px; font-weight: 600; }
   .run-title .id { font: 11px var(--mono); color: var(--ink-faint); }
-  #reason { font-size: 12px; color: var(--ink-dim); }
+  /* Prominent, full-width banner - deliberately NOT the same small dim-gray
+     inline text that used to sit next to the run title, which read as
+     routine metadata and was easy to miss, and looked identical whether the
+     run halted from a rail breach or a user cancel. Distinct classes per
+     status so a rail-limit halt (amber, matches .status-halted) and a
+     deliberate user cancel (neutral gray, matches .status-canceled) are
+     visually distinguishable from each other, not just from "running". */
+  .reason-banner {
+    display: none; align-items: flex-start; gap: 8px; padding: 10px 18px;
+    font-size: 13px; line-height: 1.5; border-bottom: 1px solid var(--line);
+  }
+  .reason-banner .reason-label { font: 600 10.5px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; flex: 0 0 auto; }
+  .reason-banner.reason-halted { color: var(--warn); background: rgba(184,134,61,0.10); }
+  .reason-banner.reason-canceled { color: var(--ink-dim); background: rgba(140,131,117,0.10); }
   .run-goal { padding: 12px 18px; border-bottom: 1px solid var(--line); font-size: 12.5px; line-height: 1.5; color: var(--ink-dim); white-space: pre-wrap; max-height: 200px; overflow: auto; }
   .run-goal:empty { display: none; }
 
@@ -214,12 +227,15 @@ export function buildPage(): string {
         <span class="name" id="run-title">looprail dashboard</span>
         <span class="id" id="run-id"></span>
       </div>
-      <span id="reason"></span>
       <div class="run-controls" id="run-controls" style="display:none">
         <span id="control-error"></span>
         <button class="control-btn" id="btn-pause" type="button">Pause</button>
         <button class="control-btn danger" id="btn-cancel" type="button">Cancel</button>
       </div>
+    </div>
+    <div id="reason-banner" class="reason-banner">
+      <span class="reason-label" id="reason-label"></span>
+      <span id="reason"></span>
     </div>
     <div class="run-goal" id="run-goal"></div>
     <div class="feedback-row" id="feedback-row" style="display:none">
@@ -616,7 +632,25 @@ export function buildPage(): string {
     var pill = document.getElementById('status-pill');
     pill.textContent = model.status;
     pill.className = 'status-pill status-' + model.status;
-    document.getElementById('reason').textContent = model.reason || '';
+
+    // Halted (rail breach) vs canceled (deliberate user stop) reuse the
+    // exact reason string the engine already wrote (view-model.ts) - this
+    // layer only chooses presentation, never new wording. The banner is
+    // hidden entirely outside those two statuses so it never reads as
+    // routine metadata on a running/verified run.
+    var reasonBanner = document.getElementById('reason-banner');
+    var reasonLabel = document.getElementById('reason-label');
+    if (model.reason && (model.status === 'halted' || model.status === 'canceled')) {
+      reasonBanner.style.display = 'flex';
+      reasonBanner.className = 'reason-banner reason-' + model.status;
+      reasonLabel.textContent = model.status === 'canceled' ? 'Canceled' : 'Halted';
+      document.getElementById('reason').textContent = model.reason;
+    } else {
+      reasonBanner.style.display = 'none';
+      reasonBanner.className = 'reason-banner';
+      reasonLabel.textContent = '';
+      document.getElementById('reason').textContent = '';
+    }
 
     var back = document.getElementById('back-link');
     back.style.display = location.pathname.indexOf('/run/') === 0 ? 'inline' : 'none';

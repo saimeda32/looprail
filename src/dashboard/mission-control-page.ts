@@ -97,6 +97,12 @@ export function buildMissionControlPage(): string {
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   }
   .run-card .workspace { font: 10.5px var(--mono); color: var(--ink-faint); margin-bottom: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .run-card .reason {
+    font-size: 11px; line-height: 1.4; margin: -1px 0 8px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .run-card .reason.reason-halted { color: var(--warn); }
+  .run-card .reason.reason-canceled { color: var(--ink-dim); }
   .status-pill {
     display: inline-flex; align-items: center; gap: 6px; font: 600 10.5px/1.4 var(--mono);
     letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 9px 4px 7px; border-radius: 3px;
@@ -194,6 +200,9 @@ export function buildMissionControlPage(): string {
     top.appendChild(el('span', 'name', run.name || run.runId));
     top.appendChild(el('span', 'status-pill ' + (STATUS_CLASS[run.status] || 'status-running'), run.status));
     a.appendChild(top);
+    if (run.reason && (run.status === 'halted' || run.status === 'canceled')) {
+      a.appendChild(el('div', 'reason reason-' + run.status, run.reason));
+    }
     if (run.goal) a.appendChild(el('div', 'goal', run.goal));
     a.appendChild(el('div', 'workspace', run.workspaceName));
     a.appendChild(el('div', 'agents', run.agents.length ? run.agents.join(', ') : 'no agents recorded'));

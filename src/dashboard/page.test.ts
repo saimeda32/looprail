@@ -84,6 +84,38 @@ test('the inline client wires EventSource(\'events\') and fetch(\'model\') as re
   expect(html).toContain(`fetch('model')`)
 })
 
+// The halted/canceled reason string was previously small dim-gray text
+// (#reason) sitting inline next to the run title - easy to miss and
+// visually identical for a rail breach vs a deliberate user cancel. It
+// must now be a prominent, full-width banner with distinct classes per
+// status, hidden entirely outside those two statuses, and must reuse
+// model.reason verbatim rather than inventing new wording.
+test('the halted/canceled reason renders in a prominent banner, distinctly classed per status, hidden otherwise', () => {
+  const html = buildPage()
+  expect(html).toContain('id="reason-banner"')
+  expect(html).toContain(".reason-banner.reason-halted")
+  expect(html).toContain(".reason-banner.reason-canceled")
+  // Distinct visible presentation, not just a bare className swap: a
+  // border/background/color rule per status, not shared inline dim-gray text.
+  const haltedRule = html.match(/\.reason-banner\.reason-halted\s*\{([^}]*)\}/)
+  const canceledRule = html.match(/\.reason-banner\.reason-canceled\s*\{([^}]*)\}/)
+  expect(haltedRule).not.toBeNull()
+  expect(canceledRule).not.toBeNull()
+  expect(haltedRule![1]).not.toBe(canceledRule![1])
+  // The banner reuses model.reason verbatim - no new copy is authored here.
+  expect(html).toContain("document.getElementById('reason').textContent = model.reason")
+})
+
+test('the reason banner is only shown for halted/canceled statuses, and hidden for running/verified', () => {
+  const html = buildPage()
+  const fnMatch = html.match(/function render\(model\) \{[\s\S]*?\n  \}/)
+  expect(fnMatch).not.toBeNull()
+  const body = fnMatch![0]
+  expect(body).toMatch(/model\.status === 'halted'/)
+  expect(body).toMatch(/model\.status === 'canceled'/)
+  expect(body).toContain("reasonBanner.style.display = 'none'")
+})
+
 test('the page renders an empty-state message container for a run with no events yet', () => {
   const html = buildPage()
   expect(html).toContain('id="empty-state"')

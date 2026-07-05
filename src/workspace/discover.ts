@@ -49,6 +49,11 @@ export interface RunListEntry {
   name: string
   goal: string
   status: 'running' | 'verified' | 'halted' | 'canceled'
+  // Only ever set for 'halted'/'canceled' (buildViewModel only populates its
+  // own reason on those two statuses) - lets mission control's run tiles
+  // show WHY a run stopped without opening it, reusing the exact string the
+  // engine already wrote rather than re-deriving or re-wording it here.
+  reason?: string
   agents: string[]
   iteration: number
   costUsd: number
@@ -73,6 +78,7 @@ export function buildRunListEntry(
     name: model.name,
     goal: model.goal,
     status: model.status,
+    reason: model.reason,
     agents: agentsInUse(def, events),
     iteration: model.totals.iteration,
     costUsd: model.totals.costUsd,
