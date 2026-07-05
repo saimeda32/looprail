@@ -303,6 +303,11 @@ export function buildPage(): string {
         <span class="label" title="Total node invocations - includes planning rounds and replan attempts iteration doesn't count">Calls</span>
         <span id="calls-label" class="reading"></span>
       </div>
+      <div class="gauge">
+        <span class="label">Wall time</span>
+        <span id="wall-label" class="reading"></span>
+        <div class="meter"><span id="wall-fill" style="width:0%"></span></div>
+      </div>
     </div>
     <div class="run-body">
       <div id="canvas-wrap">
@@ -457,19 +462,41 @@ export function buildPage(): string {
     // that's what rails.max_cost_usd actually breaches on, but always
     // labeled separately so it never reads as real spend.
     var estSuffix = unit === '$' && estimated ? (' incl ~$' + estimated.toFixed(2) + ' est') : '';
+    var fmt = unit === '$' ? function (v) { return '$' + v.toFixed(2); }
+      : unit === 'm' ? function (v) { return v.toFixed(0) + 'm'; }
+      : function (v) { return String(v); };
     if (max === undefined || max === null) {
       fill.style.width = '100%';
       fill.className = '';
-      label.innerHTML = unit === '$' ? ('$' + value.toFixed(2) + estSuffix + '<span class="of"> no budget set</span>') : (value + '<span class="of"> no max set</span>');
+      label.innerHTML = fmt(value) + estSuffix + '<span class="of"> no ' + (unit === '$' ? 'budget' : 'max') + ' set</span>';
       return;
     }
     var pct = max > 0 ? Math.min(100, (value / max) * 100) : 100;
     fill.style.width = pct + '%';
     fill.className = value > max ? 'over' : '';
-    label.innerHTML = unit === '$'
-      ? ('$' + value.toFixed(2) + estSuffix + '<span class="of"> / $' + max.toFixed(2) + '</span>')
-      : (value + '<span class="of"> / ' + max + '</span>');
+    label.innerHTML = fmt(value) + estSuffix + '<span class="of"> / ' + fmt(max) + '</span>';
   }
+
+  // startedTs/lastEventTs come from buildViewModel's own journal-event
+  // timestamps (see view-model.ts) so the model itself stays a pure
+  // function of the journal - the live "ticking" while a run is still in
+  // progress happens only here, client-side, against the real wall clock.
+  var wallGaugeTotals = null;
+  var wallGaugeStatus = null;
+  function renderWallGauge(totals, status) {
+    wallGaugeTotals = totals;
+    wallGaugeStatus = status;
+    if (totals.startedTs === undefined) {
+      renderMeter('wall-fill', 'wall-label', 0, totals.maxWallMinutes, 'm');
+      return;
+    }
+    var endTs = status === 'running' ? Date.now() : (totals.lastEventTs !== undefined ? totals.lastEventTs : Date.now());
+    var minutes = Math.max(0, (endTs - totals.startedTs) / 60000);
+    renderMeter('wall-fill', 'wall-label', minutes, totals.maxWallMinutes, 'm');
+  }
+  setInterval(function () {
+    if (wallGaugeStatus === 'running' && wallGaugeTotals) renderWallGauge(wallGaugeTotals, wallGaugeStatus);
+  }, 1000);
 
   function renderDetail(node) {
     var panel = document.getElementById('detail-panel');
@@ -598,7 +625,13 @@ export function buildPage(): string {
     total.appendChild(htmlEl('span', null, ''))
     total.appendChild(htmlEl('span', 'num', String(nodes.reduce(function (a, n) { return a + n.iterations.length }, 0))))
     total.appendChild(htmlEl('span', 'num', formatTokens(totals.tokens)))
-    total.appendChild(htmlEl('span', 'num', '$' + totals.costUsd.toFixed(3) + (totals.estimatedCostUsd ? (' (~$' + totals.estimatedCostUsd.toFixed(3) + ' est)') : '')))
+    // The Total row combines real+estimated into one summed figure - same
+    // reasoning as mission control's top-line aggregate (see renderUsage):
+    // it answers "how much has this run spent so far", and a real-cost
+    // agent sitting next to an estimate-only agent must not under-report
+    // that. Per-agent rows above keep real vs. estimated visually distinct,
+    // the same way mission control's per-run/per-workspace tiles do.
+    total.appendChild(htmlEl('span', 'num', '$' + (totals.costUsd + totals.estimatedCostUsd).toFixed(3)))
     table.appendChild(total)
   }
 
@@ -758,6 +791,7 @@ export function buildPage(): string {
     document.getElementById('tokens-label').textContent = formatTokens(model.totals.tokens);
     document.getElementById('replans-label').textContent = String(model.totals.replans);
     document.getElementById('calls-label').textContent = String(model.totals.calls);
+    renderWallGauge(model.totals, model.status);
 
     var byId = {};
     model.nodes.forEach(function (n) { byId[n.id] = n; });

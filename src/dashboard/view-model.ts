@@ -55,6 +55,13 @@ export interface DashboardTotals {
   iteration: number
   maxIterations?: number
   maxWallMinutes?: number
+  // Timestamps (journal-event ts, not wall-clock at build time - this stays
+  // a pure function of its inputs) marking the current wall-time window: a
+  // resumed run's rails.ts RailsGuard is a fresh instance per process
+  // invocation, so wall-time breaches (and this gauge) reset at the most
+  // recent run_start, not the run's original start.
+  startedTs?: number
+  lastEventTs?: number
   replans: number
   tokens: number
   // Total real node invocations across the whole run - distinct from
@@ -144,10 +151,13 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
   // while iteration stays at 1 or 2, which reads as "barely anything has
   // happened" when a lot actually has.
   let calls = 0
+  let startedTs: number | undefined
+  let lastEventTs: number | undefined
   const plans: PlanVersion[] = []
 
   for (const e of events) {
     const d = e.data as Record<string, unknown>
+    lastEventTs = e.ts
     switch (e.type) {
       case 'run_start':
         runId = String(d.runId)
@@ -162,6 +172,12 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
         status = 'running'
         reason = undefined
         report = undefined
+        // Overwritten on every run_start (not just the first) to match
+        // RailsGuard's own per-process-invocation wall-time window - a
+        // resume's elapsed-time gauge should reflect time since THIS
+        // resume, the same window its own max_wall_minutes rail is
+        // actually checked against.
+        startedTs = e.ts
         break
       case 'node_start': {
         const n = ensureNode(
@@ -266,6 +282,7 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
     edges: def ? edgesFromDef(def) : [],
     totals: {
       costUsd, estimatedCostUsd, iteration, replans, tokens, calls,
+      startedTs, lastEventTs,
       maxCostUsd: def?.rails.maxCostUsd,
       maxIterations: def?.rails.maxIterations,
       maxWallMinutes: def?.rails.maxWallMinutes,

@@ -497,3 +497,57 @@ test('the plan-approval gate row relies on the existing Plan evolution section, 
   expect(gateRowBlock).not.toContain('plan-version')
   expect(html).toContain('Plan evolution')
 })
+
+test('the gauges row includes a Wall time gauge with its own meter', () => {
+  const html = buildPage()
+  expect(html).toContain('>Wall time<')
+  expect(html).toContain('id="wall-label"')
+  expect(html).toContain('id="wall-fill"')
+})
+
+// Executes the real renderMeter + renderWallGauge functions extracted from
+// the built page against a minimal fake DOM. startedTs/lastEventTs are
+// journal-derived (see view-model.ts) so buildViewModel itself stays pure;
+// this proves the actual elapsed-minutes math and unit formatting, not
+// merely that certain strings appear in the source.
+function loadRenderWallGauge(): (totals: unknown, status: string) => void {
+  const html = buildPage()
+  const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
+  const renderMeterSrc = script.match(/function renderMeter\(fillId, labelId, value, max, unit, estimated\) \{[\s\S]*?\n  \}\n/)![0]
+  const wallGaugeSrc = script.match(/var wallGaugeTotals = null;[\s\S]*?\n  \}\n/)![0]
+  const factory = new Function('document', `
+    ${renderMeterSrc}
+    ${wallGaugeSrc}
+    return renderWallGauge;
+  `)
+  function makeFakeElement() {
+    return { style: {} as Record<string, string>, className: '', innerHTML: '' }
+  }
+  const store: Record<string, ReturnType<typeof makeFakeElement>> = {
+    'wall-fill': makeFakeElement(),
+    'wall-label': makeFakeElement(),
+  }
+  const fakeDocument = { getElementById: (id: string) => store[id] }
+  const renderWallGauge = factory(fakeDocument) as (totals: unknown, status: string) => void
+  return Object.assign(renderWallGauge, { store })
+}
+
+test('renderWallGauge shows elapsed minutes since startedTs, capped/over-flagged against maxWallMinutes', () => {
+  const renderWallGauge = loadRenderWallGauge() as ((totals: unknown, status: string) => void) & {
+    store: Record<string, { style: { width?: string }; className: string; innerHTML: string }>
+  }
+  const startedTs = 1_000_000
+  renderWallGauge({ startedTs, lastEventTs: startedTs + 5 * 60_000, maxWallMinutes: 30 }, 'verified')
+  expect(renderWallGauge.store['wall-label'].innerHTML).toBe('5m<span class="of"> / 30m</span>')
+  expect(renderWallGauge.store['wall-fill'].className).toBe('')
+
+  renderWallGauge({ startedTs, lastEventTs: startedTs + 45 * 60_000, maxWallMinutes: 30 }, 'halted')
+  expect(renderWallGauge.store['wall-label'].innerHTML).toBe('45m<span class="of"> / 30m</span>')
+  expect(renderWallGauge.store['wall-fill'].className).toBe('over')
+
+  renderWallGauge({ startedTs: undefined, lastEventTs: undefined, maxWallMinutes: 30 }, 'running')
+  expect(renderWallGauge.store['wall-label'].innerHTML).toBe('0m<span class="of"> / 30m</span>')
+
+  renderWallGauge({ startedTs, lastEventTs: startedTs + 5 * 60_000, maxWallMinutes: undefined }, 'halted')
+  expect(renderWallGauge.store['wall-label'].innerHTML).toBe('5m<span class="of"> no max set</span>')
+})
