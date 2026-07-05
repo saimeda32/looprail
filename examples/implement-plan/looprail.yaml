@@ -1,0 +1,34 @@
+name: implement-plan
+goal: |
+  Implement the plan at PLAN_PATH (edit this line: point at your own
+  plan/spec markdown file - a writing-plans-style doc with bite-sized
+  tasks works well here). Read every file the plan references before
+  changing anything - reuse existing utilities and match this codebase's
+  existing conventions instead of reinventing them. Because this is
+  changing existing, already-shipped code (not greenfield work), done
+  means: every task in the plan is complete, the entire existing test
+  suite still passes (a full regression run, not just new tests for
+  what you added), and a critic confirms the change actually implements
+  the plan - not just that tests pass.
+
+agents:
+  worker:  { adapter: copilot-cli, model: claude-sonnet-5 }
+  checker: { adapter: copilot-cli, model: claude-sonnet-5 }  # independent reviewer - a different context catches what the worker's own review misses
+
+graph:
+  plan:  { role: planner, agent: worker,
+           prompt: Read the plan document referenced in the goal above in full before writing anything. }
+  build: { role: executor, agent: worker, after: plan,
+           prompt: Read every file the plan references before changing anything. Reuse existing utilities instead of reimplementing them - if the plan names an existing function to reuse, import and call it rather than writing a new one that does the same thing. Match this codebase's existing comment style, test structure, and naming conventions - look at a neighboring existing file before writing a new one in the same style. }
+  tests: { role: tester, after: build, run: npx vitest run, expect: exit 0 }  # full regression suite, not a scoped subset - this touches existing code
+  crit:  { role: critic, agent: checker, of: build, after: tests,
+           prompt: Fail if the change does not actually implement every task in the plan, even if tests pass - this catches partial implementations and weak self-authored tests. Fail if existing conventions were not followed, or if an existing utility was reimplemented instead of reused. }
+
+rails:
+  max_iterations: 8
+  max_cost_usd: 20
+  max_wall_minutes: 45
+  stall_after: 3
+  replan_limit: 2
+
+verdict: { policy: all-pass }
