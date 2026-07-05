@@ -797,6 +797,86 @@ rails:
   expect(gateCalls).toBe(0) // the gate must never be asked about unparseable content
 })
 
+test('a generates:graph planner whose fragment parses but invents its own node schema (missing role/agent) self-corrects automatically, never reaching the gate on the bad attempt', async () => {
+  const SELF_PLANNING_STRUCTURAL = `
+name: self-planning-structural-fixture
+goal: Do the generated thing.
+agents:
+  planner: { adapter: mock }
+graph:
+  plan:    { role: planner, agent: planner, generates: graph, rounds: 2 }
+  approve: { role: gate, after: plan }
+rails:
+  max_iterations: 5
+  max_cost_usd: 1
+`
+  const { cwd, io } = setup(SELF_PLANNING_STRUCTURAL)
+  const registry = createRegistry()
+  registry.register(new MockAdapter([
+    // first attempt: parses as YAML fine, but every node uses an invented
+    // schema (title/description/success_criteria/depends_on) instead of the
+    // real NodeDef fields - role/agent end up undefined at runtime. This
+    // must be caught here, not at splice or execution time.
+    {
+      match: /PLANNER/,
+      output: 'graph:\n  build:\n    title: Build the thing\n    description: does the work\n    success_criteria: it works\n    depends_on: []\n',
+    },
+    // second attempt, after the automatic structural-error feedback: real
+    // schema this time.
+    { match: /PLANNER/, output: 'graph:\n  build: { role: executor, agent: planner }\n  check: { role: critic, of: build, agent: planner }\n' },
+    { output: '[mock] build done' }, // the spliced "build" node's own invocation
+    { output: 'VERDICT: pass\nEVIDENCE: looks good' }, // the spliced "check" critic's own invocation
+  ]))
+  let gateCalls = 0
+  const code = await runAction(undefined, { cwd }, {
+    io, registry, gate: async () => { gateCalls += 1; return { approved: true } },
+  })
+  expect(code).toBe(0)
+  // the gate was only ever asked about the SECOND (structurally valid)
+  // attempt - the broken-schema attempt never reached it at all
+  expect(gateCalls).toBe(1)
+  const { latestRunId, runsRoot } = await import('./status-cmd.js')
+  const { readJournal } = await import('../journal/journal.js')
+  const runDir = join(runsRoot(cwd), latestRunId(cwd)!)
+  const events = readJournal(join(runDir, 'journal.jsonl'))
+  expect(events.some((e) => e.type === 'node_start' && (e.data as { nodeId: string }).nodeId === 'build')).toBe(true)
+})
+
+test('a generates:graph planner whose fragment always invents its own node schema exhausts replan_limit and halts cleanly, never reaching the gate or splicing broken structure in', async () => {
+  const SELF_PLANNING_STRUCTURAL_ALWAYS_BAD = `
+name: self-planning-structural-always-bad-fixture
+goal: Do the generated thing.
+agents:
+  planner: { adapter: mock }
+graph:
+  plan:    { role: planner, agent: planner, generates: graph, rounds: 2 }
+  approve: { role: gate, after: plan }
+rails:
+  max_iterations: 8
+  max_cost_usd: 1
+  replan_limit: 2
+`
+  const { cwd, io } = setup(SELF_PLANNING_STRUCTURAL_ALWAYS_BAD)
+  const registry = createRegistry()
+  // every reply parses as YAML but every node is missing role/agent - both
+  // rounds of the initial attempt, and both rounds of each of the 2 replans
+  // (replan_limit) - 6 calls total, never a 7th, since the run must halt
+  // once the limit is exhausted instead of ever splicing broken structure
+  // into the live graph.
+  registry.register(new MockAdapter(
+    Array.from({ length: 6 }, () => ({
+      match: /PLANNER/,
+      output: 'graph:\n  build:\n    title: Build the thing\n    description: does the work\n',
+    })),
+  ))
+  let gateCalls = 0
+  const code = await runAction(undefined, { cwd }, {
+    io, registry, gate: async () => { gateCalls += 1; return { approved: true } },
+  })
+  expect(code).toBe(2) // halted, not verified
+  expect(gateCalls).toBe(0) // the gate must never be asked about structurally invalid content
+})
+
 test('the human-readable report shows a "files touched" count when the run cwd has real git changes', async () => {
   const { cwd, io, lines } = setup(FIXTURE)
   execFileSync('git', ['init', '-q'], { cwd })

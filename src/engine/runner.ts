@@ -272,23 +272,52 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
         if (planner) state.plan = planner.output
         if (guard.check(state.iteration)) return { ok: true } // breached mid-planning; loop halts on entry
 
-        // A generates:'graph' planner's output must be parseable before a
-        // human or critic ever sees it. Whether it's valid YAML is a purely
-        // mechanical question - it never requires judgment the way "is this
-        // graph a good idea" does - so it gets one automatic, free
-        // self-correction round here (parseGraphFragment itself already
-        // strips a stray fence/prose wrapper first; this only fires for
-        // content that's still broken after that), using the real parse
-        // error as feedback, instead of reaching a human as an
-        // undiagnosable "reject this and try to explain what's wrong" cycle.
+        // A generates:'graph' planner's output must be both parseable AND
+        // structurally valid before a human or critic ever sees it. Neither
+        // question is a judgment call the way "is this graph a good idea"
+        // is - they're purely mechanical - so both get the same automatic,
+        // free self-correction round here (parseGraphFragment itself
+        // already strips a stray fence/prose wrapper first; this only fires
+        // for content that's still broken after that; validateGraph then
+        // catches a fragment that parses fine but invents its own node
+        // schema instead of the real one), using the real error as
+        // feedback, instead of reaching a human as an undiagnosable "reject
+        // this and try to explain what's wrong" cycle, or worse, silently
+        // splicing broken structure through to fail at execution time.
         formatError = null
         const plannerNode = planner && expanded.nodes.find((n) => n.id === planner.nodeId)
         if (plannerNode?.generates === 'graph') {
           try {
-            parseGraphFragment(state.plan ?? '')
+            const fragment = parseGraphFragment(state.plan ?? '')
+            // Parsing succeeding only proves `graph:` is a YAML map - it says
+            // nothing about whether each node inside actually matches the
+            // real NodeDef schema (role/agent/prompt/run/expect/after). A
+            // planner can invent its own field names (e.g.
+            // title/description/success_criteria) and every node silently
+            // ends up with role/agent undefined, which parseGraphNodes never
+            // catches at runtime (its `as NodeDef['role']` casts are
+            // compile-time only). Reusing validateGraph here - the exact
+            // check spliceFragment itself runs at splice time - catches
+            // that same failure on this automatic, free round instead of
+            // burning a real splice/execute cycle only to fail later with
+            // "unknown agent \"undefined\"", after the critic/gate already
+            // signed off on content whose structure was never checked at
+            // all. Agents merge additively (a fragment can declare its own),
+            // so they're merged with the live run's current set here too,
+            // mirroring spliceFragment's own merge.
+            const mergedAgents = { ...runAgents, ...fragment.agents }
+            const fragmentIds = new Set(fragment.nodes.map((n) => n.id))
+            const nodesForValidation = fragment.nodes.map((n) => ({
+              ...n, after: n.after?.filter((d) => fragmentIds.has(d)),
+            }))
+            const structuralErrors = validateGraph({
+              name: '', goal: '', agents: mergedAgents, nodes: nodesForValidation,
+              rails: { maxIterations: 1, maxCostUsd: 1 }, verdictPolicy: { kind: 'all-pass' },
+            })
+            if (structuralErrors.length > 0) throw new Error(structuralErrors.join('; '))
           } catch (err) {
             formatError = err instanceof Error ? err.message : String(err)
-            state.feedback = `OUTPUT FORMAT ERROR (automatic - not from a human or critic): ${formatError}\nYour entire reply must be ONLY a parseable YAML document with a top-level graph: key - no prose, no markdown headers, no explanation before or after it. Fix this before anything else can be reviewed.`
+            state.feedback = `OUTPUT FORMAT ERROR (automatic - not from a human or critic): ${formatError}\nYour entire reply must be ONLY a parseable YAML document with a top-level graph: key - no prose, no markdown headers, no explanation before or after it. Every node must use the real fields (role, agent, prompt, run, expect, after, etc.) - not invented ones. Fix this before anything else can be reviewed.`
             continue
           }
         }
