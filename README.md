@@ -1,10 +1,22 @@
-# looprail
+```
+██╗      ██████╗  ██████╗ ██████╗ ██████╗  █████╗ ██╗██╗
+██║     ██╔═══██╗██╔═══██╗██╔══██╗██╔══██╗██╔══██╗██║██║
+██║     ██║   ██║██║   ██║██████╔╝██████╔╝███████║██║██║
+██║     ██║   ██║██║   ██║██╔═══╝ ██╔══██╗██╔══██║██║██║
+███████╗╚██████╔╝╚██████╔╝██║     ██║  ██║██║  ██║██║███████╗
+╚══════╝ ╚═════╝  ╚═════╝ ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚══════╝
+```
 
-Looprail runs your coding agent in a loop until the work is actually done, not
-until the model stops talking. You write down what "done" means (a goal, the
-roles that pursue it, the checks that prove it, and the budget it runs under),
-and looprail drives any agent CLI through that loop and stops when the checks
-pass or a budget runs out.
+**Run your coding agent in a loop until the work is verified done - not until the model stops talking.**
+
+[![npm version](https://img.shields.io/npm/v/looprail.svg)](https://www.npmjs.com/package/looprail)
+[![node](https://img.shields.io/node/v/looprail.svg)](https://nodejs.org)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+You write down what "done" means (a goal, the roles that pursue it, the
+checks that prove it, and the budget it runs under), and looprail drives any
+agent CLI through that loop and stops when the checks pass or a budget runs
+out.
 
 It works with the agent CLIs you already have installed and logged into:
 Claude Code, Codex, aider, GitHub Copilot, or any shell command. No API keys go
@@ -45,6 +57,19 @@ Want to work on looprail itself, or run unreleased code straight from
 looprail init            # detects your agents, scaffolds looprail.yaml
 looprail run             # runs it, shows live progress, stops when verified
 looprail run --ui        # same, but opens a live dashboard alongside it
+```
+
+`looprail run --ui` opens this - the DAG updates live as each node runs,
+streaming the agent's own output as it's produced:
+
+```
+  iteration 2/8   $0.34 / $10.00   12.4k tok   0 replans
+
+  ┌───────────────┐     ┌───────────────┐     ┌───────────────┐
+  │ fix           │────▶│ test          │────▶│ review        │
+  │ ● executor    │     │ ● tester      │     │ ◐ critic      │
+  │   passed      │     │   exit 0      │     │   running...  │
+  └───────────────┘     └───────────────┘     └───────────────┘
 ```
 
 `init` picks a template for you (`fix-tests`, `research-report`, `refactor`,
