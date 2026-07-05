@@ -29,7 +29,7 @@ function ev(type: JournalEvent['type'], data: Record<string, unknown>): JournalE
 }
 
 test('reconstructRunState returns null plan and null feedback for an empty journal', () => {
-  expect(reconstructRunState([])).toEqual({ plan: null, feedback: null })
+  expect(reconstructRunState([])).toEqual({ plan: null, feedback: null, sources: [] })
 })
 
 test('reconstructRunState picks up the last planner output', () => {
@@ -56,6 +56,48 @@ test('reconstructRunState returns null feedback when the last iteration had no f
     ev('iteration_end', { iteration: 1 }),
   ]
   expect(reconstructRunState(events).feedback).toBeNull()
+})
+
+// --- precise-exclusion provenance: `sources` names exactly the node_end
+// entries that fed `feedback`/`plan`, so cache.ts's loadCache can exclude
+// only those, instead of every node_end sharing the halted iteration number.
+
+test('reconstructRunState names the failing critic(s) that composed feedback as sources, tagged with the iteration their evidence came from', () => {
+  const events = [
+    ev('node_end', { nodeId: 'critA', iteration: 1, verdict: { status: 'pass', evidence: 'A ok' } }),
+    ev('node_end', { nodeId: 'critB', iteration: 1, verdict: { status: 'fail', evidence: 'B broken' } }),
+    ev('iteration_end', { iteration: 1 }),
+  ]
+  const { sources } = reconstructRunState(events)
+  // critA passed - it did not feed the reconstructed feedback, so it must
+  // NOT be named as a source (its cache entry is safe to reuse on resume).
+  // critB failed - its own evidence composed `feedback` byte-for-byte, so
+  // it must be named so loadCache can exclude exactly that entry.
+  expect(sources).toEqual([{ nodeId: 'critB', iteration: 1 }])
+})
+
+test('reconstructRunState names the planner node_end that composed `plan` as a source, tagged with the iteration it ran in', () => {
+  const events = [
+    ev('node_end', { nodeId: 'plan', role: 'planner', iteration: 1, output: 'v1' }),
+    ev('iteration_end', { iteration: 1 }),
+    ev('node_end', { nodeId: 'plan', role: 'planner', iteration: 3, output: 'v2 (revised)' }),
+  ]
+  const { sources } = reconstructRunState(events)
+  expect(sources).toContainEqual({ nodeId: 'plan', iteration: 3 }) // the LAST planner run, not the first
+})
+
+test('reconstructRunState names both the planner source and the failing-critic source together when both feedback and plan are reconstructed', () => {
+  const events = [
+    ev('node_end', { nodeId: 'plan', role: 'planner', iteration: 1, output: 'the plan' }),
+    ev('node_end', { nodeId: 'critA', iteration: 2, verdict: { status: 'fail', evidence: 'nope' } }),
+    ev('node_end', { nodeId: 'do', iteration: 2, output: 'work' }),
+    ev('iteration_end', { iteration: 2 }),
+  ]
+  const { sources } = reconstructRunState(events)
+  expect(sources.sort((a, b) => a.nodeId.localeCompare(b.nodeId))).toEqual([
+    { nodeId: 'critA', iteration: 2 },
+    { nodeId: 'plan', iteration: 1 },
+  ])
 })
 
 test('summarizeJournal surfaces estimatedCostUsd separately from costUsd, from iteration_end', () => {
