@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.3.0
+
+MCP:
+
+- `run_loop` now self-registers its workspace and returns a `watchUrl` -
+  the run's own mission-control link - in its response; `run_status`
+  mirrors the same field for an already-known runId.
+- A new `looprail_flow` MCP prompt teaches a connected IDE-chat agent the
+  recommended flow (check `examples/` first, lint, run, share the watch
+  URL) and the real loopfile schema itself - the actual NodeDef fields,
+  roles, and rails - so it works even with no matching example, not just
+  a process checklist.
+- `looprail mcp` setup docs added for Claude Code (was previously only
+  documented for Claude Desktop/Cursor/VS Code).
+
+Dashboard:
+
+- Consolidated onto a single server implementation: `run --ui`, `ui
+  <runId>`, and `ui --all` all now serve through mission control's
+  routing. Fixes a real staleness bug where a self-planning splice's
+  extended graph never showed up in a standalone `run --ui` dashboard
+  (mission control's per-run view already re-read the persisted loopfile
+  fresh on every request; the standalone server never did).
+- A gate's own wall-clock wait for a human answer no longer counts
+  toward `max_wall_minutes` - a slow approval isn't the loop "taking too
+  long to do work".
+- DAG zoom-toolbar no longer drifts during pan/zoom (was a child of the
+  scrolling canvas using position:sticky+float, which only worked by
+  accident).
+- Cost figures across the dashboard show one combined real+estimated
+  total instead of a parenthetical breakdown.
+- A mid-node agent-CLI permission prompt (an underlying adapter's own
+  tool-approval system, distinct from a loopfile's `gate` node) can now
+  be detected, surfaced in the live-output panel, and answered - relayed
+  back into the exact subprocess waiting on it. Proven end-to-end against
+  a mock adapter; none of the four real adapters has a detector wired up
+  yet (each has a comment explaining why - live investigation couldn't
+  confirm a real permission-prompt output shape to detect against without
+  inventing one).
+
+Packaging & project infrastructure:
+
+- Published to npm: `npm install -g looprail`.
+- CI (lint + typecheck + test + build) on every push/PR; CodeQL scanning;
+  Dependabot (weekly, grouped dev-dependency bumps, patch-level PRs
+  auto-merge once CI passes).
+- GitHub Actions publishes to npm via Trusted Publisher (OIDC) on every
+  GitHub Release - no stored npm token.
+- Issue templates, an expanded CONTRIBUTING guide, and a README rewrite
+  (wordmark banner, live npm/license badges, a supported-adapters table,
+  and a real recorded demo GIF in place of the old ASCII mockup).
+
+Examples:
+
+- `multi-gate-approval` - two independent human sign-off points in one
+  loop (approve the plan, then separately approve the result).
+
 ## 0.2.0
 
 Engine:
