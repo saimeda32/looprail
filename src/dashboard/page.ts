@@ -936,7 +936,34 @@ export function buildPage(): string {
 
   document.getElementById('btn-resume').addEventListener('click', sendResume);
 
+  // Root cause of a real observed bug: /events replays the ENTIRE journal
+  // history as one SSE frame per event on every new connection (by design -
+  // see sse.ts - so a client opening the dashboard after the run finished
+  // still gets full history). For a long, self-planning run with 1000+
+  // journal events, that means es.onmessage below fires 1000+ times in a
+  // single burst on page load, all before the first fetch('model') can
+  // possibly resolve. refresh() used to have no in-flight guard, so every
+  // one of those messages launched its own overlapping fetch('model') -
+  // hundreds of concurrent same-origin requests, which is exactly what
+  // produces the browser's net::ERR_INSUFFICIENT_RESOURCES (browsers cap
+  // pending same-origin requests) followed by "Failed to fetch" rejections.
+  // This is a genuine client bug, not a testing-tool artifact or a
+  // reconnect storm - it reproduces from one page load, one EventSource
+  // connection, zero reconnects. The fix is a single-flight guard: at most
+  // one fetch('model') in flight at a time, plus a single coalesced
+  // "refresh again once this settles" flag so a burst of N messages still
+  // ends with the model fully up to date, but never launches more than one
+  // overlapping request - this scales correctly with both an initial replay
+  // burst and normal rapid-fs-write bursts, unlike a rate limit/debounce
+  // which would just delay the same overload.
+  var refreshInFlight = false;
+  var refreshAgainQueued = false;
   function refresh() {
+    if (refreshInFlight) {
+      refreshAgainQueued = true;
+      return Promise.resolve();
+    }
+    refreshInFlight = true;
     // Relative, not '/model': this same page is served both standalone at
     // '/' (looprail ui) and nested at '/run/<hash>/<runId>/' (mission
     // control), and a leading slash would always hit the site root's route,
@@ -945,6 +972,12 @@ export function buildPage(): string {
     // this relative resolution is reliable either way.
     return fetch('model').then(function (r) { return r.json(); }).then(render).catch(function (err) {
       console.error('failed to refresh dashboard model', err);
+    }).then(function () {
+      refreshInFlight = false;
+      if (refreshAgainQueued) {
+        refreshAgainQueued = false;
+        refresh();
+      }
     });
   }
 
