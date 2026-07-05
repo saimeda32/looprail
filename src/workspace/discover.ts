@@ -57,6 +57,13 @@ export interface RunListEntry {
   agents: string[]
   iteration: number
   costUsd: number
+  // Adapters that can't report a real dollar figure (copilot-cli, codex,
+  // aider) still derive one from token counts - see
+  // adapters/default-registry.ts and view-model.ts's DashboardTotals. Carried
+  // through verbatim (never merged into costUsd) so mission control's run
+  // tiles can fall back to it instead of showing a misleading flat "$0.00"
+  // for a run that plainly spent real tokens.
+  estimatedCostUsd: number
   tokens: number
   startedAt?: number
   lastEventAt?: number
@@ -82,6 +89,7 @@ export function buildRunListEntry(
     agents: agentsInUse(def, events),
     iteration: model.totals.iteration,
     costUsd: model.totals.costUsd,
+    estimatedCostUsd: model.totals.estimatedCostUsd,
     tokens: model.totals.tokens,
     startedAt: events[0]?.ts,
     lastEventAt: events.at(-1)?.ts,

@@ -211,7 +211,22 @@ export function buildMissionControlPage(): string {
     iter.innerHTML = 'iter <b>' + run.iteration + '</b>';
     stats.appendChild(iter);
     var cost = el('span', 'num');
-    cost.innerHTML = '$<b>' + run.costUsd.toFixed(2) + '</b>';
+    // Adapters that can't report a real dollar figure (copilot-cli, codex,
+    // aider) still leave costUsd at 0 forever - showing that bare "$0.00"
+    // is misleading when the run plainly spent real tokens by estimate.
+    // Match the single-run dashboard's Spend-by-Agent convention (page.ts's
+    // renderAgentTable): the real, adapter-reported costUsd is always
+    // authoritative when nonzero, with the estimate appended in parens; but
+    // when costUsd is 0 and there IS a nonzero estimate, promote the
+    // estimate itself to the primary figure instead of showing a flat $0.00.
+    if (run.costUsd > 0) {
+      cost.innerHTML = '$<b>' + run.costUsd.toFixed(2) + '</b>' +
+        (run.estimatedCostUsd ? ' (~$' + run.estimatedCostUsd.toFixed(2) + ' est)' : '');
+    } else if (run.estimatedCostUsd > 0) {
+      cost.innerHTML = '~$<b>' + run.estimatedCostUsd.toFixed(2) + '</b> est';
+    } else {
+      cost.innerHTML = '$<b>' + run.costUsd.toFixed(2) + '</b>';
+    }
     stats.appendChild(cost);
     if (typeof run.tokens === 'number') {
       var tok = el('span', 'num');
@@ -262,17 +277,32 @@ export function buildMissionControlPage(): string {
 
   function renderUsage(runs) {
     var workspaces = {};
-    var totalCost = 0, totalTokens = 0, running = 0;
+    var totalCost = 0, totalEstimatedCost = 0, totalTokens = 0, running = 0;
     runs.forEach(function (r) {
       workspaces[r.workspaceName] = true;
       totalCost += r.costUsd || 0;
+      totalEstimatedCost += r.estimatedCostUsd || 0;
       totalTokens += r.tokens || 0;
       if (r.status === 'running') running += 1;
     });
     document.getElementById('usage-workspaces').textContent = String(Object.keys(workspaces).length);
     document.getElementById('usage-runs').textContent = String(runs.length);
     document.getElementById('usage-running').textContent = String(running);
-    document.getElementById('usage-cost').textContent = '$' + totalCost.toFixed(2);
+    // Same real-vs-estimate precedence as the per-tile figure above: real
+    // spend summed across every run is authoritative whenever any run
+    // reported it, with the combined estimate appended in parens; only
+    // when the combined real total is still 0 does the combined estimate
+    // become the primary figure - the two are summed separately first so a
+    // real-cost run and an estimate-only run never get silently conflated
+    // into one ambiguous number.
+    if (totalCost > 0) {
+      document.getElementById('usage-cost').textContent =
+        '$' + totalCost.toFixed(2) + (totalEstimatedCost ? ' (~$' + totalEstimatedCost.toFixed(2) + ' est)' : '');
+    } else if (totalEstimatedCost > 0) {
+      document.getElementById('usage-cost').textContent = '~$' + totalEstimatedCost.toFixed(2) + ' est';
+    } else {
+      document.getElementById('usage-cost').textContent = '$' + totalCost.toFixed(2);
+    }
     document.getElementById('usage-tokens').textContent = formatTokens(totalTokens);
   }
 
