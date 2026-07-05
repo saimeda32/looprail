@@ -2,13 +2,13 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Command } from 'commander'
 import { expandPanels, validateGraph, type LoopDef } from '../index.js'
-import { startDashboardServer, type DashboardServer, type ResumeOverrides } from '../dashboard/server.js'
-import { startMissionControlServer, type MissionControlServer } from '../dashboard/mission-control-server.js'
+import { DEFAULT_DASHBOARD_PORT, startDashboardServer, type DashboardServer, type ResumeOverrides } from '../dashboard/server.js'
+import { DEFAULT_MISSION_CONTROL_PORT, startMissionControlServer, type MissionControlServer } from '../dashboard/mission-control-server.js'
 import { defaultRegistryPath, listWorkspaces } from '../workspace/registry.js'
 import { loadLoop } from './run-cmd.js'
 import { resumeAction } from './resume-cmd.js'
 import { latestRunId, runsRoot } from './status-cmd.js'
-import { defaultIo, dim, err, heading, type CliIo } from './ui.js'
+import { defaultIo, dim, err, heading, startWithStableDefault, type CliIo } from './ui.js'
 
 // Best-effort: the dashboard's usefulness (edges, rail maxes) is strictly
 // additive on top of the observed-only view. A missing, unparsable, or
@@ -57,7 +57,8 @@ export async function uiAction(
   }
   let dashboard: DashboardServer
   try {
-    dashboard = await startDashboardServer({ journalPath, def, onResume, port: opts.port })
+    dashboard = await startWithStableDefault(opts.port, DEFAULT_DASHBOARD_PORT,
+      (port) => startDashboardServer({ journalPath, def, onResume, port }))
   } catch (e) {
     io.out(err(e instanceof Error ? e.message : String(e)))
     return { code: 1 }
@@ -103,7 +104,8 @@ export async function uiAllAction(
   }
   let dashboard: MissionControlServer
   try {
-    dashboard = await startMissionControlServer({ registryPath, resumeFor, port: opts.port })
+    dashboard = await startWithStableDefault(opts.port, DEFAULT_MISSION_CONTROL_PORT,
+      (port) => startMissionControlServer({ registryPath, resumeFor, port }))
   } catch (e) {
     io.out(err(e instanceof Error ? e.message : String(e)))
     return { code: 1 }
@@ -131,7 +133,7 @@ export function registerUi(program: Command): void {
     .option('--file <path>', 'loopfile to load for graph edges and rail maxes (default ./looprail.yaml)')
     .option('--open', 'open the dashboard in the default browser')
     .option('--all', 'mission control: show every run across every registered workspace (ignores runId)')
-    .option('--port <n>', 'bind to a fixed port for a stable, bookmarkable URL (default: an OS-assigned free port)', parsePort)
+    .option('--port <n>', 'bind to a fixed port (default: 4747, or 4748 with --all; falls back to a free port automatically if that one is taken)', parsePort)
     .action(async (
       runId: string | undefined,
       opts: { file?: string; open?: boolean; all?: boolean; port?: number },

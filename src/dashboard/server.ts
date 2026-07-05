@@ -14,6 +14,15 @@ export interface ResumeOverrides {
   maxCostUsd?: number
 }
 
+// The stable default the CLI layer (ui-cmd.ts, run-cmd.ts) passes so repeat
+// `looprail run --ui` / `looprail ui` calls land on the same bookmarkable
+// URL instead of a fresh random port every time - see resolveDashboardPort
+// in ui-cmd.ts for the retry-on-conflict policy built on top of this. This
+// module itself stays default-random (port undefined -> OS-assigned): tests
+// and other programmatic callers that start many servers per process still
+// get non-colliding ports without needing to know about this constant.
+export const DEFAULT_DASHBOARD_PORT = 4747
+
 export interface DashboardServerOptions {
   journalPath: string
   def?: LoopDef
@@ -21,7 +30,9 @@ export interface DashboardServerOptions {
   // Defaults to 0 (OS-assigned free port) - deliberately random so several
   // dashboards can run at once without colliding. Set explicitly for a
   // stable, bookmarkable URL; a port already in use rejects with a clear
-  // error rather than silently falling back to a different one.
+  // error rather than silently falling back to a different one. The CLI
+  // layer is what actually requests DEFAULT_DASHBOARD_PORT by default -
+  // see resolveDashboardPort in ui-cmd.ts.
   port?: number
   // Continues a halted run in place with optionally-raised rails. Injected
   // by the CLI layer (ui-cmd.ts wraps cli/resume-cmd.ts's resumeAction) so

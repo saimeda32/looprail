@@ -356,3 +356,4 @@ test('startMissionControlServer rejects with a clear error when the requested po
   dashboard = await startMissionControlServer({ registryPath, port })
   await expect(startMissionControlServer({ registryPath, port })).rejects.toThrow(/port 41570 is already in use/)
 })
+

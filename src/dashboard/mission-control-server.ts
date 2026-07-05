@@ -63,10 +63,16 @@ export interface MissionControlServerOptions {
   // import from cli/. Returns undefined for a workspace with no loadable
   // loopfile, same as bestEffortLoopDef above.
   resumeFor?: (workspace: string, runId: string) => ((overrides: ResumeOverrides) => Promise<void>) | undefined
-  // See DashboardServerOptions.port - same OS-assigned-by-default, reject-
-  // don't-silently-retry behavior.
+  // Defaults to 0 (OS-assigned free port) - see server.ts's port option for
+  // the full reasoning. The CLI layer requests DEFAULT_MISSION_CONTROL_PORT
+  // by default - see resolveDashboardPort in ui-cmd.ts.
   port?: number
 }
+
+// See server.ts's DEFAULT_DASHBOARD_PORT - same reasoning, a different port
+// so mission control and a single-run dashboard can both run at once without
+// colliding on their defaults.
+export const DEFAULT_MISSION_CONTROL_PORT = 4748
 
 export interface MissionControlServer {
   server: Server
@@ -241,3 +247,4 @@ export function startMissionControlServer(opts: MissionControlServerOptions = {}
     })
   })
 }
+

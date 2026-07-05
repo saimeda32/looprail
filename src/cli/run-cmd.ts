@@ -8,10 +8,10 @@ import {
   type AdapterRegistry, type GateHandler, type JournalEvent, type LoopDef,
   type NodeOutcome, type Rails, type RunReport,
 } from '../index.js'
-import { startDashboardServer, type DashboardServer } from '../dashboard/server.js'
+import { DEFAULT_DASHBOARD_PORT, startDashboardServer, type DashboardServer } from '../dashboard/server.js'
 import { runsRoot } from '../journal/runs.js'
 import { hasStoredApproval, storeApproval } from '../journal/gate-approvals.js'
-import { defaultIo, dim, err, heading, ok, renderTable, warn, wrapText, type CliIo } from './ui.js'
+import { defaultIo, dim, err, heading, ok, renderTable, startWithStableDefault, warn, wrapText, type CliIo } from './ui.js'
 import { addWorkspace, defaultRegistryPath } from '../workspace/registry.js'
 
 export function loadLoop(file: string | undefined, cwd: string): { def: LoopDef; path: string } {
@@ -345,11 +345,12 @@ export async function runAction(
       // panel-expand up front so node ids in the dashboard match the ids the
       // engine will actually journal (runLoop does this same expansion
       // internally - see splitRegions/expandPanels in engine/runner.ts)
-      dashboard = await startDashboardServer({
-        journalPath: join(runDir, 'journal.jsonl'),
-        def: expandPanels(loaded.def),
-        port: opts.port,
-      })
+      dashboard = await startWithStableDefault(opts.port, DEFAULT_DASHBOARD_PORT, (port) =>
+        startDashboardServer({
+          journalPath: join(runDir, 'journal.jsonl'),
+          def: expandPanels(loaded.def),
+          port,
+        }))
     } catch (e) {
       io.out(err(e instanceof Error ? e.message : String(e)))
       uninstallCancelHandler()
@@ -391,7 +392,7 @@ export function registerRun(program: Command): void {
     .option('--json', 'machine-readable summary on stdout')
     .option('--yes', 'auto-approve human gates (CI)')
     .option('--ui', 'start the local dashboard before the run begins')
-    .option('--port <n>', 'bind --ui to a fixed port for a stable, bookmarkable URL (default: an OS-assigned free port)', parsePort)
+    .option('--port <n>', 'bind --ui to a fixed port (default: 4747; falls back to a free port automatically if that one is taken)', parsePort)
     .action(async (
       file: string | undefined,
       opts: { json?: boolean; yes?: boolean; ui?: boolean; port?: number },

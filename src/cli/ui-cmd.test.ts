@@ -51,7 +51,7 @@ async function completedRun() {
 test('uiAction on the latest run starts a server and prints its URL', async () => {
   const cwd = await completedRun()
   const { io, lines } = capture()
-  const result = await uiAction(undefined, { cwd }, io)
+  const result = await uiAction(undefined, { cwd, port: 41601 }, io)
   cleanup = () => result.dashboard!.close()
   expect(result.code).toBe(0)
   expect(lines.join('\n')).toContain(result.dashboard!.url)
@@ -83,7 +83,7 @@ test('POST /resume on a run served via uiAction actually continues that same hal
   expect(runCode).toBe(2) // max_iterations: 2 in FIXTURE, halts without ever passing
 
   const { io, lines } = capture()
-  const result = await uiAction(undefined, { cwd }, io)
+  const result = await uiAction(undefined, { cwd, port: 41602 }, io)
   cleanup = () => result.dashboard!.close()
   expect(result.code).toBe(0)
 
@@ -123,7 +123,7 @@ test('a valid loopfile is loaded, expanded, and drives edges in /model', async (
   expect(def).toBeDefined()
   expect(def!.nodes.map((n) => n.id).sort()).toEqual(['crit', 'do'])
   const { io } = capture()
-  const result = await uiAction(undefined, { cwd }, io)
+  const result = await uiAction(undefined, { cwd, port: 41603 }, io)
   cleanup = () => result.dashboard!.close()
   const res = await get(result.dashboard!.url + '/model')
   const payload = JSON.parse(res.body)
@@ -139,7 +139,7 @@ test('a missing loopfile falls back to observed-only mode without failing', asyn
 test('uiAllAction with an empty registry starts a server and prints a helpful hint, not an error', async () => {
   const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-ui-all-')), 'workspaces.json')
   const { io, lines } = capture()
-  const result = await uiAllAction({ registryPath }, io)
+  const result = await uiAllAction({ registryPath, port: 41604 }, io)
   cleanup = () => result.dashboard!.close()
   expect(result.code).toBe(0)
   expect(lines.join('\n')).toContain('no workspaces registered')
@@ -152,7 +152,7 @@ test('uiAllAction lists runs from every registered workspace at /api/runs', asyn
   const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-ui-all-')), 'workspaces.json')
   addWorkspace(registryPath, cwd)
   const { io } = capture()
-  const result = await uiAllAction({ registryPath }, io)
+  const result = await uiAllAction({ registryPath, port: 41605 }, io)
   cleanup = () => result.dashboard!.close()
   const res = await get(result.dashboard!.url + '/api/runs')
   const runs = JSON.parse(res.body).runs as { runId: string }[]
@@ -164,7 +164,7 @@ test('the mission-control card links to a working per-run dashboard', async () =
   const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-ui-all-')), 'workspaces.json')
   addWorkspace(registryPath, cwd)
   const { io } = capture()
-  const result = await uiAllAction({ registryPath }, io)
+  const result = await uiAllAction({ registryPath, port: 41606 }, io)
   cleanup = () => result.dashboard!.close()
   const listRes = await get(result.dashboard!.url + '/api/runs')
   const [run] = JSON.parse(listRes.body).runs as { workspaceHash: string; runId: string }[]
@@ -175,7 +175,7 @@ test('the mission-control card links to a working per-run dashboard', async () =
 test('uiAllAction serves the mission-control page at /, not a single-run dashboard', async () => {
   const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-ui-all-')), 'workspaces.json')
   const { io } = capture()
-  const result = await uiAllAction({ registryPath }, io)
+  const result = await uiAllAction({ registryPath, port: 41607 }, io)
   cleanup = () => result.dashboard!.close()
   const res = await get(result.dashboard!.url + '/')
   expect(res.body).toContain('looprail mission control')

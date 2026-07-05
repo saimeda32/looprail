@@ -464,3 +464,4 @@ test('startDashboardServer rejects with a clear error when the requested port is
   dashboard = await startDashboardServer({ journalPath, port })
   await expect(startDashboardServer({ journalPath, port })).rejects.toThrow(/port 41568 is already in use/)
 })
+

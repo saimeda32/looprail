@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { err, heading, ok, renderTable, warn, dim, wrapText } from './ui.js'
+import { err, heading, ok, renderTable, warn, dim, wrapText, startWithStableDefault } from './ui.js'
 
 test('color helpers always return a string containing the input', () => {
   for (const fn of [ok, warn, err, heading, dim]) {
@@ -34,4 +34,52 @@ test('wrapText returns a single empty line for empty or whitespace-only input', 
 
 test('wrapText returns the text unwrapped when it already fits', () => {
   expect(wrapText('short line', 40)).toEqual(['short line'])
+})
+
+test('startWithStableDefault tries the default port when the user gave none', async () => {
+  const ports: (number | undefined)[] = []
+  const result = await startWithStableDefault(undefined, 4747, async (port) => {
+    ports.push(port)
+    return `ok:${port}`
+  })
+  expect(ports).toEqual([4747])
+  expect(result).toBe('ok:4747')
+})
+
+test('startWithStableDefault tries only the user-given port, never the default', async () => {
+  const ports: (number | undefined)[] = []
+  await startWithStableDefault(9999, 4747, async (port) => {
+    ports.push(port)
+    return 'ok'
+  })
+  expect(ports).toEqual([9999])
+})
+
+test('startWithStableDefault falls back to no-port (OS-assigned) when the default is already in use', async () => {
+  const ports: (number | undefined)[] = []
+  const result = await startWithStableDefault(undefined, 4747, async (port) => {
+    ports.push(port)
+    if (port === 4747) throw new Error('port 4747 is already in use - stop whatever is using it')
+    return `ok:${port}`
+  })
+  expect(ports).toEqual([4747, undefined])
+  expect(result).toBe('ok:undefined')
+})
+
+test('startWithStableDefault does not retry an explicit port that is already in use', async () => {
+  const ports: (number | undefined)[] = []
+  await expect(startWithStableDefault(9999, 4747, async (port) => {
+    ports.push(port)
+    throw new Error('port 9999 is already in use - stop whatever is using it')
+  })).rejects.toThrow(/already in use/)
+  expect(ports).toEqual([9999])
+})
+
+test('startWithStableDefault rethrows an unrelated error without retrying', async () => {
+  const ports: (number | undefined)[] = []
+  await expect(startWithStableDefault(undefined, 4747, async (port) => {
+    ports.push(port)
+    throw new Error('boom')
+  })).rejects.toThrow('boom')
+  expect(ports).toEqual([4747])
 })

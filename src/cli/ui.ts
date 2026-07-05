@@ -45,3 +45,24 @@ export interface CliIo {
 }
 
 export const defaultIo: CliIo = { out: (line) => console.log(line) }
+
+// Tries a stable default port first (bookmarkable URL across repeat CLI
+// invocations, instead of a fresh random port every time), falling back to
+// an OS-assigned free port if that default is already taken by another
+// dashboard - but only when the user didn't ask for a specific port
+// themselves. An explicitly-requested --port that's taken still fails with
+// `start`'s own clear "already in use" error, unchanged.
+export async function startWithStableDefault<T>(
+  explicitPort: number | undefined,
+  defaultPort: number,
+  start: (port: number | undefined) => Promise<T>,
+): Promise<T> {
+  try {
+    return await start(explicitPort ?? defaultPort)
+  } catch (e) {
+    if (explicitPort === undefined && e instanceof Error && /already in use/.test(e.message)) {
+      return await start(undefined)
+    }
+    throw e
+  }
+}

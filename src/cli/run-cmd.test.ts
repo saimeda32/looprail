@@ -322,7 +322,7 @@ test('run --ui --json keeps stdout to a single JSON line (dashboard URL not prin
   const cwd = mkdtempSync(join(tmpdir(), 'lr-run-ui-'))
   writeFileSync(join(cwd, 'looprail.yaml'), FIXTURE)
   const { io, lines } = capture()
-  const code = await runAction(undefined, { cwd, json: true, ui: true }, { io })
+  const code = await runAction(undefined, { cwd, json: true, ui: true, port: 41611 }, { io })
   expect(code).toBe(0)
   expect(lines).toHaveLength(1)
   const parsed = JSON.parse(lines[0]) as { status: string; runId: string; costUsd: number }
@@ -335,7 +335,7 @@ test('run --ui starts a dashboard before the run and closes it once the run fini
   const cwd = mkdtempSync(join(tmpdir(), 'lr-run-ui-'))
   writeFileSync(join(cwd, 'looprail.yaml'), FIXTURE) // reuse this file's existing FIXTURE constant
   const { io, lines } = capture() // reuse this file's existing capture() helper
-  const code = await runAction(undefined, { cwd, ui: true }, { io })
+  const code = await runAction(undefined, { cwd, ui: true, port: 41612 }, { io })
   expect(code).toBe(0)
   expect(lines.some((l) => l.includes('http://127.0.0.1:'))).toBe(true)
 })
@@ -383,7 +383,7 @@ test('run --ui: the run directory exists the instant the dashboard URL is printe
       }).on('error', reject)
     }
   })
-  const code = await runAction(undefined, { cwd, ui: true }, { io, registry })
+  const code = await runAction(undefined, { cwd, ui: true, port: 41613 }, { io, registry })
   expect(code).toBe(0)
   expect(runDirExistedAtDashboardStart).toBe(true)
   const frame = await framePromise
@@ -394,7 +394,7 @@ test('run --ui dashboard reflects the finished run at /model once closed data is
   const cwd = mkdtempSync(join(tmpdir(), 'lr-run-ui-'))
   writeFileSync(join(cwd, 'looprail.yaml'), FIXTURE)
   const { io } = capture()
-  await runAction(undefined, { cwd, json: true, ui: true }, { io })
+  await runAction(undefined, { cwd, json: true, ui: true, port: 41614 }, { io })
   // the run's own journal is on disk and independently readable after the
   // --ui server has closed - the dashboard never held anything the run needed
   const { latestRunId, runsRoot } = await import('./status-cmd.js')
