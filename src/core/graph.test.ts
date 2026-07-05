@@ -31,6 +31,11 @@ describe('validateGraph', () => {
     expect(errors.some((e) => e.includes('cycle'))).toBe(true)
   })
 
+  test('rejects a node whose role is missing or not one of the real roles', () => {
+    const def = base([{ id: 'x', role: undefined as unknown as NodeDef['role'] }])
+    expect(validateGraph(def).some((e) => e.includes('unknown role'))).toBe(true)
+  })
+
   test('rejects agent-backed node without agent', () => {
     const def = base([{ id: 'x', role: 'executor' }])
     expect(validateGraph(def).some((e) => e.includes('agent'))).toBe(true)

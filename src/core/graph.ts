@@ -1,6 +1,7 @@
-import type { LoopDef, NodeDef } from './types.js'
+import type { LoopDef, NodeDef, Role } from './types.js'
 
 const AGENT_ROLES = new Set(['planner', 'critic', 'executor', 'judge', 'synthesizer'])
+const VALID_ROLES: Set<Role> = new Set(['planner', 'critic', 'executor', 'tester', 'judge', 'gate', 'synthesizer'])
 
 export function validateGraph(def: LoopDef): string[] {
   const errors: string[] = []
@@ -9,6 +10,16 @@ export function validateGraph(def: LoopDef): string[] {
 
   const byId = new Map(def.nodes.map((n) => [n.id, n]))
   for (const n of def.nodes) {
+    // `role` is only a compile-time-checked type in NodeDef - nothing at
+    // runtime stops a hand-written loopfile or (worse) an LLM-generated
+    // graph fragment from using a role that was never one of the real
+    // ones (or omitting it entirely, e.g. by inventing its own unrelated
+    // field names). Every check below that's keyed on role silently no-ops
+    // for a role it doesn't recognize, so this must be checked explicitly
+    // or a completely malformed node sails through with zero errors.
+    if (!VALID_ROLES.has(n.role)) {
+      errors.push(`node "${n.id}": unknown role "${String(n.role)}"`)
+    }
     for (const dep of n.after ?? []) {
       if (!ids.has(dep)) errors.push(`node "${n.id}" depends on unknown node "${dep}"`)
     }
