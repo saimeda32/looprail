@@ -12,17 +12,21 @@ agents:
   # Three genuinely different models proposing independently - not the same
   # model asked three times. Model diversity is the point: each one's own
   # blind spots and defaults differ, so the spread of proposals is real,
-  # not three near-identical rephrasings.
-  approach-a: { adapter: claude-code, model: claude-opus-4-8 }
+  # not three near-identical rephrasings. All on copilot-cli deliberately -
+  # note the model string format is copilot's own catalog naming, verified
+  # live via real invocations, and differs from other adapters' own
+  # conventions (e.g. claude-code accepts "claude-opus-4-8" with dashes;
+  # copilot-cli specifically needs "claude-opus-4.8" with a dot).
+  approach-a: { adapter: copilot-cli, model: claude-opus-4.8 }
   approach-b: { adapter: copilot-cli, model: claude-sonnet-5 }
-  approach-c: { adapter: copilot-cli, model: gpt-5-codex }
+  approach-c: { adapter: copilot-cli, model: gpt-5.3-codex }
   # Two judges, also on different models, scoring independently - a lone
   # judge's own preferences (e.g. favoring verbosity, or a particular
   # framework) would silently become the deciding factor; two different
   # models scoring the same rubric catches that before it decides anything.
-  judge-a: { adapter: claude-code, model: claude-opus-4-8 }
+  judge-a: { adapter: copilot-cli, model: claude-opus-4.8 }
   judge-b: { adapter: copilot-cli, model: claude-sonnet-5 }
-  synth:   { adapter: claude-code, model: claude-opus-4-8 }
+  synth:   { adapter: copilot-cli, model: claude-opus-4.8 }
 
 graph:
   # panel: one entry per named agent (not a count) - each clone gets its
