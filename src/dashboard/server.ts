@@ -12,6 +12,7 @@ import { fsWatcher, readNewEvents, type Watcher } from './tail.js'
 export interface ResumeOverrides {
   maxIterations?: number
   maxCostUsd?: number
+  maxWallMinutes?: number
 }
 
 // The stable default the CLI layer (ui-cmd.ts, run-cmd.ts) passes so repeat
@@ -298,7 +299,7 @@ export async function serveResume(
   let overrides: ResumeOverrides
   try {
     const body = await readRequestBody(req)
-    const parsed = JSON.parse(body || '{}') as { maxIterations?: unknown; maxCostUsd?: unknown }
+    const parsed = JSON.parse(body || '{}') as { maxIterations?: unknown; maxCostUsd?: unknown; maxWallMinutes?: unknown }
     if (parsed.maxIterations !== undefined && !isPositiveFiniteNumber(parsed.maxIterations)) {
       sendJson(res, 400, { error: 'maxIterations must be a positive number' })
       return
@@ -307,7 +308,15 @@ export async function serveResume(
       sendJson(res, 400, { error: 'maxCostUsd must be a positive number' })
       return
     }
-    overrides = { maxIterations: parsed.maxIterations as number | undefined, maxCostUsd: parsed.maxCostUsd as number | undefined }
+    if (parsed.maxWallMinutes !== undefined && !isPositiveFiniteNumber(parsed.maxWallMinutes)) {
+      sendJson(res, 400, { error: 'maxWallMinutes must be a positive number' })
+      return
+    }
+    overrides = {
+      maxIterations: parsed.maxIterations as number | undefined,
+      maxCostUsd: parsed.maxCostUsd as number | undefined,
+      maxWallMinutes: parsed.maxWallMinutes as number | undefined,
+    }
   } catch {
     sendJson(res, 400, { error: 'invalid request body' })
     return
