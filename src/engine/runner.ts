@@ -8,6 +8,7 @@ import { RailsGuard } from '../core/rails.js'
 import { routeIteration } from '../core/router.js'
 import { verdictFingerprint } from '../core/fingerprint.js'
 import { buildFallbackReport, buildReportPrompt, parseReport, pickReportingAgentKey } from '../core/report.js'
+import { filesTouched } from '../core/git.js'
 import { JournalWriter } from '../journal/journal.js'
 import { drainHumanFeedback } from '../journal/human-feedback.js'
 import type { AdapterRegistry } from '../adapters/registry.js'
@@ -195,17 +196,22 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   // right after hitting it would defeat that, no matter how cheap the call
   // itself might be.
   const buildFinalReport = async (status: RunReport['status'], reason: string): Promise<FinalReport> => {
+    // Computed here, once, regardless of which path below produces the rest
+    // of the report - see core/git.ts for why this is real git state, never
+    // something asked of the reporting agent.
+    const touched = opts.cwd ? filesTouched(opts.cwd) : []
     const isCostBreach = status === 'halted' && /rail breached \(cost\)/.test(reason)
     const agentKey = isCostBreach ? undefined : pickReportingAgentKey(def, outcomes)
     const agentSpec = agentKey ? def.agents[agentKey] : undefined
-    if (!agentSpec) return buildFallbackReport(outcomes, status, reason)
+    if (!agentSpec) return { ...buildFallbackReport(outcomes, status, reason), filesTouched: touched }
     try {
       const adapter = opts.registry.get(agentSpec.adapter)
       const prompt = buildReportPrompt(def.goal, status, reason, outcomes)
       const result = await adapter.invoke({ prompt, model: agentSpec.model, command: agentSpec.command })
-      return parseReport(result.output) ?? buildFallbackReport(outcomes, status, reason)
+      const parsed = parseReport(result.output) ?? buildFallbackReport(outcomes, status, reason)
+      return { ...parsed, filesTouched: touched }
     } catch {
-      return buildFallbackReport(outcomes, status, reason)
+      return { ...buildFallbackReport(outcomes, status, reason), filesTouched: touched }
     }
   }
 

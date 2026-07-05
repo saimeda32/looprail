@@ -192,6 +192,10 @@ export function buildPage(): string {
   .claim-confidence.conf-low { color: var(--fail); }
   .claim-text { color: var(--ink); }
   .claim-reason { color: var(--ink-dim); }
+  #files-touched { margin-top: 14px; font-size: 12px; color: var(--ink-dim); }
+  #files-touched summary { cursor: pointer; color: var(--ink); }
+  #files-touched ul { margin: 8px 0 0; padding-left: 18px; font-family: var(--mono); }
+  #files-touched li { padding: 1px 0; }
   #empty-state { padding: 60px 20px; text-align: center; color: var(--ink-dim); }
 
   @media (prefers-reduced-motion: reduce) {
@@ -288,6 +292,7 @@ export function buildPage(): string {
   <div id="report-panel" style="display:none">
     <div class="report-summary" id="report-summary"></div>
     <div id="report-claims"></div>
+    <div id="files-touched-container"></div>
   </div>
 
   <div class="section-head">Spend by agent</div>
@@ -432,6 +437,25 @@ export function buildPage(): string {
       row.appendChild(body);
       claims.appendChild(row);
     });
+    // Only ever rendered when there is something real to show: an absent or
+    // empty filesTouched (no cwd to inspect, not a git repo, or nothing
+    // changed - see core/git.ts/FinalReport.filesTouched) means no element
+    // at all, not an empty expandable shell.
+    var filesContainer = document.getElementById('files-touched-container');
+    filesContainer.innerHTML = '';
+    var files = report.filesTouched || [];
+    if (files.length > 0) {
+      var details = htmlEl('details', null);
+      details.id = 'files-touched';
+      var summary = htmlEl('summary', null, files.length + (files.length === 1 ? ' file' : ' files') + ' touched');
+      details.appendChild(summary);
+      var list = htmlEl('ul', null);
+      files.forEach(function (f) {
+        list.appendChild(htmlEl('li', null, f));
+      });
+      details.appendChild(list);
+      filesContainer.appendChild(details);
+    }
   }
 
   // Three separate, independently user-named layers describe every node -

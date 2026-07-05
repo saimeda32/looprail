@@ -255,6 +255,14 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
       ctx.io.out(dim(`       ${reasonLine}`))
     }
   }
+  const filesTouched = report.report.filesTouched ?? []
+  if (filesTouched.length > 0) {
+    ctx.io.out('')
+    // Collapsed count only, no interactive expand/collapse mechanism: the
+    // full list is one `git diff --stat` away, which is disproportionately
+    // simpler than building CLI expand/collapse machinery for this one field.
+    ctx.io.out(dim(`  ${filesTouched.length} file${filesTouched.length === 1 ? '' : 's'} touched - run \`git diff --stat\` (in ${ctx.cwd}) to see them`))
+  }
   ctx.io.out('')
   ctx.io.out(dim(`  journal: ${join(ctx.runDir, 'journal.jsonl')} · run id: ${report.runId}`))
   return report.status === 'verified' ? 0 : 2

@@ -142,6 +142,16 @@ export interface FinalReport {
   // parsed - a report is still generated mechanically from verdicts alone,
   // so every run gets one either way.
   source: 'agent' | 'fallback'
+  // Real git state (see core/git.ts), never the reporting agent's own
+  // narration - populated by runner.ts's buildFinalReport, not by
+  // parseReport/buildReportPrompt, since this is never something the
+  // reporting agent should be asked to produce. Optional only because a
+  // report built without a cwd to inspect never gets this field set at
+  // all; once runner.ts does compute it, "not a git repo" and "a git repo
+  // with nothing touched" are deliberately collapsed into the same empty
+  // array rather than left ambiguous against undefined - callers only ever
+  // need to branch on "is there anything to show", not on why not.
+  filesTouched?: string[]
 }
 
 export interface RunReport {
