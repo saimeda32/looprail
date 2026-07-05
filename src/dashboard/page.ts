@@ -71,7 +71,7 @@ export function buildPage(): string {
   .run-title .name { font-size: 14px; font-weight: 600; }
   .run-title .id { font: 11px var(--mono); color: var(--ink-faint); }
   #reason { font-size: 12px; color: var(--ink-dim); }
-  .run-goal { padding: 12px 18px; border-bottom: 1px solid var(--line); font-size: 12.5px; line-height: 1.5; color: var(--ink-dim); white-space: pre-wrap; }
+  .run-goal { padding: 12px 18px; border-bottom: 1px solid var(--line); font-size: 12.5px; line-height: 1.5; color: var(--ink-dim); white-space: pre-wrap; max-height: 200px; overflow: auto; }
   .run-goal:empty { display: none; }
 
   .status-pill {
@@ -140,13 +140,13 @@ export function buildPage(): string {
   #live-output-section[style*="display: none"] + .agent-table-wrap { margin-top: 0; }
 
   .agent-table { border: 1px solid var(--line); border-radius: 3px; overflow: hidden; overflow-x: auto; }
-  .agent-row { display: grid; grid-template-columns: 1fr 110px 110px 60px 90px 90px; align-items: center; padding: 9px 16px; border-bottom: 1px solid var(--line); font-size: 12.5px; background: var(--panel); gap: 8px; }
+  .agent-row { display: grid; grid-template-columns: 1fr 90px 110px 110px 60px 90px 90px; align-items: center; padding: 9px 16px; border-bottom: 1px solid var(--line); font-size: 12.5px; background: var(--panel); gap: 8px; }
   .agent-row:last-child { border-bottom: none; }
   .agent-row.head { font: 600 10.5px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); background: var(--panel-raised); }
   .agent-row.total { font-weight: 600; background: var(--panel-raised); }
   .agent-row .num { text-align: right; font-variant-numeric: tabular-nums; }
   .agent-row .role { color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  @media (max-width: 640px) { .agent-row { grid-template-columns: 1fr 60px 70px; } .agent-row span:nth-child(2), .agent-row span:nth-child(3) { display: none; } }
+  @media (max-width: 640px) { .agent-row { grid-template-columns: 1fr 60px 70px; } .agent-row span:nth-child(2), .agent-row span:nth-child(3), .agent-row span:nth-child(4) { display: none; } }
 
   .run-controls { display: flex; gap: 8px; align-items: center; }
   .control-btn {
@@ -435,7 +435,7 @@ export function buildPage(): string {
     var order = []
     nodes.forEach(function (n) {
       var key = n.agent || ('(' + n.role + ')')
-      if (!groups[key]) { groups[key] = { label: key, model: n.model || '', nodeIds: [], calls: 0, tokens: 0, costUsd: 0 }; order.push(key) }
+      if (!groups[key]) { groups[key] = { label: key, adapter: n.adapter || '', model: n.model || '', nodeIds: [], calls: 0, tokens: 0, costUsd: 0 }; order.push(key) }
       var g = groups[key]
       if (g.nodeIds.indexOf(n.id) === -1) g.nodeIds.push(n.id)
       g.calls += n.iterations.length
@@ -445,8 +445,8 @@ export function buildPage(): string {
     var table = document.getElementById('agent-table')
     table.innerHTML = ''
     var head = htmlEl('div', 'agent-row head')
-    ;['Agent', 'Model', 'Nodes', 'Calls', 'Tokens', 'Cost'].forEach(function (h, i) {
-      head.appendChild(htmlEl('span', i > 2 ? 'num' : null, h))
+    ;['Agent', 'Platform', 'Model', 'Nodes', 'Calls', 'Tokens', 'Cost'].forEach(function (h, i) {
+      head.appendChild(htmlEl('span', i > 3 ? 'num' : null, h))
     })
     table.appendChild(head)
     if (order.length === 0) {
@@ -457,6 +457,7 @@ export function buildPage(): string {
       var g = groups[key]
       var row = htmlEl('div', 'agent-row')
       row.appendChild(htmlEl('span', null, g.label))
+      row.appendChild(htmlEl('span', 'role', g.adapter || '-'))
       row.appendChild(htmlEl('span', 'role', g.model || '-'))
       row.appendChild(htmlEl('span', 'role', g.nodeIds.join(', ')))
       row.appendChild(htmlEl('span', 'num', String(g.calls)))
@@ -468,10 +469,26 @@ export function buildPage(): string {
     total.appendChild(htmlEl('span', null, 'Total'))
     total.appendChild(htmlEl('span', null, ''))
     total.appendChild(htmlEl('span', null, ''))
+    total.appendChild(htmlEl('span', null, ''))
     total.appendChild(htmlEl('span', 'num', String(nodes.reduce(function (a, n) { return a + n.iterations.length }, 0))))
     total.appendChild(htmlEl('span', 'num', formatTokens(totals.tokens)))
     total.appendChild(htmlEl('span', 'num', '$' + totals.costUsd.toFixed(3)))
     table.appendChild(total)
+  }
+
+  // A goal is commonly authored as a YAML "|" block scalar, which preserves
+  // the source file's own hand-wrapped line breaks (e.g. wrapped at ~70
+  // characters for readability in the .yaml file itself) as real newlines -
+  // and this box's white-space: pre-wrap correctly honors them, rendering
+  // at the SOURCE's wrap width instead of the box's actual (much wider)
+  // width, leaving dead space on the right. Folding single newlines within
+  // a paragraph into spaces (while keeping real blank-line paragraph
+  // breaks) lets pre-wrap's own line-wrapping do its job at the box's real
+  // width, regardless of how the YAML happened to be hand-formatted.
+  function reflowGoal(text) {
+    return text.split(/\\n\\s*\\n/).map(function (para) {
+      return para.split('\\n').map(function (line) { return line.trim(); }).join(' ');
+    }).join('\\n\\n');
   }
 
   // Streamed text is arbitrary model output rendered into a real DOM - escape
@@ -587,7 +604,7 @@ export function buildPage(): string {
     document.getElementById('run-panel').style.display = model.nodes.length === 0 ? 'none' : 'block';
     document.getElementById('run-title').textContent = model.name || 'looprail dashboard';
     document.getElementById('run-id').textContent = model.runId ? 'RUN ' + model.runId : '';
-    document.getElementById('run-goal').textContent = model.goal ? model.goal.trim() : '';
+    document.getElementById('run-goal').textContent = model.goal ? reflowGoal(model.goal.trim()) : '';
     var pill = document.getElementById('status-pill');
     pill.textContent = model.status;
     pill.className = 'status-pill status-' + model.status;

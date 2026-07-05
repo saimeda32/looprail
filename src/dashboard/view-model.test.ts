@@ -164,7 +164,7 @@ test('node_progress records each chunk with its own real journal timestamp, in a
   ])
 })
 
-test('a def-seeded node carries its agent key and model from the loopfile', () => {
+test('a def-seeded node carries its agent key, model, and adapter from the loopfile', () => {
   const def: LoopDef = {
     name: 'demo', goal: 'g',
     agents: { worker: { adapter: 'claude-code', model: 'claude-opus-4' } },
@@ -176,9 +176,10 @@ test('a def-seeded node carries its agent key and model from the loopfile', () =
   const node = m.nodes.find((n) => n.id === 'do')!
   expect(node.agent).toBe('worker')
   expect(node.model).toBe('claude-opus-4')
+  expect(node.adapter).toBe('claude-code')
 })
 
-test('an observed-only node (no loopfile loaded) has no agent or model', () => {
+test('an observed-only node (no loopfile loaded) has no agent, model, or adapter', () => {
   const m = buildViewModel([
     ev('run_start', { runId: 'r', name: 'n', goal: 'g' }),
     ev('node_start', { nodeId: 'do', role: 'executor', iteration: 1 }),
@@ -186,6 +187,7 @@ test('an observed-only node (no loopfile loaded) has no agent or model', () => {
   const node = m.nodes.find((n) => n.id === 'do')!
   expect(node.agent).toBeUndefined()
   expect(node.model).toBeUndefined()
+  expect(node.adapter).toBeUndefined()
 })
 
 test('node_end tokens accumulate into DashboardNode.tokens and the matching NodeIterationRecord.tokens', () => {

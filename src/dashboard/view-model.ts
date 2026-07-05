@@ -27,6 +27,7 @@ export interface DashboardNode {
   iterations: NodeIterationRecord[]
   agent?: string
   model?: string
+  adapter?: string
   streamingOutput?: string
   // Same content as streamingOutput, kept as discrete arrived-at-ts pieces -
   // the live-output panel uses this to show real per-paragraph arrival
@@ -82,11 +83,11 @@ function edgesFromDef(def: LoopDef): [string, string][] {
 }
 
 function ensureNode(
-  nodes: Map<string, DashboardNode>, id: string, role: Role, agent?: string, model?: string,
+  nodes: Map<string, DashboardNode>, id: string, role: Role, agent?: string, model?: string, adapter?: string,
 ): DashboardNode {
   let n = nodes.get(id)
   if (!n) {
-    n = { id, role, status: 'pending', costUsd: 0, tokens: 0, iterations: [], agent, model }
+    n = { id, role, status: 'pending', costUsd: 0, tokens: 0, iterations: [], agent, model, adapter }
     nodes.set(id, n)
   }
   return n
@@ -96,7 +97,8 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
   const nodes = new Map<string, DashboardNode>()
   if (def) {
     for (const n of def.nodes) {
-      ensureNode(nodes, n.id, n.role, n.agent, n.agent ? def.agents[n.agent]?.model : undefined)
+      const agentDef = n.agent ? def.agents[n.agent] : undefined
+      ensureNode(nodes, n.id, n.role, n.agent, agentDef?.model, agentDef?.adapter)
     }
   }
 
