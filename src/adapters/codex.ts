@@ -1,5 +1,6 @@
 import type { Adapter, AgentRequest } from '../core/types.js'
 import { CliAdapter, type ExecFn, type ParsedResponse } from './cli-adapter.js'
+import { resolvePermissionArgs } from './permissions.js'
 
 interface CodexEvent {
   type?: string
@@ -52,7 +53,10 @@ export function createCodexAdapter(
   return new CliAdapter({
     name: 'codex',
     command: 'codex exec --json {prompt}',
-    extraArgs: (req: AgentRequest) => (req.model ? ['-m', req.model] : []),
+    extraArgs: (req: AgentRequest) => [
+      ...(req.model ? ['-m', req.model] : []),
+      ...resolvePermissionArgs(req.permissions, 'codex'),
+    ],
     parser: parseCodexJsonl,
     streamHandler: codexStreamLine,
     exec: opts.exec,

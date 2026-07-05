@@ -88,18 +88,43 @@ describe('createClaudeCodeAdapter', () => {
     expect(calls[0].file).toBe('claude')
     expect(calls[0].args).toEqual([
       '-p', 'fix it', '--output-format', 'stream-json', '--verbose', '--model', 'sonnet',
+      '--permission-mode', 'acceptEdits',
     ])
     expect(res).toMatchObject({ output: 'THE ANSWER', costUsd: 0.0123, tokens: 1250 })
   })
 
-  test('omits --model when the request has none', async () => {
+  test('omits --model when the request has none, but still applies the safe default permission flags', async () => {
     const calls: string[][] = []
     const exec: ExecFn = async (_f, args) => {
       calls.push(args)
       return { stdout: STREAM, stderr: '', exitCode: 0 }
     }
     await createClaudeCodeAdapter({ exec }).invoke({ prompt: 'p' })
-    expect(calls[0]).toEqual(['-p', 'p', '--output-format', 'stream-json', '--verbose'])
+    expect(calls[0]).toEqual([
+      '-p', 'p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'acceptEdits',
+    ])
+  })
+
+  test('appends permission flags after --model, resolved via resolvePermissionArgs', async () => {
+    const calls: string[][] = []
+    const exec: ExecFn = async (_f, args) => {
+      calls.push(args)
+      return { stdout: STREAM, stderr: '', exitCode: 0 }
+    }
+    await createClaudeCodeAdapter({ exec }).invoke({ prompt: 'p', model: 'sonnet', permissions: 'full' })
+    expect(calls[0]).toEqual([
+      '-p', 'p', '--output-format', 'stream-json', '--verbose', '--model', 'sonnet', '--dangerously-skip-permissions',
+    ])
+  })
+
+  test('omits permission flags entirely when the request has neither model nor permissions, but still applies the safe default via resolvePermissionArgs when permissions is explicitly undefined and a real request is made', async () => {
+    const calls: string[][] = []
+    const exec: ExecFn = async (_f, args) => {
+      calls.push(args)
+      return { stdout: STREAM, stderr: '', exitCode: 0 }
+    }
+    await createClaudeCodeAdapter({ exec }).invoke({ prompt: 'p' })
+    expect(calls[0]).toEqual(['-p', 'p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'acceptEdits'])
   })
 
   test('streams the thinking indicator then the real answer text live, before the node finishes', async () => {

@@ -51,6 +51,7 @@ describe('createCopilotAdapter', () => {
     expect(calls[0].file).toBe('gh')
     expect(calls[0].args).toEqual([
       'copilot', '-p', 'say hi', '--output-format', 'json', '--allow-all-tools',
+      '--allow-all-tools', '--allow-all-paths', '--allow-all-urls',
     ])
     expect(res).toMatchObject({ output: 'hi', tokens: 4, costUsd: 0 })
   })
@@ -64,17 +65,47 @@ describe('createCopilotAdapter', () => {
     await createCopilotAdapter({ exec }).invoke({ prompt: 'say hi', model: 'gpt-5.4' })
     expect(calls[0]).toEqual([
       'copilot', '-p', 'say hi', '--output-format', 'json', '--allow-all-tools', '--model', 'gpt-5.4',
+      '--allow-all-tools', '--allow-all-paths', '--allow-all-urls',
     ])
   })
 
-  test('omits --model when the request has none', async () => {
+  test('omits --model when the request has none, but still applies the full default permission flags', async () => {
     const calls: string[][] = []
     const exec: ExecFn = async (_file, args) => {
       calls.push(args)
       return { stdout: JSONL, stderr: '', exitCode: 0 }
     }
     await createCopilotAdapter({ exec }).invoke({ prompt: 'say hi' })
-    expect(calls[0]).toEqual(['copilot', '-p', 'say hi', '--output-format', 'json', '--allow-all-tools'])
+    expect(calls[0]).toEqual([
+      'copilot', '-p', 'say hi', '--output-format', 'json', '--allow-all-tools',
+      '--allow-all-tools', '--allow-all-paths', '--allow-all-urls',
+    ])
+  })
+
+  test('appends permission flags after --model, resolved via resolvePermissionArgs', async () => {
+    const calls: string[][] = []
+    const exec: ExecFn = async (_file, args) => {
+      calls.push(args)
+      return { stdout: JSONL, stderr: '', exitCode: 0 }
+    }
+    await createCopilotAdapter({ exec }).invoke({ prompt: 'say hi', model: 'claude-sonnet-5', permissions: 'safe' })
+    expect(calls[0]).toEqual([
+      'copilot', '-p', 'say hi', '--output-format', 'json', '--allow-all-tools', '--model', 'claude-sonnet-5',
+      '--allow-tool', 'write', '--allow-tool', 'shell(npm:*)',
+    ])
+  })
+
+  test('with no permissions config, still resolves to full (matching the pre-existing --allow-all-tools default)', async () => {
+    const calls: string[][] = []
+    const exec: ExecFn = async (_file, args) => {
+      calls.push(args)
+      return { stdout: JSONL, stderr: '', exitCode: 0 }
+    }
+    await createCopilotAdapter({ exec }).invoke({ prompt: 'say hi' })
+    expect(calls[0]).toEqual([
+      'copilot', '-p', 'say hi', '--output-format', 'json', '--allow-all-tools',
+      '--allow-all-tools', '--allow-all-paths', '--allow-all-urls',
+    ])
   })
 
   test('streams each token delta live, before the node finishes', async () => {

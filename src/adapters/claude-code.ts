@@ -1,5 +1,6 @@
 import type { Adapter, AgentRequest } from '../core/types.js'
 import { CliAdapter, type ExecFn, type ParsedResponse } from './cli-adapter.js'
+import { resolvePermissionArgs } from './permissions.js'
 
 interface ClaudeEnvelope {
   type?: string
@@ -101,7 +102,10 @@ export function createClaudeCodeAdapter(
   return new CliAdapter({
     name: 'claude-code',
     command: 'claude -p {prompt} --output-format stream-json --verbose',
-    extraArgs: (req: AgentRequest) => (req.model ? ['--model', req.model] : []),
+    extraArgs: (req: AgentRequest) => [
+      ...(req.model ? ['--model', req.model] : []),
+      ...resolvePermissionArgs(req.permissions, 'claude-code'),
+    ],
     parser: parseClaudeStreamJsonl,
     streamHandler: claudeStreamLine,
     exec: opts.exec,
