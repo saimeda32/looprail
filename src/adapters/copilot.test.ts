@@ -41,16 +41,16 @@ describe('copilotStreamLine', () => {
 })
 
 describe('createCopilotAdapter', () => {
-  test('invokes gh copilot with JSON output and --allow-all-tools for non-interactive use', async () => {
+  test('invokes copilot directly (not through gh) with JSON output and --allow-all-tools for non-interactive use', async () => {
     const calls: { file: string; args: string[] }[] = []
     const exec: ExecFn = async (file, args) => {
       calls.push({ file, args })
       return { stdout: JSONL, stderr: '', exitCode: 0 }
     }
     const res = await createCopilotAdapter({ exec }).invoke({ prompt: 'say hi' })
-    expect(calls[0].file).toBe('gh')
+    expect(calls[0].file).toBe('copilot')
     expect(calls[0].args).toEqual([
-      'copilot', '-p', 'say hi', '--output-format', 'json', '--allow-all-tools',
+      '-p', 'say hi', '--output-format', 'json', '--allow-all-tools',
       '--allow-all-tools', '--allow-all-paths', '--allow-all-urls',
     ])
     expect(res).toMatchObject({ output: 'hi', tokens: 4, costUsd: 0 })
@@ -64,7 +64,7 @@ describe('createCopilotAdapter', () => {
     }
     await createCopilotAdapter({ exec }).invoke({ prompt: 'say hi', model: 'gpt-5.4' })
     expect(calls[0]).toEqual([
-      'copilot', '-p', 'say hi', '--output-format', 'json', '--allow-all-tools', '--model', 'gpt-5.4',
+      '-p', 'say hi', '--output-format', 'json', '--allow-all-tools', '--model', 'gpt-5.4',
       '--allow-all-tools', '--allow-all-paths', '--allow-all-urls',
     ])
   })
@@ -77,7 +77,7 @@ describe('createCopilotAdapter', () => {
     }
     await createCopilotAdapter({ exec }).invoke({ prompt: 'say hi' })
     expect(calls[0]).toEqual([
-      'copilot', '-p', 'say hi', '--output-format', 'json', '--allow-all-tools',
+      '-p', 'say hi', '--output-format', 'json', '--allow-all-tools',
       '--allow-all-tools', '--allow-all-paths', '--allow-all-urls',
     ])
   })
@@ -90,7 +90,7 @@ describe('createCopilotAdapter', () => {
     }
     await createCopilotAdapter({ exec }).invoke({ prompt: 'say hi', model: 'claude-sonnet-5', permissions: 'safe' })
     expect(calls[0]).toEqual([
-      'copilot', '-p', 'say hi', '--output-format', 'json', '--allow-all-tools', '--model', 'claude-sonnet-5',
+      '-p', 'say hi', '--output-format', 'json', '--allow-all-tools', '--model', 'claude-sonnet-5',
       '--allow-tool', 'write', '--allow-tool', 'shell(npm:*)',
     ])
   })
@@ -103,7 +103,7 @@ describe('createCopilotAdapter', () => {
     }
     await createCopilotAdapter({ exec }).invoke({ prompt: 'say hi' })
     expect(calls[0]).toEqual([
-      'copilot', '-p', 'say hi', '--output-format', 'json', '--allow-all-tools',
+      '-p', 'say hi', '--output-format', 'json', '--allow-all-tools',
       '--allow-all-tools', '--allow-all-paths', '--allow-all-urls',
     ])
   })
