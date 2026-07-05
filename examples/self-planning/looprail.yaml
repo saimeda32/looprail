@@ -1,0 +1,25 @@
+name: self-planning-demo
+goal: |
+  Describe what you want built here (edit this line) - a plain-English
+  goal is enough. The planner below will propose a graph of nodes to
+  implement it; you'll review that plan before anything runs.
+
+agents:
+  planner:  { adapter: copilot-cli, model: claude-sonnet-5 }
+  reviewer: { adapter: copilot-cli, model: gpt-5-codex }
+
+graph:
+  plan:    { role: planner, agent: planner, generates: graph,
+             prompt: Read the goal above and this repo's structure, then propose a graph of nodes (agents, dependencies, a tester, a critic) that would implement it. Reuse the planner/reviewer agent keys already declared above, or declare additional agents/rails of your own if the goal genuinely needs a different model. }
+  review:  { role: critic, agent: reviewer, of: plan, after: plan,
+             prompt: Check whether this proposed graph would actually implement the goal - anything missing (tests? a critic step?), is the budget reasonable, do the dependencies make sense? }
+  approve: { role: gate, after: review }
+
+rails:
+  max_iterations: 10
+  max_cost_usd: 15
+  max_wall_minutes: 30
+  replan_limit: 3
+  gate_timeout: 600
+
+verdict: { policy: all-pass }
