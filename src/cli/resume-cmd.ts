@@ -78,7 +78,7 @@ export async function resumeAction(
       io,
       json: !!opts.json,
       registry: deps.registry ?? createDefaultRegistry({ cwd: opts.cwd }),
-      gate: deps.gate ?? makeGate(def.rails, io, !!opts.yes),
+      gate: deps.gate ?? makeGate(def.rails, io, !!opts.yes, opts.cwd),
       cache,
       startIteration: priorIterations,
       initialPlan: plan,

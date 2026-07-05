@@ -7,8 +7,10 @@ import { expect, test, vi } from 'vitest'
 import { agentCostBreakdown, makeGate, runAction } from './run-cmd.js'
 import { JournalWriter, parseLoopfile } from '../index.js'
 import { runsRoot } from '../journal/runs.js'
+import { hasStoredApproval, storeApproval } from '../journal/gate-approvals.js'
 import { startDashboardServer } from '../dashboard/server.js'
 import { createRegistry } from '../adapters/registry.js'
+import type { NodeDef } from '../core/types.js'
 
 const FIXTURE = `
 name: cli-fixture
@@ -190,17 +192,20 @@ test('gate handler is consulted and drives the verdict', async () => {
 
 test('makeGate --yes auto-approves without touching stdin', async () => {
   const lines: string[] = []
-  const gate = makeGate({ maxIterations: 1, maxCostUsd: 1 }, { out: (l) => lines.push(l) }, true)
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
+  const gate = makeGate({ maxIterations: 1, maxCostUsd: 1 }, { out: (l) => lines.push(l) }, true, cwd)
   await expect(gate({ id: 'approve', role: 'gate' }, 'ctx')).resolves.toBe(true)
   expect(lines.join('\n')).toContain('auto-approved')
 })
 
 test('makeGate rejects with an infra-tagged message via the injected gate timer - no real timer used', async () => {
   const lines: string[] = []
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
   const gate = makeGate(
     { maxIterations: 1, maxCostUsd: 1, gateTimeoutSec: 5 },
     { out: (l) => lines.push(l) },
     false,
+    cwd,
     // the injected timer rejects immediately instead of waiting 5 real
     // seconds - this is the whole point of the seam
     { gateTimer: async (_ms, message) => { throw new Error(message) } },
@@ -215,9 +220,10 @@ test('makeGate clears the timeout when the human answers first, leaving no linge
   const origStdin = Object.getOwnPropertyDescriptor(process, 'stdin')!
   Object.defineProperty(process, 'stdin', { value: fakeStdin, configurable: true })
   try {
+    const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
     const gate = makeGate(
       { maxIterations: 1, maxCostUsd: 1, gateTimeoutSec: 3600 }, // 1h timeout
-      { out: () => {} }, false,
+      { out: () => {} }, false, cwd,
     )
     const p = gate({ id: 'approve', role: 'gate' }, 'ctx')
     await Promise.resolve() // let readline wire up its line listener
@@ -236,9 +242,10 @@ test('a timed-out gate leaves no unhandled rejection (the aborted question is se
   const onRej = (r: unknown) => rejections.push(r)
   process.on('unhandledRejection', onRej)
   try {
+    const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
     const gate = makeGate(
       { maxIterations: 1, maxCostUsd: 1, gateTimeoutSec: 5 },
-      { out: () => {} }, false,
+      { out: () => {} }, false, cwd,
       { gateTimer: async (_ms, message) => { throw new Error(message) } },
     )
     await expect(gate({ id: 'approve', role: 'gate' }, 'ctx')).rejects.toThrow(/timed out/)
@@ -252,7 +259,7 @@ test('a timed-out gate leaves no unhandled rejection (the aborted question is se
 test('gate timeout halts the run as an infrastructure error, not a config error (no real timers)', async () => {
   const { cwd, io, lines } = setup(GATED_TIMEOUT)
   const def = parseLoopfile(GATED_TIMEOUT)
-  const gate = makeGate(def.rails, io, false, {
+  const gate = makeGate(def.rails, io, false, cwd, {
     gateTimer: async (_ms, message) => { throw new Error(message) },
   })
   const code = await runAction(undefined, { cwd }, { io, gate })
@@ -263,6 +270,38 @@ test('gate timeout halts the run as an infrastructure error, not a config error 
   expect(text).toContain('gate "approve" timed out after 5s awaiting human approval')
   expect(text).not.toContain('config error')
 })
+
+test('answering "a" at a gate prompt stores the approval so a later run of the same loop does not prompt again', async () => {
+  vi.useFakeTimers()
+  const fakeStdin = new PassThrough()
+  const origStdin = Object.getOwnPropertyDescriptor(process, 'stdin')!
+  Object.defineProperty(process, 'stdin', { value: fakeStdin, configurable: true })
+  try {
+    const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
+    const lines: string[] = []
+    const node: NodeDef = { id: 'release-check', role: 'gate', prompt: 'ship it?' }
+    const gate = makeGate({ maxIterations: 1, maxCostUsd: 1 }, { out: (l) => lines.push(l) }, false, cwd)
+    const p = gate(node, 'ctx')
+    await Promise.resolve() // let readline wire up its line listener
+    fakeStdin.write('a\n')
+    await expect(p).resolves.toBe(true)
+    expect(hasStoredApproval(cwd, node)).toBe(true)
+  } finally {
+    Object.defineProperty(process, 'stdin', origStdin)
+    vi.useRealTimers()
+  }
+})
+
+test('a gate whose approval was already stored is auto-approved without prompting stdin again', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
+  const node: NodeDef = { id: 'release-check', role: 'gate', prompt: 'ship it?' }
+  storeApproval(cwd, node)
+  const lines: string[] = []
+  const gate = makeGate({ maxIterations: 1, maxCostUsd: 1 }, { out: (l) => lines.push(l) }, false, cwd)
+  await expect(gate(node, 'ctx')).resolves.toBe(true)
+  expect(lines.join('\n')).toContain('previously approved')
+})
+
 
 test('agentCostBreakdown folds journal costs per agent (panel clones collapse)', async () => {
   const def = parseLoopfile(FIXTURE)
