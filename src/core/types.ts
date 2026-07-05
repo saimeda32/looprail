@@ -41,6 +41,14 @@ export interface Adapter {
 
 export interface AgentDef { adapter: string; model?: string; command?: string; permissions?: PermissionConfig }
 
+// App-level default pass-score floor applied to critic/judge verdicts whose
+// loopfile node omits an explicit `threshold:`. 0.7 sits above the midpoint of
+// the 0..1 SCORE range so a merely-average self-report doesn't sneak through
+// as a pass, while staying low enough that a genuinely solid piece of work
+// (as opposed to a perfect one) still clears the bar. An explicit per-node
+// `threshold:` always overrides this default in either direction.
+export const DEFAULT_VERDICT_THRESHOLD = 0.7
+
 export interface NodeDef {
   id: string
   role: Role
@@ -58,7 +66,8 @@ export interface NodeDef {
   run?: string              // tester shell command
   expect?: string           // tester expectation, e.g. "exit 0"
   rubric?: string           // judge rubric file path or inline text
-  threshold?: number        // judge pass threshold 0..1
+  threshold?: number        // critic/judge pass-score threshold 0..1; overrides
+                            // DEFAULT_VERDICT_THRESHOLD when set (see below)
   weight?: number           // verdict weight under the weighted policy (default 1)
   timeoutMs?: number
 }

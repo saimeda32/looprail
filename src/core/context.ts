@@ -1,4 +1,5 @@
 import type { LoopDef, NodeDef, NodeOutcome, Role } from './types.js'
+import { DEFAULT_VERDICT_THRESHOLD } from './types.js'
 
 export interface RunState {
   plan: string | null
@@ -86,8 +87,9 @@ export function composeContext(
     }
   }
   if (node.rubric) parts.push(`# Rubric\n${node.rubric}`)
-  if (node.threshold !== undefined) {
-    parts.push(`Pass threshold: SCORE must be >= ${node.threshold}.`)
+  if (node.role === 'critic' || node.role === 'judge') {
+    const effectiveThreshold = node.threshold ?? DEFAULT_VERDICT_THRESHOLD
+    parts.push(`Pass threshold: SCORE must be >= ${effectiveThreshold}.`)
   }
 
   parts.push(`# Your role\n${ROLE_INSTRUCTIONS[node.role]}`)
