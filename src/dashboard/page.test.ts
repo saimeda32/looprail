@@ -108,7 +108,7 @@ test('the halted/canceled reason renders in a prominent banner, distinctly class
 
 test('the reason banner is only shown for halted/canceled statuses, and hidden for running/verified', () => {
   const html = buildPage()
-  const fnMatch = html.match(/function render\(model\) \{[\s\S]*?\n  \}/)
+  const fnMatch = html.match(/function render\(model\) \{[\s\S]*?\n {2}\}/)
   expect(fnMatch).not.toBeNull()
   const body = fnMatch![0]
   expect(body).toMatch(/model\.status === 'halted'/)
@@ -275,7 +275,7 @@ test('the DAG toolbar is a non-scrolling overlay, not a child of the scrollable 
 test('ctrl/cmd+wheel over the DAG zooms, plain wheel does not', () => {
   const html = buildPage()
   expect(html).toContain("if (!e.ctrlKey && !e.metaKey) return;")
-  const wheelBlock = html.match(/dagWrap\.addEventListener\('wheel', function \(e\) \{[\s\S]*?\n  \}, \{ passive: false \}\);/)
+  const wheelBlock = html.match(/dagWrap\.addEventListener\('wheel', function \(e\) \{[\s\S]*?\n {2}\}, \{ passive: false \}\);/)
   expect(wheelBlock).not.toBeNull()
 })
 
@@ -288,8 +288,8 @@ test('ctrl/cmd+wheel over the DAG zooms, plain wheel does not', () => {
 function loadRenderReport(): (report: unknown) => void {
   const html = buildPage()
   const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
-  const htmlElSrc = script.match(/function htmlEl\(tag, className, text\) \{[\s\S]*?\n  \}\n/)![0]
-  const renderReportSrc = script.match(/function renderReport\(report\) \{[\s\S]*?\n  \}\n(?=\n  \/\/|\n  function renderAgentTable)/)![0]
+  const htmlElSrc = script.match(/function htmlEl\(tag, className, text\) \{[\s\S]*?\n {2}\}\n/)![0]
+  const renderReportSrc = script.match(/function renderReport\(report\) \{[\s\S]*?\n {2}\}\n(?=\n {2}\/\/|\n {2}function renderAgentTable)/)![0]
   const factory = new Function('document', `
     ${htmlElSrc}
     ${renderReportSrc}
@@ -396,7 +396,7 @@ function loadRefresh(): {
 } {
   const html = buildPage()
   const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
-  const refreshSrc = script.match(/var refreshInFlight[\s\S]*?function refresh\(\) \{[\s\S]*?\n  \}\n/)![0]
+  const refreshSrc = script.match(/var refreshInFlight[\s\S]*?function refresh\(\) \{[\s\S]*?\n {2}\}\n/)![0]
 
   let fetchCallCount = 0
   let inFlight = 0
@@ -483,7 +483,7 @@ test('the inline client posts approve-gate and reject-gate to /control, mirrorin
   expect(html).toMatch(/sendGateDecision\('reject-gate', text\)/)
   expect(html).toMatch(/action:\s*action/) // sendGateDecision forwards the action generically
   expect(html).toContain("fetch('control'")
-  const fnMatch = html.match(/function sendGateDecision\(action, text\) \{[\s\S]*?\n  \}/)
+  const fnMatch = html.match(/function sendGateDecision\(action, text\) \{[\s\S]*?\n {2}\}/)
   expect(fnMatch).not.toBeNull()
   expect(fnMatch![0]).toContain("text: text")
 })
@@ -492,7 +492,7 @@ test('the inline client posts approve-gate and reject-gate to /control, mirrorin
 // already calls renderControls/renderFeedbackRow/renderResumeRow.
 test('render(model) calls renderGateRow on every re-render', () => {
   const html = buildPage()
-  const fnMatch = html.match(/function render\(model\) \{[\s\S]*?\n  \}/)
+  const fnMatch = html.match(/function render\(model\) \{[\s\S]*?\n {2}\}/)
   expect(fnMatch).not.toBeNull()
   expect(fnMatch![0]).toContain('renderGateRow(model)')
 })
@@ -504,7 +504,7 @@ test('render(model) calls renderGateRow on every re-render', () => {
 function loadRenderGateRow(): (model: unknown) => void {
   const html = buildPage()
   const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
-  const renderGateRowSrc = script.match(/function renderGateRow\(model\) \{[\s\S]*?\n  \}\n/)![0]
+  const renderGateRowSrc = script.match(/function renderGateRow\(model\) \{[\s\S]*?\n {2}\}\n/)![0]
   const factory = new Function('document', `
     ${renderGateRowSrc}
     return renderGateRow;
@@ -565,8 +565,8 @@ test('the gauges row includes a Wall time gauge with its own meter', () => {
 function loadRenderWallGauge(): (totals: unknown, status: string) => void {
   const html = buildPage()
   const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
-  const renderMeterSrc = script.match(/function renderMeter\(fillId, labelId, value, max, unit\) \{[\s\S]*?\n  \}\n/)![0]
-  const wallGaugeSrc = script.match(/var wallGaugeTotals = null;[\s\S]*?\n  \}\n/)![0]
+  const renderMeterSrc = script.match(/function renderMeter\(fillId, labelId, value, max, unit\) \{[\s\S]*?\n {2}\}\n/)![0]
+  const wallGaugeSrc = script.match(/var wallGaugeTotals = null;[\s\S]*?\n {2}\}\n/)![0]
   const factory = new Function('document', `
     ${renderMeterSrc}
     ${wallGaugeSrc}
@@ -615,7 +615,7 @@ test('renderWallGauge shows elapsed minutes since startedTs, capped/over-flagged
 function loadEdgeBendFraction(): (sourceId: string, targetId: string) => number {
   const html = buildPage()
   const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
-  const src = script.match(/function edgeBendFraction\(sourceId, targetId\) \{[\s\S]*?\n  \}\n/)![0]
+  const src = script.match(/function edgeBendFraction\(sourceId, targetId\) \{[\s\S]*?\n {2}\}\n/)![0]
   const factory = new Function(`
     ${src}
     return edgeBendFraction;
@@ -644,8 +644,8 @@ test('edgeBendFraction is deterministic per edge and spreads coincidentally-alig
 function loadSendResume() {
   const html = buildPage()
   const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
-  const numOrUndefinedSrc = script.match(/function numOrUndefined\(id\) \{[\s\S]*?\n  \}\n/)![0]
-  const sendResumeSrc = script.match(/function sendResume\(\) \{[\s\S]*?\n  \}\n/)![0]
+  const numOrUndefinedSrc = script.match(/function numOrUndefined\(id\) \{[\s\S]*?\n {2}\}\n/)![0]
+  const sendResumeSrc = script.match(/function sendResume\(\) \{[\s\S]*?\n {2}\}\n/)![0]
   const factory = new Function('document', 'fetch', `
     ${numOrUndefinedSrc}
     ${sendResumeSrc}

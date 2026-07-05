@@ -1,0 +1,23 @@
+name: Feature request
+description: Propose something new, or a change to how something works
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you running into?
+      description: What can't you do today, or what's awkward about how it works now?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+      description: A rough sketch is fine - a loopfile snippet, a CLI flag, a dashboard change, whatever fits.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: Any workaround you're using today, or another approach you thought about.

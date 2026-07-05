@@ -5,22 +5,49 @@
   "license": "MIT",
   "type": "module",
   "author": "Sai Kiran Meda",
-  "repository": { "type": "git", "url": "git+https://github.com/saimeda32/looprail.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/saimeda32/looprail.git"
+  },
   "homepage": "https://github.com/saimeda32/looprail#readme",
-  "bugs": { "url": "https://github.com/saimeda32/looprail/issues" },
-  "keywords": ["ai", "agent", "agents", "llm", "orchestration", "claude", "codex", "aider", "loop", "cli"],
+  "bugs": {
+    "url": "https://github.com/saimeda32/looprail/issues"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "agents",
+    "llm",
+    "orchestration",
+    "claude",
+    "codex",
+    "aider",
+    "loop",
+    "cli"
+  ],
   "engines": {
     "node": ">=20"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": { "looprail": "./dist/cli/index.js" },
-  "files": ["dist", "README.md", "CHANGELOG.md", "LICENSE"],
+  "bin": {
+    "looprail": "./dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
   "scripts": {
     "build": "tsc && chmod +x dist/cli/index.js",
+    "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "bash scripts/e2e.sh"
@@ -34,9 +61,12 @@
     "zod": "^4.4.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^20.0.0",
+    "eslint": "^10.6.0",
     "tsx": "^4.0.0",
     "typescript": "^5.5.0",
+    "typescript-eslint": "^8.62.1",
     "vitest": "^2.0.0"
   }
 }

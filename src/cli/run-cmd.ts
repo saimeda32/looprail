@@ -8,13 +8,18 @@ import {
   type AdapterRegistry, type GateAnswer, type GateHandler, type JournalEvent, type LoopDef, type NodeDef,
   type NodeOutcome, type Rails, type RunReport,
 } from '../index.js'
-import { DEFAULT_DASHBOARD_PORT, startDashboardServer, type DashboardServer } from '../dashboard/server.js'
+import type { ResumeOverrides } from '../dashboard/server.js'
+import {
+  DEFAULT_MISSION_CONTROL_PORT, startMissionControlServer, type MissionControlServer,
+} from '../dashboard/mission-control-server.js'
 import { registerPendingGate, resolvePendingGate, sweepPendingGates } from '../dashboard/gate-registry.js'
-import { runsRoot } from '../journal/runs.js'
+import { runsRoot, workspaceHash } from '../journal/runs.js'
 import { persistRunLoopDef } from '../journal/loopfile-persist.js'
 import { hasStoredApproval, storeApproval } from '../journal/gate-approvals.js'
 import { defaultIo, dim, err, heading, ok, renderTable, startWithStableDefault, warn, wrapText, type CliIo } from './ui.js'
 import { addWorkspace, defaultRegistryPath } from '../workspace/registry.js'
+import { loadExpandedLoopDef } from './ui-cmd.js'
+import { resumeAction } from './resume-cmd.js'
 
 export function loadLoop(file: string | undefined, cwd: string): { def: LoopDef; path: string } {
   const path = resolve(cwd, file ?? 'looprail.yaml')
@@ -553,29 +558,39 @@ export async function runAction(
   // looprail.yaml - so the dashboard's graph edges and per-node
   // agent/model survive this workspace later being deleted or moved (e.g.
   // a git worktree cleaned up after merging). Expanded (panels resolved)
-  // to match the ids the engine will actually journal, same as the
-  // dashboard `def:` passed to startDashboardServer below. Re-persisted
+  // to match the ids the engine will actually journal - this is exactly
+  // the file mission-control-server.ts's bestEffortLoopDef re-reads FRESH
+  // on every /model request (not just once at dashboard-start), which is
+  // what makes a mid-run splice show up immediately below. Re-persisted
   // with the splice-extended graph by engine/runner.ts's applySplice
   // whenever a generates:'graph' fragment is approved. See
   // journal/loopfile-persist.ts.
-  // Computed once, up front, and reused for the dashboard's `def:`, the
-  // persisted bootstrap graph, and (when --ui is set) makeUiGate's plan-
-  // approval detection - all three need the SAME panel-expanded node ids
+  // Computed once, up front, and reused for the persisted bootstrap graph
+  // and (when --ui is set) makeUiGate's plan-approval detection - both
+  // need the SAME panel-expanded node ids
   // the engine will actually journal (runLoop does this same expansion
   // internally - see splitRegions/expandPanels in engine/runner.ts).
   const expanded = expandPanels(loaded.def)
   persistRunLoopDef(runDir, expanded)
   const uninstallCancelHandler = installCancelHandler(runDir, join(runDir, 'journal.jsonl'))
 
-  let dashboard: DashboardServer | undefined
+  let dashboard: MissionControlServer | undefined
   if (opts.ui) {
+    const registryPath = deps.registryPath ?? defaultRegistryPath()
+    // Continues a halted run in place, in the SAME process as this
+    // `run --ui` invocation - the exact same resumeFor shape uiAllAction
+    // builds (see cli/ui-cmd.ts), not a second one invented here.
+    // loadExpandedLoopDef's guard mirrors mission-control-server.ts's own
+    // /model 501 path: no loadable loopfile means no way to resume.
+    const resumeFor = (workspace: string, forRunId: string) => {
+      if (!loadExpandedLoopDef(undefined, workspace, join(runsRoot(workspace), forRunId))) return undefined
+      return async (overrides: ResumeOverrides): Promise<void> => {
+        await resumeAction(forRunId, { cwd: workspace, json: true, ...overrides }, { io: { out: () => {} } })
+      }
+    }
     try {
-      dashboard = await startWithStableDefault(opts.port, DEFAULT_DASHBOARD_PORT, (port) =>
-        startDashboardServer({
-          journalPath: join(runDir, 'journal.jsonl'),
-          def: expanded,
-          port,
-        }))
+      dashboard = await startWithStableDefault(opts.port, DEFAULT_MISSION_CONTROL_PORT, (port) =>
+        startMissionControlServer({ registryPath, resumeFor, port }))
     } catch (e) {
       io.out(err(e instanceof Error ? e.message : String(e)))
       uninstallCancelHandler()
@@ -583,7 +598,17 @@ export async function runAction(
       return 1
     }
     if (!opts.json) {
-      io.out(dim(`  dashboard: ${dashboard.url}`))
+      // Deep-links straight to THIS run's own view within the consolidated
+      // mission-control server (which also serves every other registered
+      // workspace's runs at its root) - so `run --ui` still opens directly
+      // on the run it just started, same as it always has. This run gates
+      // and resumes in-process for free: mission-control-server.ts's
+      // serveControl/serveModel fall through to gate-registry.ts's DEFAULT
+      // module-scope pendingGates Map whenever no override is passed (none
+      // is, here) - and because this dashboard and the run share one
+      // process, that default Map IS the same one makeUiGate below
+      // registers into. No injection needed; this is the in-process wiring.
+      io.out(dim(`  dashboard: ${dashboard.url}/run/${workspaceHash(resolve(opts.cwd))}/${runId}/`))
     }
   }
 
@@ -629,7 +654,7 @@ export function registerRun(program: Command): void {
     .option('--json', 'machine-readable summary on stdout')
     .option('--yes', 'auto-approve human gates (CI)')
     .option('--ui', 'start the local dashboard before the run begins')
-    .option('--port <n>', 'bind --ui to a fixed port (default: 4747; falls back to a free port automatically if that one is taken)', parsePort)
+    .option('--port <n>', 'bind --ui to a fixed port (default: 4748; falls back to a free port automatically if that one is taken)', parsePort)
     .action(async (
       file: string | undefined,
       opts: { json?: boolean; yes?: boolean; ui?: boolean; port?: number },

@@ -50,12 +50,13 @@ async function completedRun() {
 
 test('uiAction on the latest run starts a server and prints its URL', async () => {
   const cwd = await completedRun()
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-ui-reg-')), 'workspaces.json')
   const { io, lines } = capture()
-  const result = await uiAction(undefined, { cwd, port: 41601 }, io)
+  const result = await uiAction(undefined, { cwd, port: 41601, registryPath }, io)
   cleanup = () => result.dashboard!.close()
   expect(result.code).toBe(0)
-  expect(lines.join('\n')).toContain(result.dashboard!.url)
-  const res = await get(result.dashboard!.url + '/model')
+  expect(lines.join('\n')).toContain(result.url!)
+  const res = await get(result.url! + 'model')
   const payload = JSON.parse(res.body)
   expect(payload.name).toBe('ui-fixture')
 })
@@ -82,18 +83,19 @@ test('POST /resume on a run served via uiAction actually continues that same hal
   const runCode = await runAction(undefined, { cwd, json: true }, { io: capture().io, registry: failing })
   expect(runCode).toBe(2) // max_iterations: 2 in FIXTURE, halts without ever passing
 
-  const { io, lines } = capture()
-  const result = await uiAction(undefined, { cwd, port: 41602 }, io)
+  const { io } = capture()
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-ui-reg-')), 'workspaces.json')
+  const result = await uiAction(undefined, { cwd, port: 41602, registryPath }, io)
   cleanup = () => result.dashboard!.close()
   expect(result.code).toBe(0)
 
-  const before = JSON.parse((await get(result.dashboard!.url + '/model')).body)
+  const before = JSON.parse((await get(result.url! + 'model')).body)
   expect(before.status).toBe('halted')
   expect(before.resumable).toBe(true)
 
   await new Promise<{ status: number }>((resolve, reject) => {
     const req = http.request(
-      result.dashboard!.url + '/resume', { method: 'POST', headers: { 'content-type': 'application/json' } },
+      result.url! + 'resume', { method: 'POST', headers: { 'content-type': 'application/json' } },
       (r) => { r.on('data', () => {}); r.on('end', () => resolve({ status: r.statusCode ?? 0 })) },
     )
     req.on('error', reject)
@@ -101,7 +103,7 @@ test('POST /resume on a run served via uiAction actually continues that same hal
   })
   await new Promise((r) => setTimeout(r, 100)) // resume runs in-process, fire-and-forget
 
-  const after = JSON.parse((await get(result.dashboard!.url + '/model')).body)
+  const after = JSON.parse((await get(result.url! + 'model')).body)
   expect(after.runId).toBe(before.runId) // same run, not a new one
   // the resumed run falls back to the default registry's always-passing
   // mock adapter (no custom registry was threaded through the dashboard),
@@ -123,9 +125,10 @@ test('a valid loopfile is loaded, expanded, and drives edges in /model', async (
   expect(def).toBeDefined()
   expect(def!.nodes.map((n) => n.id).sort()).toEqual(['crit', 'do'])
   const { io } = capture()
-  const result = await uiAction(undefined, { cwd, port: 41603 }, io)
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-ui-reg-')), 'workspaces.json')
+  const result = await uiAction(undefined, { cwd, port: 41603, registryPath }, io)
   cleanup = () => result.dashboard!.close()
-  const res = await get(result.dashboard!.url + '/model')
+  const res = await get(result.url! + 'model')
   const payload = JSON.parse(res.body)
   expect(payload.edges).toEqual(expect.arrayContaining([['do', 'crit']]))
   expect(payload.totals.maxCostUsd).toBe(1)
@@ -187,10 +190,11 @@ test("uiAction still serves graph edges and per-node agent/model for a run whose
   rmSync(cwd, { recursive: true, force: true }) // the workspace (and its looprail.yaml) is gone entirely
 
   const { io } = capture()
-  const result = await uiAction(undefined, { cwd, port: 41608 }, io)
+  const registryPath = join(mkdtempSync(join(tmpdir(), 'lr-ui-reg-')), 'workspaces.json')
+  const result = await uiAction(undefined, { cwd, port: 41608, registryPath }, io)
   cleanup = () => result.dashboard!.close()
   expect(result.code).toBe(0)
-  const res = await get(result.dashboard!.url + '/model')
+  const res = await get(result.url! + 'model')
   const payload = JSON.parse(res.body) as {
     edges: [string, string][]
     nodes: { id: string; agent?: string; adapter?: string }[]

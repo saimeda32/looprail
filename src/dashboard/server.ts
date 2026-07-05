@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { dirname, join } from 'node:path'
 import type { GateAnswer, LoopDef } from '../core/types.js'
 import { readJournal } from '../journal/journal.js'
@@ -15,7 +15,7 @@ import {
 import { buildDashboardPayload } from './layout.js'
 import { buildPage } from './page.js'
 import { buildReplay, encodeSseFrame } from './sse.js'
-import { fsWatcher, readNewEvents, type Watcher } from './tail.js'
+import { readNewEvents, type Watcher } from './tail.js'
 
 export interface ResumeOverrides {
   maxIterations?: number
@@ -23,60 +23,6 @@ export interface ResumeOverrides {
   maxWallMinutes?: number
   replanLimit?: number
   goal?: string
-}
-
-// The stable default the CLI layer (ui-cmd.ts, run-cmd.ts) passes so repeat
-// `looprail run --ui` / `looprail ui` calls land on the same bookmarkable
-// URL instead of a fresh random port every time - see resolveDashboardPort
-// in ui-cmd.ts for the retry-on-conflict policy built on top of this. This
-// module itself stays default-random (port undefined -> OS-assigned): tests
-// and other programmatic callers that start many servers per process still
-// get non-colliding ports without needing to know about this constant.
-export const DEFAULT_DASHBOARD_PORT = 4747
-
-export interface DashboardServerOptions {
-  journalPath: string
-  def?: LoopDef
-  watcher?: Watcher
-  // Defaults to 0 (OS-assigned free port) - deliberately random so several
-  // dashboards can run at once without colliding. Set explicitly for a
-  // stable, bookmarkable URL; a port already in use rejects with a clear
-  // error rather than silently falling back to a different one. The CLI
-  // layer is what actually requests DEFAULT_DASHBOARD_PORT by default -
-  // see resolveDashboardPort in ui-cmd.ts.
-  port?: number
-  // Continues a halted run in place with optionally-raised rails. Injected
-  // by the CLI layer (ui-cmd.ts wraps cli/resume-cmd.ts's resumeAction) so
-  // this module never needs to know how a run is actually continued, only
-  // that the dashboard's "resume" control should trigger it - keeping the
-  // dependency direction cli -> dashboard intact (dashboard/ never imports
-  // from cli/). Undefined means this dashboard has no way to resume a run
-  // (e.g. mission control views a workspace with no loadable loopfile).
-  onResume?: (overrides: ResumeOverrides) => Promise<void>
-  // Looks up/answers the gate (if any) currently blocking this run's own
-  // process - the same in-process registry makeUiGate (src/cli/run-cmd.ts)
-  // registers into via src/dashboard/gate-registry.ts. Defaults to that
-  // module's real process-lifetime Map so a `looprail run --ui` process
-  // wires up gate approval "for free"; tests inject their own so several
-  // dashboards in one test file don't share the one real Map. Injected
-  // rather than imported unconditionally so this module's exports stay
-  // easy to fake in isolation - not because dashboard/ would otherwise
-  // import cli/ (gate-registry.ts already lives in dashboard/ itself).
-  getPendingGate?: (runId: string) => PendingGate | undefined
-  resolvePendingGate?: (runId: string, nodeId: string, answer: GateAnswer) => boolean
-  // Same wiring rationale as getPendingGate/resolvePendingGate just above,
-  // but backed by the SEPARATE mid-node registry in permission-registry.ts
-  // (see that file's header comment for why the two must not be
-  // conflated) - a `looprail run --ui` process wires this to its real,
-  // process-lifetime Map "for free"; tests inject their own fake store.
-  getPendingPermission?: (runId: string) => PendingPermission | undefined
-  resolvePendingPermission?: (runId: string, nodeId: string, answer: string) => boolean
-}
-
-export interface DashboardServer {
-  server: Server
-  url: string
-  close(): Promise<void>
 }
 
 const PAGE = buildPage() // static - built once per process, not per request
@@ -105,16 +51,18 @@ function sendReadError(res: ServerResponse, context: string, err: unknown): void
   }
 }
 
-// The three per-run route handlers, extracted verbatim from what was
-// startDashboardServer's single request handler before mission control
-// (Plan 3b) needed to mount the exact same per-run view under a
-// /run/<workspaceHash>/<runId>/... prefix too. Nothing about their behavior
-// changed in the extraction - same status codes, same headers, same
-// TOCTOU-safe error handling, same ENOENT-safe watch-the-parent-dir
-// fallback - so startDashboardServer's own request handler below, and its
-// existing tests, are unaffected byte-for-byte. mission-control-server.ts
-// (Task 10) imports these same three functions instead of reimplementing
-// per-run routing.
+// The three per-run route handlers - the only production code left in this
+// module. A second, separately-maintained request handler used to live
+// below (startDashboardServer), one that `looprail run --ui` wired up on
+// its own and never re-read a run's persisted loopfile.json after startup,
+// which is exactly how it drifted out of sync with mission-control-
+// server.ts's own per-run routing (which DOES re-read it on every
+// request). That duplicate implementation has been deleted: every CLI
+// entrypoint (`run --ui`, `ui <runId>`, `ui --all`) now starts
+// mission-control-server.ts's startMissionControlServer, which imports
+// these same functions instead of reimplementing per-run routing - there
+// is exactly one dashboard server, and this file only supplies its shared
+// route handlers.
 export function serveIndexPage(res: ServerResponse): void {
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
   res.end(PAGE)
@@ -227,6 +175,11 @@ export async function serveControl(
     journalPath: string
     getPendingGate?: (runId: string) => PendingGate | undefined
     resolvePendingGate?: (runId: string, nodeId: string, answer: GateAnswer) => boolean
+    // Same wiring rationale as getPendingGate/resolvePendingGate above, but
+    // backed by the SEPARATE mid-node registry in permission-registry.ts
+    // (see that file's header comment for why the two must not be
+    // conflated) - a `looprail run --ui` process wires this to its real,
+    // process-lifetime Map "for free"; tests inject their own fake store.
     getPendingPermission?: (runId: string) => PendingPermission | undefined
     resolvePendingPermission?: (runId: string, nodeId: string, answer: string) => boolean
   },
@@ -309,15 +262,15 @@ export async function serveControl(
     return
   }
 
-  // Answers a mid-node agent-CLI permission prompt currently blocking
-  // ONE node's own subprocess - looked up (and resolved) via
-  // dashboard/permission-registry.ts, deliberately NOT gate-registry.ts
-  // (see that file's own header comment for why the two are not the same
-  // mechanism). Unlike a gate, more than one node's prompt could be
-  // pending in the same run at once, so nodeId is required in the body
-  // rather than inferred from "the one gate this run has". The raw answer
-  // string handed to resolvePendingPermission is built to survive the
-  // exact parsing engine/runner.ts's parsePermissionAnswer does downstream:
+  // Answers a mid-node agent-CLI permission prompt currently blocking ONE
+  // node's own subprocess - looked up (and resolved) via dashboard/
+  // permission-registry.ts, deliberately NOT gate-registry.ts (see that
+  // file's own header comment for why the two are not the same mechanism).
+  // Unlike a gate, more than one node's prompt could be pending in the
+  // same run at once, so nodeId is required in the body rather than
+  // inferred from "the one gate this run has". The raw answer string
+  // handed to resolvePendingPermission is built to survive the exact
+  // parsing engine/runner.ts's parsePermissionAnswer does downstream:
   // approved -> 'y', rejected -> the feedback text verbatim (or an empty
   // string when no feedback was given, which parsePermissionAnswer reads
   // as a plain, feedback-less rejection).
@@ -521,57 +474,4 @@ export function serveEvents(
     console.error('dashboard /events: failed to start watcher', err)
   }
   req.on('close', () => handle?.close())
-}
-
-export function startDashboardServer(opts: DashboardServerOptions): Promise<DashboardServer> {
-  const watch = opts.watcher ?? fsWatcher
-
-  const server = createServer((req, res) => {
-    const url = new URL(req.url ?? '/', 'http://localhost')
-
-    if (req.method === 'GET' && url.pathname === '/') {
-      serveIndexPage(res)
-      return
-    }
-
-    if (req.method === 'GET' && url.pathname === '/model') {
-      serveModel(res, opts)
-      return
-    }
-
-    if (req.method === 'GET' && url.pathname === '/events') {
-      serveEvents(req, res, opts, watch)
-      return
-    }
-
-    if (req.method === 'POST' && url.pathname === '/control') {
-      void serveControl(req, res, opts)
-      return
-    }
-
-    if (req.method === 'POST' && url.pathname === '/resume') {
-      void serveResume(req, res, opts)
-      return
-    }
-
-    res.writeHead(404, { 'content-type': 'text/plain' })
-    res.end('not found')
-  })
-
-  return new Promise((resolve, reject) => {
-    server.once('error', (e: NodeJS.ErrnoException) => {
-      reject(e.code === 'EADDRINUSE'
-        ? new Error(`port ${opts.port} is already in use - stop whatever is using it, or drop --port to pick a free one automatically`)
-        : e)
-    })
-    server.listen(opts.port ?? 0, '127.0.0.1', () => {
-      const addr = server.address()
-      const port = addr && typeof addr === 'object' ? addr.port : 0
-      resolve({
-        server,
-        url: `http://127.0.0.1:${port}`,
-        close: () => new Promise((res) => server.close(() => res())),
-      })
-    })
-  })
 }

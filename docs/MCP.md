@@ -31,6 +31,29 @@ run` keeps running for as long as its terminal is open. Ask your assistant
 to check on it with `run_status` any time; it reads straight from the run's
 journal, the same file `looprail status` reads.
 
+## Claude Code
+
+Add looprail as an MCP server with the CLI itself:
+
+```bash
+claude mcp add looprail -- looprail mcp
+```
+
+Or add it to your project's `.mcp.json` by hand:
+
+```json
+{
+  "mcpServers": {
+    "looprail": {
+      "command": "looprail",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Run `/mcp` inside Claude Code to confirm looprail's tools loaded.
+
 ## Claude Desktop
 
 Edit Claude Desktop's config file:

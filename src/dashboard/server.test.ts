@@ -1,12 +1,96 @@
-import { existsSync, mkdtempSync, writeFileSync, appendFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs'
+import { createServer, type Server } from 'node:http'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { afterEach, expect, test, vi } from 'vitest'
-import { startDashboardServer, type DashboardServer } from './server.js'
+import type { GateAnswer, LoopDef } from '../core/types.js'
+import {
+  serveControl, serveEvents, serveIndexPage, serveModel, serveResume, type ResumeOverrides,
+} from './server.js'
+import { fsWatcher, type Watcher } from './tail.js'
+import type { PendingGate } from './gate-registry.js'
 
-let dashboard: DashboardServer | undefined
+// Now that startDashboardServer (a whole second, separately-maintained
+// createServer + listen implementation) has been deleted in favor of
+// consolidating every dashboard entrypoint onto mission-control-server.ts,
+// this file's own job - unit-testing the shared serveIndexPage/serveModel/
+// serveControl/serveResume/serveEvents route handlers, including the
+// getPendingGate/resolvePendingGate/onResume dependency-injection seams
+// that let several dashboards in one test file avoid sharing gate-
+// registry.ts's one real process-lifetime Map - needs its OWN tiny,
+// test-only HTTP harness wiring those exact functions to routes. This is
+// NOT a second production dashboard: it lives only in this test file, is
+// never imported anywhere else, and reconstructs nothing mission-control-
+// server.ts doesn't already do for real routes - it exists purely so these
+// route handlers stay exercisable in isolation, with the same fine-grained
+// DI seams the production code still exposes.
+interface TestDashboardOptions {
+  journalPath: string
+  def?: LoopDef
+  watcher?: Watcher
+  port?: number
+  onResume?: (overrides: ResumeOverrides) => Promise<void>
+  getPendingGate?: (runId: string) => PendingGate | undefined
+  resolvePendingGate?: (runId: string, nodeId: string, answer: GateAnswer) => boolean
+}
+
+interface TestDashboard {
+  server: Server
+  url: string
+  close(): Promise<void>
+}
+
+function startDashboardServer(opts: TestDashboardOptions): Promise<TestDashboard> {
+  const watch = opts.watcher ?? fsWatcher
+
+  const server = createServer((req, res) => {
+    const url = new URL(req.url ?? '/', 'http://localhost')
+
+    if (req.method === 'GET' && url.pathname === '/') {
+      serveIndexPage(res)
+      return
+    }
+    if (req.method === 'GET' && url.pathname === '/model') {
+      serveModel(res, opts)
+      return
+    }
+    if (req.method === 'GET' && url.pathname === '/events') {
+      serveEvents(req, res, opts, watch)
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/control') {
+      void serveControl(req, res, opts)
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/resume') {
+      void serveResume(req, res, opts)
+      return
+    }
+    res.writeHead(404, { 'content-type': 'text/plain' })
+    res.end('not found')
+  })
+
+  return new Promise((resolve, reject) => {
+    server.once('error', (e: NodeJS.ErrnoException) => {
+      reject(e.code === 'EADDRINUSE'
+        ? new Error(`port ${opts.port} is already in use - stop whatever is using it, or drop --port to pick a free one automatically`)
+        : e)
+    })
+    server.listen(opts.port ?? 0, '127.0.0.1', () => {
+      const addr = server.address()
+      const port = addr && typeof addr === 'object' ? addr.port : 0
+      resolve({
+        server,
+        url: `http://127.0.0.1:${port}`,
+        close: () => new Promise((res) => server.close(() => res())),
+      })
+    })
+  })
+}
+
+let dashboard: TestDashboard | undefined
 let spawned: ChildProcess[] = []
 
 afterEach(async () => {
@@ -186,11 +270,11 @@ test('GET /events against a journalPath that is a directory returns a clean resp
 
 test('the dashboard never writes to the journal file (read-only)', async () => {
   const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
-  const before = require('node:fs').readFileSync(journalPath, 'utf8')
+  const before = readFileSync(journalPath, 'utf8')
   dashboard = await startDashboardServer({ journalPath })
   await get(dashboard.url + '/')
   await get(dashboard.url + '/model')
-  const after = require('node:fs').readFileSync(journalPath, 'utf8')
+  const after = readFileSync(journalPath, 'utf8')
   expect(after).toBe(before)
 })
 
