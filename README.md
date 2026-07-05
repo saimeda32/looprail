@@ -33,18 +33,11 @@ Looprail needs Node 20 or newer.
 npm install -g looprail
 ```
 
-Or build straight from the repo instead:
-
-```bash
-git clone https://github.com/saimeda32/looprail.git
-cd looprail
-npm install
-npm run build
-npm link                    # puts `looprail` on your PATH
-```
-
 You also need at least one agent CLI installed and logged in. Run
 `looprail doctor` to see what it found.
+
+Want to work on looprail itself, or run unreleased code straight from
+`main`? See [CONTRIBUTING.md](CONTRIBUTING.md) for the git-clone setup.
 
 ### Quickstart
 
