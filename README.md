@@ -346,6 +346,13 @@ terminal. A halted run's dashboard also lets you resume in place with raised
 rails (`max_iterations`, `max_cost_usd`, `max_wall_minutes`, `replan_limit`)
 or an edited goal, the same overrides `looprail resume` takes as flags.
 
+There is one dashboard, not one-per-command: `looprail run --ui`,
+`looprail ui <runId>`, and `looprail ui --all` all open the same
+mission-control server, just landing on a different page of it. `run --ui`
+and `ui <runId>` deep-link straight to that one run's view; approving a gate
+or resuming from a `run --ui` dashboard controls the loop directly, since the
+dashboard is running in the very same process as the loop it's showing you.
+
 Every project you run a loop in registers itself automatically, so looprail
 knows about it without any setup on your part.
 
@@ -354,8 +361,9 @@ knows about it without any setup on your part.
 If you're running loops in more than one project, `looprail ui --all` opens
 one dashboard for all of them at once, instead of one at a time. Every run
 across every registered project shows up as a card, and clicking into one
-gets you the same live per-run dashboard `looprail ui` shows, streaming
-output and all.
+gets you the exact same per-run dashboard page `looprail run --ui` and
+`looprail ui <runId>` open directly - it's the same server either way,
+just reached by browsing in instead of deep-linking straight there.
 
 Projects register themselves the moment you `looprail run` there, so most of
 the time there's nothing to set up. You can also manage the list by hand:

@@ -68,20 +68,22 @@ export interface MissionControlServerOptions {
   pollMs?: number
   // Builds the per-run resume callback lazily, given the workspace path a
   // run's hash resolved to and its runId. Injected by the CLI layer
-  // (ui-cmd.ts wraps cli/resume-cmd.ts's resumeAction) for the same reason
-  // server.ts's DashboardServerOptions.onResume is: this module must not
-  // import from cli/. Returns undefined for a workspace with no loadable
-  // loopfile, same as bestEffortLoopDef above.
+  // (ui-cmd.ts and run-cmd.ts both wrap cli/resume-cmd.ts's resumeAction)
+  // so this module never needs to import from cli/. Returns undefined for
+  // a workspace with no loadable loopfile, same as bestEffortLoopDef above.
   resumeFor?: (workspace: string, runId: string) => ((overrides: ResumeOverrides) => Promise<void>) | undefined
-  // Defaults to 0 (OS-assigned free port) - see server.ts's port option for
-  // the full reasoning. The CLI layer requests DEFAULT_MISSION_CONTROL_PORT
-  // by default - see resolveDashboardPort in ui-cmd.ts.
+  // Defaults to 0 (OS-assigned free port) - see server.ts's serveModel/
+  // serveControl for the full per-route reasoning. The CLI layer requests
+  // DEFAULT_MISSION_CONTROL_PORT by default for a stable, bookmarkable URL
+  // - see startWithStableDefault in ui-cmd.ts.
   port?: number
 }
 
-// See server.ts's DEFAULT_DASHBOARD_PORT - same reasoning, a different port
-// so mission control and a single-run dashboard can both run at once without
-// colliding on their defaults.
+// This is now the ONE dashboard port every CLI entrypoint (`run --ui`,
+// `ui <runId>`, `ui --all`) requests by default for a stable, bookmarkable
+// URL - there is no longer a separate single-run default port distinct
+// from this one; server.ts only exports the shared route handlers this
+// module mounts, not a server (or a port) of its own.
 export const DEFAULT_MISSION_CONTROL_PORT = 4748
 
 export interface MissionControlServer {

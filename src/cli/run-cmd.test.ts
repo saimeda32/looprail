@@ -582,7 +582,12 @@ test('run --ui: the run directory exists the instant the dashboard URL is printe
   let runDirExistedAtDashboardStart: boolean | undefined
   const framePromise = new Promise<string>((resolve, reject) => {
     io.out = (l: string) => {
-      const match = l.match(/http:\/\/127\.0\.0\.1:\d+/)
+      // The printed line is now a deep link into the consolidated
+      // mission-control server - `http://127.0.0.1:PORT/run/<hash>/<runId>/`
+      // - not a bare origin, so capture the whole path to build /events off
+      // of the SAME per-run route, not the server's root /events (which
+      // serves the whole-registry SSE feed, not this one run's journal).
+      const match = l.match(/http:\/\/127\.0\.0\.1:\d+\/run\/\S+\//)
       if (!match) return
       // This fires synchronously the instant the dashboard is listening - 
       // strictly before executeRun (and the JournalWriter inside it) has
@@ -593,7 +598,7 @@ test('run --ui: the run directory exists the instant the dashboard URL is printe
       const runsDir = runsRoot(cwd)
       const runs = existsSync(runsDir) ? readdirSync(runsDir) : []
       runDirExistedAtDashboardStart = runs.length === 1 && existsSync(join(runsDir, runs[0]!))
-      http.get(`${match[0]}/events`, (res) => {
+      http.get(`${match[0]}events`, (res) => {
         let received = ''
         res.on('data', (chunk) => {
           received += chunk
@@ -756,6 +761,135 @@ rails:
   const model = buildViewModel(events, persisted)
   expect(model.edges).toContainEqual(['build', 'check'])
   expect(model.edges).toContainEqual(['plan', 'approve'])
+})
+
+test("REGRESSION (splice staleness): a `run --ui` dashboard's own /model reflects a mid-run graph splice IMMEDIATELY, without restarting the dashboard server", async () => {
+  // This is the exact bug described in the task: server.ts's
+  // startDashboardServer (still wired into run-cmd.ts's `if (opts.ui)`
+  // block at the time this test is written) is handed `def: expanded` ONCE
+  // at dashboard-start time and never re-reads it - so a self-planning
+  // splice that extends the graph mid-run (engine/runner.ts's applySplice,
+  // which re-persists runDir/loopfile.json via
+  // journal/loopfile-persist.ts's persistRunLoopDef) never shows up in a
+  // `run --ui` dashboard's /model, even though the SAME run, queried via
+  // `looprail ui <runId>` in a separate process, would show it fine
+  // (mission-control-server.ts's bestEffortLoopDef re-reads loopfile.json
+  // on every request). This test drives a REAL splice while the `run --ui`
+  // dashboard for THIS SAME run is up, fetches /model BEFORE the splice
+  // (graph A: plan -> approve only) and AGAIN AFTER the splice completes
+  // (graph B: plan -> approve, build -> check), using the SAME server the
+  // whole time - proving the dashboard opened by `run --ui` re-reads the
+  // persisted loopfile.json fresh on every request instead of freezing it
+  // at startup. Currently FAILS: modelAfterSplice's edges will still only
+  // contain ['plan','approve'] because startDashboardServer's serveModel
+  // reuses the stale `def` closed over at server-start.
+  const SELF_PLANNING = `
+name: self-planning-fixture
+goal: Do the generated thing.
+agents:
+  planner: { adapter: mock }
+graph:
+  plan:    { role: planner, agent: planner, generates: graph }
+  approve: { role: gate, after: plan }
+rails:
+  max_iterations: 5
+  max_cost_usd: 1
+`
+  const { cwd, io } = setup(SELF_PLANNING)
+  const registry = createRegistry()
+  // A small delay on the spliced nodes' own invocations (NOT the planner's)
+  // buys real wall-clock time for the background /model fetch below (kicked
+  // off, not awaited, right as the gate approves) to land while `build`'s
+  // node_start has already been journaled but before the whole run
+  // finishes and its dashboard closes.
+  registry.register({
+    name: 'mock',
+    async invoke(req) {
+      const verifying = req.prompt.includes('VERDICT:')
+      const isPlanner = req.prompt.includes('PLANNER')
+      if (isPlanner) {
+        return {
+          output: 'graph:\n  build: { role: executor, agent: planner }\n  check: { role: critic, of: build, agent: planner }\n',
+          costUsd: 0, tokens: 0, durationMs: 1,
+        }
+      }
+      await new Promise((r) => setTimeout(r, 50))
+      return {
+        output: verifying ? 'VERDICT: pass\nEVIDENCE: looks good' : '[mock] build done',
+        costUsd: 0, tokens: 0, durationMs: 1,
+      }
+    },
+  })
+
+  function getJson(url: string): Promise<{ edges: [string, string][] }> {
+    return new Promise((resolve, reject) => {
+      http.get(url, (res) => {
+        let body = ''
+        res.on('data', (c) => { body += c })
+        res.on('end', () => resolve(JSON.parse(body) as { edges: [string, string][] }))
+      }).on('error', reject)
+    })
+  }
+  async function waitFor(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
+    const start = Date.now()
+    while (!predicate()) {
+      if (Date.now() - start > timeoutMs) throw new Error('waitFor timed out')
+      await new Promise((r) => setTimeout(r, 5))
+    }
+  }
+
+  let dashboardUrl: string | undefined
+  io.out = (l: string) => {
+    // The printed line is a deep link into the consolidated mission-control
+    // server (`http://127.0.0.1:PORT/run/<hash>/<runId>/`), not a bare
+    // origin - capture the whole path so /model below hits the SAME
+    // per-run route `run --ui` actually opens on.
+    const match = l.match(/http:\/\/127\.0\.0\.1:\d+\/run\/\S+\//)
+    if (match) dashboardUrl = match[0]
+  }
+
+  let modelBeforeSplice: { edges: [string, string][] } | undefined
+  let modelAfterSplicePromise: Promise<{ edges: [string, string][] }> | undefined
+  // The gate for the plan's approval fires synchronously (in-process, same
+  // as the engine's real gate call) right after `plan` finishes invoking
+  // the planner, and strictly BEFORE applySplice re-persists the extended
+  // graph - so fetching /model from inside this gate function is the one
+  // guaranteed-safe moment to observe graph A.
+  const gate = async (): Promise<{ approved: boolean }> => {
+    if (!dashboardUrl) throw new Error('dashboard URL was never printed before the gate fired')
+    modelBeforeSplice = await getJson(`${dashboardUrl}model`)
+    // Scheduled here (not awaited) so it does not block the gate's own
+    // resolution the engine is waiting on, but still races nothing:
+    // waitFor below only returns once the spliced "build" node has
+    // actually started, which cannot happen before applySplice's
+    // persistRunLoopDef has already run.
+    const runId = readdirSync(runsRoot(cwd))[0]
+    const runDir = join(runsRoot(cwd), runId)
+    modelAfterSplicePromise = (async () => {
+      const { readJournal } = await import('../journal/journal.js')
+      await waitFor(() => {
+        try {
+          const events = readJournal(join(runDir, 'journal.jsonl'))
+          return events.some((e) => e.type === 'node_start' && (e.data as { nodeId: string }).nodeId === 'build')
+        } catch { return false }
+      })
+      return getJson(`${dashboardUrl}model`)
+    })()
+    return { approved: true }
+  }
+
+  const code = await runAction(undefined, { cwd, ui: true, port: 41615 }, { io, registry, gate })
+  expect(code).toBe(0)
+
+  // graph A: only the static bootstrap graph existed at this point
+  expect(modelBeforeSplice?.edges).toEqual([['plan', 'approve']])
+
+  // graph B: the SAME dashboard server (never restarted) now shows the
+  // spliced nodes' edges too, fetched while the run (and its dashboard)
+  // were still the very same live process the whole time.
+  const modelAfterSplice = await modelAfterSplicePromise
+  expect(modelAfterSplice?.edges).toContainEqual(['build', 'check'])
+  expect(modelAfterSplice?.edges).toContainEqual(['plan', 'approve'])
 })
 
 test("a spliced node's actually-resolved agent/adapter/model is visible directly on its node_end journal event, with no LoopDef needed at all", async () => {

@@ -27,7 +27,7 @@ import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import { runAction } from './run-cmd.js'
 import { readJournal } from '../journal/journal.js'
-import { runsRoot } from '../journal/runs.js'
+import { runsRoot, workspaceHash } from '../journal/runs.js'
 import { createRegistry } from '../adapters/registry.js'
 import { MockAdapter } from '../index.js'
 
@@ -72,14 +72,31 @@ async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 
 // makeUiGate has actually registered the currently-blocked gate with the
 // in-process registry AND the dashboard can see it (proving this is real
 // live engine state, not something the test poked in directly).
-async function waitForPendingGate(dashboardUrl: string): Promise<{ nodeId: string; isPlanApproval: boolean }> {
+async function waitForPendingGate(runModelUrl: string): Promise<{ nodeId: string; isPlanApproval: boolean }> {
   let found: { nodeId: string; isPlanApproval: boolean } | undefined
   await waitFor(async () => {
-    const model = await getJson(`${dashboardUrl}/model`) as { pendingGate: { nodeId: string; isPlanApproval: boolean } | null }
+    const model = await getJson(runModelUrl) as { pendingGate: { nodeId: string; isPlanApproval: boolean } | null }
     if (model.pendingGate) { found = model.pendingGate; return true }
     return false
   })
   return found!
+}
+
+// `run --ui`'s dashboard is now the consolidated mission-control server, so
+// this run's own view lives at a deep link (/run/<workspaceHash>/<runId>/),
+// not at the dashboard's bare root - see ui-gate-consolidated-integration
+// .test.ts for the test written specifically to prove this consolidation.
+// This file keeps proving the underlying in-process gate/resume guarantee
+// itself still holds post-consolidation, just via the new URL shape.
+async function runRoutePrefix(dashboardUrl: string, cwd: string): Promise<string> {
+  const hash = workspaceHash(cwd)
+  let runId: string | undefined
+  await waitFor(() => {
+    const dirs = readdirSync(runsRoot(cwd))
+    if (dirs.length === 1) { runId = dirs[0]; return true }
+    return false
+  })
+  return `${dashboardUrl}/run/${hash}/${runId}`
 }
 
 function captureDashboardUrl(): { io: { out: (l: string) => void }; getUrl: () => string | undefined } {
@@ -157,10 +174,11 @@ test('(1) a plain gate approved via a real HTTP POST /control unblocks a real wa
   const runPromise = runAction(undefined, { cwd, ui: true, port: 41701 }, { io, registry })
   await waitFor(() => !!getUrl())
   const dashboardUrl = getUrl()!
-  const pending = await waitForPendingGate(dashboardUrl)
+  const runPrefix = await runRoutePrefix(dashboardUrl, cwd)
+  const pending = await waitForPendingGate(`${runPrefix}/model`)
   expect(pending).toMatchObject({ nodeId: 'approve', isPlanApproval: false })
 
-  const res = await post(`${dashboardUrl}/control`, { action: 'approve-gate' })
+  const res = await post(`${runPrefix}/control`, { action: 'approve-gate' })
   expect(res.status).toBe(200)
 
   const code = await runPromise
@@ -177,9 +195,10 @@ test('(2) a plain gate rejected-with-feedback via a real HTTP POST /control reac
   const runPromise = runAction(undefined, { cwd, ui: true, port: 41702 }, { io, registry })
   await waitFor(() => !!getUrl())
   const dashboardUrl = getUrl()!
-  await waitForPendingGate(dashboardUrl)
+  const runPrefix = await runRoutePrefix(dashboardUrl, cwd)
+  await waitForPendingGate(`${runPrefix}/model`)
 
-  const res = await post(`${dashboardUrl}/control`, { action: 'reject-gate', text: 'not good enough yet' })
+  const res = await post(`${runPrefix}/control`, { action: 'reject-gate', text: 'not good enough yet' })
   expect(res.status).toBe(200)
 
   const code = await runPromise
@@ -207,10 +226,11 @@ test('(3) a plan-approval gate approved via a real HTTP POST /control splices th
   const runPromise = runAction(undefined, { cwd, ui: true, port: 41703 }, { io, registry })
   await waitFor(() => !!getUrl())
   const dashboardUrl = getUrl()!
-  const pending = await waitForPendingGate(dashboardUrl)
+  const runPrefix = await runRoutePrefix(dashboardUrl, cwd)
+  const pending = await waitForPendingGate(`${runPrefix}/model`)
   expect(pending).toMatchObject({ nodeId: 'approve', isPlanApproval: true })
 
-  const res = await post(`${dashboardUrl}/control`, { action: 'approve-gate' })
+  const res = await post(`${runPrefix}/control`, { action: 'approve-gate' })
   expect(res.status).toBe(200)
 
   const code = await runPromise
@@ -239,18 +259,19 @@ test('(4) a plan-approval gate rejected-with-feedback via a real HTTP POST /cont
   const runPromise = runAction(undefined, { cwd, ui: true, port: 41704 }, { io, registry })
   await waitFor(() => !!getUrl())
   const dashboardUrl = getUrl()!
-  const firstPending = await waitForPendingGate(dashboardUrl)
+  const runPrefix = await runRoutePrefix(dashboardUrl, cwd)
+  const firstPending = await waitForPendingGate(`${runPrefix}/model`)
   expect(firstPending).toMatchObject({ nodeId: 'approve', isPlanApproval: true })
 
-  const rejectRes = await post(`${dashboardUrl}/control`, { action: 'reject-gate', text: 'add a tests node' })
+  const rejectRes = await post(`${runPrefix}/control`, { action: 'reject-gate', text: 'add a tests node' })
   expect(rejectRes.status).toBe(200)
 
   // the rejection must have driven a real replan: a second plan-approval
   // gate call is what proves the planner ran again, not a flat halt
-  const secondPending = await waitForPendingGate(dashboardUrl)
+  const secondPending = await waitForPendingGate(`${runPrefix}/model`)
   expect(secondPending).toMatchObject({ nodeId: 'approve', isPlanApproval: true })
 
-  const approveRes = await post(`${dashboardUrl}/control`, { action: 'approve-gate' })
+  const approveRes = await post(`${runPrefix}/control`, { action: 'approve-gate' })
   expect(approveRes.status).toBe(200)
 
   const code = await runPromise

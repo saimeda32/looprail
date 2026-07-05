@@ -1,10 +1,11 @@
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { Command } from 'commander'
 import { expandPanels, validateGraph, type LoopDef } from '../index.js'
-import { DEFAULT_DASHBOARD_PORT, startDashboardServer, type DashboardServer, type ResumeOverrides } from '../dashboard/server.js'
+import type { ResumeOverrides } from '../dashboard/server.js'
 import { DEFAULT_MISSION_CONTROL_PORT, startMissionControlServer, type MissionControlServer } from '../dashboard/mission-control-server.js'
-import { defaultRegistryPath, listWorkspaces } from '../workspace/registry.js'
+import { workspaceHash } from '../journal/runs.js'
+import { addWorkspace, defaultRegistryPath, listWorkspaces } from '../workspace/registry.js'
 import { loadRunLoopDef } from '../journal/loopfile-persist.js'
 import { loadLoop } from './run-cmd.js'
 import { resumeAction } from './resume-cmd.js'
@@ -42,13 +43,14 @@ export interface UiActionOpts {
   file?: string
   open?: boolean
   port?: number
+  registryPath?: string
 }
 
 export async function uiAction(
   runId: string | undefined,
   opts: UiActionOpts,
   io: CliIo = defaultIo,
-): Promise<{ code: number; dashboard?: DashboardServer }> {
+): Promise<{ code: number; dashboard?: MissionControlServer; url?: string }> {
   const id = runId ?? latestRunId(opts.cwd)
   if (!id) {
     io.out(err(`no runs found under ${runsRoot(opts.cwd)} - start one with \`looprail run\``))
@@ -60,37 +62,52 @@ export async function uiAction(
     return { code: 1 }
   }
 
-  const def = loadExpandedLoopDef(opts.file, opts.cwd, join(runsRoot(opts.cwd), id))
-  // Silent io: the dashboard's own /model and /events already surface every
-  // node/iteration/verdict live, so resumeAction's terminal-oriented
-  // progress lines and final summary have no one to print to here.
-  const onResume = async (overrides: ResumeOverrides): Promise<void> => {
-    await resumeAction(id, { cwd: opts.cwd, file: opts.file, json: true, ...overrides }, { io: { out: () => {} } })
+  const registryPath = opts.registryPath ?? defaultRegistryPath()
+  const resolvedCwd = resolve(opts.cwd)
+  // Best-effort, same posture as run-cmd.ts's autoRegisterWorkspace: `ui
+  // <runId>` must still work even if this write fails - it just means this
+  // run's workspace won't ALSO show up in a later `ui --all` until
+  // re-registered. Needed here (unlike before consolidation) because
+  // mission-control-server.ts's matchRunRoute resolves a run's workspace
+  // hash by looking it up in this same registry.
+  try { addWorkspace(registryPath, resolvedCwd) } catch { /* best-effort */ }
+
+  const resumeFor = (workspace: string, forRunId: string) => {
+    if (!loadExpandedLoopDef(opts.file, workspace, join(runsRoot(workspace), forRunId))) return undefined
+    return async (overrides: ResumeOverrides): Promise<void> => {
+      await resumeAction(forRunId, { cwd: workspace, file: opts.file, json: true, ...overrides }, { io: { out: () => {} } })
+    }
   }
-  let dashboard: DashboardServer
+  let dashboard: MissionControlServer
   try {
-    dashboard = await startWithStableDefault(opts.port, DEFAULT_DASHBOARD_PORT,
-      (port) => startDashboardServer({ journalPath, def, onResume, port }))
+    dashboard = await startWithStableDefault(opts.port, DEFAULT_MISSION_CONTROL_PORT,
+      (port) => startMissionControlServer({ registryPath, resumeFor, port }))
   } catch (e) {
     io.out(err(e instanceof Error ? e.message : String(e)))
     return { code: 1 }
   }
 
+  // Deep-links straight to this run's own view inside the consolidated
+  // mission-control server (whose bare root shows every registered
+  // workspace's runs, not just this one) - so `looprail ui <runId>` still
+  // opens directly on the run the user asked for, same as it always has.
+  const url = `${dashboard.url}/run/${workspaceHash(resolvedCwd)}/${id}/`
+  const def = loadExpandedLoopDef(opts.file, opts.cwd, join(runsRoot(opts.cwd), id))
   io.out(heading(`looprail dashboard - ${id}`))
-  io.out(`  ${dashboard.url}`)
+  io.out(`  ${url}`)
   if (!def) io.out(dim('  no loopfile loaded - showing observed nodes only (no edges, no rail maxes)'))
 
   if (opts.open) {
     const { execFile } = await import('node:child_process')
     // `start` is a cmd.exe builtin, not a standalone executable, so it must
     // be invoked through cmd /c rather than execFile'd directly.
-    const [cmd, args] = process.platform === 'darwin' ? ['open', [dashboard.url]]
-      : process.platform === 'win32' ? ['cmd', ['/c', 'start', '""', dashboard.url]]
-      : ['xdg-open', [dashboard.url]]
+    const [cmd, args] = process.platform === 'darwin' ? ['open', [url]]
+      : process.platform === 'win32' ? ['cmd', ['/c', 'start', '""', url]]
+      : ['xdg-open', [url]]
     execFile(cmd, args, () => {})
   }
 
-  return { code: 0, dashboard }
+  return { code: 0, dashboard, url }
 }
 
 export interface UiAllActionOpts {
@@ -145,7 +162,7 @@ export function registerUi(program: Command): void {
     .option('--file <path>', 'loopfile to load for graph edges and rail maxes (default ./looprail.yaml)')
     .option('--open', 'open the dashboard in the default browser')
     .option('--all', 'mission control: show every run across every registered workspace (ignores runId)')
-    .option('--port <n>', 'bind to a fixed port (default: 4747, or 4748 with --all; falls back to a free port automatically if that one is taken)', parsePort)
+    .option('--port <n>', 'bind to a fixed port (default: 4748; falls back to a free port automatically if that one is taken)', parsePort)
     .action(async (
       runId: string | undefined,
       opts: { file?: string; open?: boolean; all?: boolean; port?: number },
