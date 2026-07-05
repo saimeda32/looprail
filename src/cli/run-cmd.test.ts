@@ -592,14 +592,17 @@ rails:
   const ids = persisted?.nodes.map((n) => n.id).sort()
   // the STATIC bootstrap graph only ever had plan/approve - build/check
   // only exist because the splice extended it, and that extension must
-  // have been re-persisted for a later read to see it at all. (`approve`
-  // itself is dropped once resolved - see runner.ts's applySplice - its
-  // job is done and it must never be asked again.)
-  expect(ids).toEqual(['build', 'check', 'plan'])
+  // have been re-persisted for a later read to see it at all. `approve`
+  // is dropped from the LIVE execution list once resolved (its job is
+  // done, it must never be asked again) but stays in the PERSISTED copy
+  // (see runner.ts's applySplice/resolvedGates) - it genuinely ran, and
+  // dropping it here too would leave it rendered with no edges at all.
+  expect(ids).toEqual(['approve', 'build', 'check', 'plan'])
   const { readJournal } = await import('../journal/journal.js')
   const events = readJournal(join(runDir, 'journal.jsonl'))
   const model = buildViewModel(events, persisted)
   expect(model.edges).toContainEqual(['build', 'check'])
+  expect(model.edges).toContainEqual(['plan', 'approve'])
 })
 
 test("a spliced node's actually-resolved agent/adapter/model is visible directly on its node_end journal event, with no LoopDef needed at all", async () => {

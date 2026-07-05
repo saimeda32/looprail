@@ -138,6 +138,18 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   let execution = initialExecution
   let runAgents = expanded.agents
   const nodeIds = new Set(expanded.nodes.map((n) => n.id))
+  // A resolved plan-approval gate is dropped from `execution` below (it must
+  // never be asked again), but it still genuinely ran - real node_start/
+  // node_end events for it exist in the journal, and the dashboard still
+  // shows it as a historical node (see view-model.ts's ensureNode, which
+  // populates nodes from journal events independent of the current def).
+  // Without keeping it here too, the persisted loopfile's node list (and
+  // therefore edgesFromDef) loses the gate entirely on the very first
+  // splice, leaving it rendered with no edges at all - a real regression
+  // confirmed live. Kept with its ORIGINAL `after` (before the
+  // dangling-edge-stripping map below), since that original edge is
+  // exactly what the dashboard needs to draw it connected.
+  const resolvedGates: NodeDef[] = []
   const state: RunState = {
     plan: opts.initialPlan ?? null,
     iteration: opts.startIteration ?? 0,
@@ -185,6 +197,13 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
       runAgents = spliced.agents
       guard.tighten(spliced.rails)
       for (const n of spliced.nodes) nodeIds.add(n.id)
+      // From `expanded.nodes` (the pre-split original), not `execution`:
+      // splitRegions already strips a gate's `after` into the planning
+      // region before this function ever runs (it must, for the scheduler's
+      // own sake), so by the time execution.find would run here the edge is
+      // already gone - only the original, unsplit definition still has it.
+      const resolvedGate = expanded.nodes.find((n) => n.id === gateNodeId)
+      if (resolvedGate) resolvedGates.push(resolvedGate)
       execution = execution
         .filter((n) => n.id !== gateNodeId)
         .concat(spliced.nodes)
@@ -202,7 +221,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
       // too.
       if (opts.runDir) {
         persistRunLoopDef(opts.runDir, {
-          ...expanded, agents: runAgents, nodes: [...planning, ...execution],
+          ...expanded, agents: runAgents, nodes: [...planning, ...resolvedGates, ...execution],
         })
       }
       return { ok: true }

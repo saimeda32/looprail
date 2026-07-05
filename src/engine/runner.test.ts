@@ -661,10 +661,48 @@ test("a successful generates:'graph' splice re-persists the run's own loopfile.j
   expect(report.status).toBe('verified')
 
   const persisted = loadRunLoopDef(runDir)
-  // "approve" is dropped once resolved (its job is done - see applySplice);
-  // "build"/"check" only exist because the splice extended the graph, and
-  // that extension must be reflected in the run's own persisted copy.
-  expect(persisted?.nodes.map((n) => n.id).sort()).toEqual(['build', 'check', 'plan'])
+  // "approve" is dropped from the LIVE execution list once resolved (its
+  // job is done - see applySplice) but must still appear in the PERSISTED
+  // copy: it genuinely ran, the dashboard still shows it from real journal
+  // events, and dropping it here too would leave it rendered with no edges
+  // at all (a real regression, confirmed live - see the dedicated edge-
+  // preservation test below). "build"/"check" only exist because the
+  // splice extended the graph, and that extension must be reflected too.
+  expect(persisted?.nodes.map((n) => n.id).sort()).toEqual(['approve', 'build', 'check', 'plan'])
+})
+
+test("a resolved plan-approval gate keeps its original `after` edge in the persisted copy, so the dashboard can still draw it connected", async () => {
+  const def: LoopDef = {
+    name: 'self-planning', goal: 'do the generated thing',
+    agents: { planner: { adapter: 'mock' } },
+    nodes: [
+      { id: 'plan', role: 'planner', agent: 'planner', generates: 'graph' },
+      { id: 'review', role: 'critic', agent: 'planner', of: 'plan', after: ['plan'] },
+      { id: 'approve', role: 'gate', after: ['review'] },
+    ],
+    rails: { maxIterations: 5, maxCostUsd: 1 },
+    verdictPolicy: { kind: 'all-pass' },
+  }
+  const mock = new MockAdapter([
+    { match: /PLANNER/, output: 'graph:\n  build: { role: executor, agent: planner }\n  check: { role: critic, of: build, agent: planner }\n' },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: plan is sound' },
+    { output: '[mock] build done' },
+    { output: 'VERDICT: pass\nEVIDENCE: looks good' },
+  ])
+  const runDir = join(mkdtempSync(join(tmpdir(), 'lr-')), 'run')
+  const report = await runLoop(def, {
+    registry: reg(mock), runDir, gate: async () => ({ approved: true }),
+  })
+  expect(report.status).toBe('verified')
+
+  const persisted = loadRunLoopDef(runDir)
+  const approve = persisted?.nodes.find((n) => n.id === 'approve')
+  // The original edge (review -> approve), not stripped the way it is in
+  // the live execution list (splitRegions/applySplice strip a gate's edge
+  // into the planning region because it's meaningless to the execution
+  // scheduler - but edgesFromDef needs exactly this edge to draw the gate
+  // connected at all).
+  expect(approve?.after).toEqual(['review'])
 })
 
 test("no runDir set means no persisted loopfile.json copy is written at all, on a splice or otherwise - runLoop never assumes one", async () => {
