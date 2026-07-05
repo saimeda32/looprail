@@ -58,12 +58,31 @@ const GENERATES_GRAPH_FORMAT_INSTRUCTIONS =
   'markdown headers, no explanation before or after it. It will be parsed as ' +
   'YAML directly; anything else will be rejected automatically.'
 
+// An LLM completion can only ever emit one complete reply, never a true
+// partial diff - so a prior version of this instruction only asked for
+// CONTENT restraint ("keep every unrelated node unchanged"), which never
+// reduced the actual OUTPUT TOKEN cost of a retry: the model still had to
+// re-emit its whole ~20KB graph from byte zero to honor it. This
+// instruction now offers a genuinely cheaper reply shape for a targeted
+// fix - a compact top-level `edits:` list the engine applies server-side
+// to its own last-known-good copy of the graph (see
+// src/config/loopfile.ts's parseGraphEditsFragment/applyGraphEdits for the
+// exact shape, validation, and the design note on why this was chosen
+// over generic auto-repair or a text-diff format) - while explicitly
+// keeping the full `graph:` reply as an always-valid fallback, so a model
+// that can't or won't use the compact shape loses nothing versus before.
 const GENERATES_GRAPH_EDIT_INSTRUCTIONS =
   'If feedback below is about a specific part of your previous graph (shown ' +
-  'above as the current plan), make a targeted edit addressing exactly that - ' +
-  'keep every node and detail that was not flagged unchanged. Do not ' +
-  'regenerate the whole graph from scratch; a full rewrite risks introducing ' +
-  'new problems in parts that were already correct.'
+  'above as the current plan), prefer replying with ONLY a compact top-level ' +
+  '`edits:` list instead of the full graph - each entry is either ' +
+  '`{ node: <id>, set: { <real NodeDef fields to change or add, e.g. prompt, ' +
+  'agent, role, after, run, expect> } }` to change an existing node or add a ' +
+  'new one (a new node needs at least `role` in `set`), or `{ node: <id>, ' +
+  'remove: true }` to delete one. Only real NodeDef field names are valid in ' +
+  '`set` - never invented ones. If the fix genuinely cannot be expressed that ' +
+  'way, reply with the full graph instead, keeping every node and detail that ' +
+  'was not flagged byte-for-byte unchanged - never regenerate the whole graph ' +
+  'from scratch when only one part needs to change.'
 
 export function composeContext(
   def: LoopDef,

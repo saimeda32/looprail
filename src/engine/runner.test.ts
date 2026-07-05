@@ -705,6 +705,57 @@ test("a resolved plan-approval gate keeps its original `after` edge in the persi
   expect(approve?.after).toEqual(['review'])
 })
 
+test("a plan-approval rejection lets the replanning generates:'graph' planner reply with a compact edits: block instead of the full graph, and the engine applies it server-side", async () => {
+  const def: LoopDef = {
+    name: 'self-planning', goal: 'do the generated thing',
+    agents: { planner: { adapter: 'mock' } },
+    nodes: [
+      { id: 'plan', role: 'planner', agent: 'planner', generates: 'graph' },
+      { id: 'approve', role: 'gate', after: ['plan'] },
+    ],
+    rails: { maxIterations: 5, maxCostUsd: 1, replanLimit: 2 },
+    verdictPolicy: { kind: 'all-pass' },
+  }
+  const mock = new MockAdapter([
+    {
+      match: /PLANNER/,
+      output: 'graph:\n  build: { role: executor, agent: planner, prompt: "Implement the feature." }\n'
+        + '  check: { role: critic, of: build, agent: planner }\n',
+    },
+    // The planner's SECOND reply, after a gate rejection carrying feedback,
+    // is a compact edits: block - not a full graph re-emission - targeting
+    // exactly the flagged node's prompt.
+    {
+      match: /PLANNER/,
+      output: 'edits:\n  - node: build\n    set: { prompt: "Implement the feature AND add a regression test." }\n',
+    },
+    { output: '[mock] build done' },
+    { output: 'VERDICT: pass\nEVIDENCE: looks good' },
+  ])
+  let gateCalls = 0
+  const report = await runLoop(def, {
+    registry: reg(mock),
+    gate: async () => {
+      gateCalls += 1
+      // reject the first approval with feedback (forces a replan), approve the second
+      return gateCalls === 1
+        ? { approved: false, feedback: "build's prompt is missing a test requirement" }
+        : { approved: true }
+    },
+  })
+  expect(report.status).toBe('verified')
+  expect(report.replans).toBe(1)
+  // The spliced "build" node must reflect the edits block's targeted change,
+  // proving the engine actually applied the compact reply server-side
+  // rather than requiring (or silently discarding) a full graph re-emit.
+  const buildOutcome = report.outcomes.find((o) => o.nodeId === 'build')
+  expect(buildOutcome).toBeDefined()
+  const plannerCalls = mock.calls.filter((c) => c.prompt.includes('PLANNER'))
+  expect(plannerCalls).toHaveLength(2)
+  // The second call must have been offered the compact edits option.
+  expect(plannerCalls[1].prompt.toLowerCase()).toContain('edits')
+})
+
 test("no runDir set means no persisted loopfile.json copy is written at all, on a splice or otherwise - runLoop never assumes one", async () => {
   const def: LoopDef = {
     name: 'self-planning', goal: 'do the generated thing',

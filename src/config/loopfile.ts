@@ -1,4 +1,4 @@
-import { parse } from 'yaml'
+import { parse, stringify } from 'yaml'
 import type { AgentDef, LoopDef, NodeDef, Rails, Role, VerdictPolicy } from '../core/types.js'
 
 const VALID_ROLES: readonly Role[] = [
@@ -187,4 +187,281 @@ export function parseGraphFragment(text: string): GraphFragment {
     if (candidate === text.trim()) throw err
     return parseGraphFragmentStrict(candidate)
   }
+}
+
+// ---------------------------------------------------------------------
+// DESIGN NOTE - reducing the output-token cost of a replanned/retried
+// generates:'graph' planner (see src/core/context.ts's
+// GENERATES_GRAPH_EDIT_INSTRUCTIONS and src/engine/runner.ts's
+// runPlanning round loop, which already hold the last-known-good full
+// graph in RunState.plan on every replan).
+//
+// THE PROBLEM: an LLM completion can only ever emit ONE complete reply,
+// never a true partial diff - so today, a planner asked to fix one
+// flagged gap (a missing agent-key rename, a missing test requirement)
+// still pays full-output-token cost for its entire ~20KB graph on every
+// retry, even though composeContext already asks it (in prose) to keep
+// every unrelated node byte-for-byte unchanged. Prose restraint bounds
+// CONTENT drift, not output MEDIUM cost.
+//
+// THREE ANGLES WERE CONSIDERED:
+//
+// (a) Extend deterministic auto-repair (the precedent already shipped in
+//     parseGraphFragment's fence-stripping and spliceFragment's
+//     agent-key/node-id auto-rename) to more failure classes, so the LLM
+//     is never asked to redo anything for them.
+//     REJECTED AS THE PRIMARY FIX: it only ever applies to failures the
+//     ENGINE already fully understands the correct repair for (a
+//     colliding id, a stray markdown fence). The actual motivating case -
+//     "this node's prompt is missing a test requirement" - is a
+//     CONTENT-JUDGMENT change. No deterministic rule can invent the
+//     missing sentence a model needs to write; there is no mechanical
+//     "correct" edit to auto-apply. (a) is kept exactly as-is (it already
+//     covers its own, disjoint failure class) but cannot be the answer to
+//     the goal's actual observed cost.
+//
+// (b) Offer a small, explicit, structured edit instruction - a top-level
+//     `edits:` YAML list of { node, set } / { node, remove } - that the
+//     ENGINE applies to the last-known-good full fragment server-side,
+//     rather than trusting the model to reproduce everything else
+//     verbatim.
+//     CHOSEN. It directly targets the observed cost (a content-judgment
+//     fix expressed as a few changed fields, not a mechanically-derivable
+//     one) while keeping the actual graph-merge deterministic and testable
+//     (applyGraphEdits below is a pure function over data the engine
+//     already trusts, not a re-interpretation of untrusted model prose).
+//     The obvious risk - "a malformed patch is exactly as likely as a
+//     malformed full document, so we've traded one reliability problem
+//     for another" - is answered structurally, not aspirationally: the
+//     full `graph:` reply remains an ALWAYS-VALID alternative. An absent
+//     `edits:` key falls straight through to the existing full-graph
+//     parse path (parseGraphEditsFragment returns null, not a throw, for
+//     "this isn't an edits reply at all"). A malformed edits block (bad
+//     shape, unknown nodeId, invented non-NodeDef field, or a `set` on an
+//     unknown node with no `role` to create it) throws instead, and
+//     src/engine/runner.ts's round loop feeds that back through the exact
+//     same OUTPUT-FORMAT-ERROR self-correction round a broken full-graph
+//     reply already gets today - never a crash, never silently-corrupted
+//     state, never a worse outcome than today's baseline.
+//
+// (c) Ask the model for a generic text-diff format (unified diff,
+//     JSON Patch/RFC 6902) against the serialized graph.
+//     REJECTED: these formats are built for stable, line-oriented,
+//     already-serialized text, and this project's own YAML serialization
+//     of a re-parsed structure is not guaranteed byte-stable (key
+//     ordering, quoting, flow-vs-block style) across a round trip - a
+//     context/line-offset-addressed diff against it is exactly the kind
+//     of reliably-unreliable format the goal explicitly warned against.
+//     A structured, per-NodeDef-field, per-nodeId `edits:` list has no
+//     such addressing problem: "node build-3, set prompt to <this
+//     string>" survives any re-serialization untouched, because it never
+//     depends on line numbers or byte offsets in the first place.
+//
+// SCOPE: this first implementation targets the generates:'graph' replan
+// path specifically (parseGraphEditsFragment / applyGraphEdits here, plus
+// the composeContext instruction and runPlanning integration) - not every
+// retried node in the engine. The broader goal (any replanned/retried
+// node) is not fully delivered in this pass; scoping down was a deliberate
+// choice, not a silent omission. Rationale: `generates:'graph'` is the
+// only node type sitting on a KNOWN structured document (a GraphFragment)
+// that the engine can validate a proposed edit against; a generic
+// executor/critic node's output is unstructured free text, where "apply
+// this edit server-side" has no equivalent well-defined target to apply
+// to without inventing an entirely separate content-diffing system out of
+// scope for one pass. The SAME pattern (retain the last-known-good
+// structured artifact; let the model send a small delta against it;
+// engine applies and re-validates; fall back to a full reply on anything
+// unparseable) generalizes to any OTHER node whose output is likewise a
+// parseable structured artifact the engine already round-trips - it just
+// has no such artifact to generalize to yet outside generates:'graph'.
+// ---------------------------------------------------------------------
+
+// One directive inside a top-level `edits:` reply (see the design note
+// above). `set` changes/creates fields on `node`; `remove: true` deletes
+// it. Both are optional on the type only so a malformed reply (neither
+// present) can be caught with a real error message in applyGraphEdits
+// rather than a silent no-op.
+export interface GraphEditOp {
+  node: string
+  set?: Record<string, unknown>
+  remove?: boolean
+}
+
+export interface GraphEditsFragment {
+  edits: GraphEditOp[]
+  agents?: Record<string, AgentDef>
+  rails?: Partial<Rails>
+}
+
+// Every field name a `set` may use - the exact raw loopfile vocabulary a
+// planner already uses when writing a full `graph:` node (including
+// `timeout_ms`'s snake_case, matching parseGraphNodes' own raw input
+// shape), so there is nothing new to learn for this reply shape versus a
+// full one. Anything outside this set is an invented, non-NodeDef field
+// and must be rejected rather than silently accepted (see the design note
+// above on why (a) alone cannot help here, and why reliability can't
+// regress versus a full-graph reply).
+const VALID_EDIT_SET_KEYS = new Set([
+  'role', 'agent', 'after', 'of', 'panel', 'rounds', 'generates',
+  'prompt', 'run', 'expect', 'rubric', 'threshold', 'weight', 'timeout_ms',
+])
+
+// Inverse of parseGraphNodes' per-node shape: turns an already-parsed
+// NodeDef back into the raw record shape a loopfile author/planner would
+// have written it as. Used both to seed applyGraphEdits' base (so a `set`
+// can be merged onto it and re-validated through parseGraphNodes, the
+// exact same path a full-graph reply's nodes go through) and by
+// serializeGraphFragment below.
+function nodeToRaw(n: NodeDef): Record<string, unknown> {
+  const raw: Record<string, unknown> = { role: n.role }
+  if (n.agent !== undefined) raw.agent = n.agent
+  if (n.after !== undefined) raw.after = n.after
+  if (n.of !== undefined) raw.of = n.of
+  if (n.panel !== undefined) raw.panel = n.panel
+  if (n.rounds !== undefined) raw.rounds = n.rounds
+  if (n.generates !== undefined) raw.generates = n.generates
+  if (n.prompt !== undefined) raw.prompt = n.prompt
+  if (n.run !== undefined) raw.run = n.run
+  if (n.expect !== undefined) raw.expect = n.expect
+  if (n.rubric !== undefined) raw.rubric = n.rubric
+  if (n.threshold !== undefined) raw.threshold = n.threshold
+  if (n.weight !== undefined) raw.weight = n.weight
+  if (n.timeoutMs !== undefined) raw.timeout_ms = n.timeoutMs
+  return raw
+}
+
+function railsToRaw(rails: Partial<Rails>): Record<string, number> {
+  const raw: Record<string, number> = {}
+  if (rails.maxIterations !== undefined) raw.max_iterations = rails.maxIterations
+  if (rails.maxCostUsd !== undefined) raw.max_cost_usd = rails.maxCostUsd
+  if (rails.maxWallMinutes !== undefined) raw.max_wall_minutes = rails.maxWallMinutes
+  if (rails.stallAfter !== undefined) raw.stall_after = rails.stallAfter
+  if (rails.replanLimit !== undefined) raw.replan_limit = rails.replanLimit
+  if (rails.gateTimeoutSec !== undefined) raw.gate_timeout = rails.gateTimeoutSec
+  return raw
+}
+
+// Parses a planner's reply as a compact `edits:` block instead of a full
+// `graph:` document (see the design note above). Returns null - not a
+// throw - when the reply has no top-level `edits:` key at all: that means
+// "this isn't an edits reply", and the caller (runner.ts) must fall
+// through to the existing full-graph parse path untouched. Once an
+// `edits:` key IS present, every other problem (bad shape, an entry
+// without a `node` id, mixing `edits:` with a full `graph:` in the same
+// reply) throws, so the caller's existing OUTPUT-FORMAT-ERROR
+// self-correction round handles it - never a silent partial-corruption.
+// Mirrors parseGraphFragment's own fence/prose-stripped retry so a stray
+// ```yaml wrapper doesn't cost an extra round here either.
+export function parseGraphEditsFragment(text: string): GraphEditsFragment | null {
+  const trimmed = text.trim()
+  const candidates = [trimmed]
+  const extracted = extractYamlCandidate(text)
+  if (extracted !== trimmed) candidates.push(extracted)
+
+  for (const candidate of candidates) {
+    let raw: unknown
+    try {
+      raw = parse(candidate)
+    } catch {
+      continue
+    }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue
+    const obj = raw as Record<string, unknown>
+    if (obj.edits === undefined) continue // not an edits reply at all
+
+    if (obj.graph !== undefined) {
+      throw new Error('invalid edits: a reply cannot contain both "edits" and "graph" - pick one')
+    }
+    if (!Array.isArray(obj.edits)) {
+      throw new Error('invalid edits: "edits" must be a list')
+    }
+    const edits: GraphEditOp[] = obj.edits.map((entry, i) => {
+      if (!entry || typeof entry !== 'object' || typeof (entry as Record<string, unknown>).node !== 'string') {
+        throw new Error(`invalid edits: entry ${i} needs a "node" id`)
+      }
+      const e = entry as Record<string, unknown>
+      return {
+        node: e.node as string,
+        ...(e.set !== undefined ? { set: e.set as Record<string, unknown> } : {}),
+        ...(e.remove !== undefined ? { remove: Boolean(e.remove) } : {}),
+      }
+    })
+    const agents = obj.agents as Record<string, AgentDef> | undefined
+    const rails = parseRailsPartial(obj.rails as Record<string, number> | undefined)
+    return {
+      edits,
+      ...(agents !== undefined ? { agents } : {}),
+      ...(Object.keys(rails).length > 0 ? { rails } : {}),
+    }
+  }
+  return null
+}
+
+// Applies a parsed `edits:` block to `base` (the engine's last-known-good
+// GraphFragment, held by runner.ts across a replan) and returns a NEW
+// fragment - pure, never mutates `base`, so a caller can safely discard
+// the result on any downstream validation failure and keep using the same
+// `base` for the NEXT attempt. Re-runs every edited/added node through
+// parseGraphNodes (the exact same node-shape validation a full `graph:`
+// reply's nodes get - unsupported `expect`, `after` normalization, etc.),
+// so an edits reply never has a looser bar than a full one would.
+export function applyGraphEdits(base: GraphFragment, editsFragment: GraphEditsFragment): GraphFragment {
+  const rawGraph: Record<string, Record<string, unknown>> = {}
+  const order: string[] = []
+  for (const n of base.nodes) {
+    rawGraph[n.id] = nodeToRaw(n)
+    order.push(n.id)
+  }
+
+  for (const op of editsFragment.edits) {
+    if (op.remove) {
+      if (!(op.node in rawGraph)) {
+        throw new Error(`invalid edits: cannot remove unknown node "${op.node}"`)
+      }
+      delete rawGraph[op.node]
+      const idx = order.indexOf(op.node)
+      if (idx !== -1) order.splice(idx, 1)
+      continue
+    }
+    if (!op.set || typeof op.set !== 'object') {
+      throw new Error(`invalid edits: entry for node "${op.node}" needs a "set" (or "remove: true")`)
+    }
+    for (const key of Object.keys(op.set)) {
+      if (!VALID_EDIT_SET_KEYS.has(key)) {
+        throw new Error(`invalid edits: node "${op.node}" sets unknown field "${key}" - not a real NodeDef field`)
+      }
+    }
+    const isNew = !(op.node in rawGraph)
+    if (isNew && op.set.role === undefined) {
+      throw new Error(`invalid edits: node "${op.node}" does not exist yet and no "role" was set to create it`)
+    }
+    rawGraph[op.node] = { ...(rawGraph[op.node] ?? {}), ...op.set }
+    if (isNew) order.push(op.node)
+  }
+
+  const orderedRawGraph: Record<string, Record<string, unknown>> = {}
+  for (const id of order) orderedRawGraph[id] = rawGraph[id]!
+  const nodes = parseGraphNodes(orderedRawGraph)
+
+  return {
+    nodes,
+    ...(base.agents || editsFragment.agents ? { agents: { ...base.agents, ...editsFragment.agents } } : {}),
+    ...(base.rails || editsFragment.rails ? { rails: { ...base.rails, ...editsFragment.rails } } : {}),
+  }
+}
+
+// Inverse of parseGraphFragment - turns a GraphFragment back into YAML
+// text. Used after applying an edits block so RunState.plan always holds
+// a full graph document (never just the compact edits reply): downstream
+// consumers - composeContext's "# Current plan" display, a later
+// applySplice, and the NEXT edits reply's own base - all depend on
+// RunState.plan being a complete, re-parseable document, regardless of
+// which reply shape (full graph or compact edits) actually produced it.
+export function serializeGraphFragment(fragment: GraphFragment): string {
+  const graph: Record<string, unknown> = {}
+  for (const n of fragment.nodes) graph[n.id] = nodeToRaw(n)
+  const doc: Record<string, unknown> = { graph }
+  if (fragment.agents && Object.keys(fragment.agents).length > 0) doc.agents = fragment.agents
+  if (fragment.rails && Object.keys(fragment.rails).length > 0) doc.rails = railsToRaw(fragment.rails)
+  return stringify(doc)
 }
