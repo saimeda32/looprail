@@ -87,6 +87,15 @@ export function summarizeJournal(events: JournalEvent[]): RunSummary {
 export interface ReconstructedState {
   plan: string | null
   feedback: string | null
+  // Names exactly the node_end entries whose own output composed `plan`
+  // and/or `feedback` above - the ONLY entries whose cached result could
+  // silently replay a stale halt on resume (see cache.ts's loadCache
+  // `excludeNodes`). Every other node_end - including ones sharing the
+  // same iteration number, e.g. independent nodes that already finished
+  // and passed at the same iteration a rail cut the run off at - has
+  // nothing to do with this reconstruction and is safe to reuse from
+  // cache exactly as any earlier iteration's outcomes are.
+  sources: { nodeId: string; iteration: number }[]
 }
 
 // Resuming a halted run in place (resume-cmd.ts) starts a fresh in-memory
@@ -98,15 +107,20 @@ export interface ReconstructedState {
 // prompt would be byte-identical to the halted run's own last iteration,
 // so the cache (which keys on that exact prompt) would silently replay the
 // same stale failing verdict for free instead of giving the executor a
-// genuinely fresh attempt.
+// genuinely fresh attempt. `sources` names precisely which node_end
+// entries that risk applies to (see cache.ts's loadCache), so a resumed
+// run's cache exclusion isn't forced to throw away every other node_end
+// that merely shares the halted iteration's number.
 export function reconstructRunState(events: JournalEvent[]): ReconstructedState {
   let plan: string | null = null
+  let plannerSource: { nodeId: string; iteration: number } | null = null
   let lastIteration = 0
   const verdictsByIteration = new Map<number, { nodeId: string; evidence: string; status: string }[]>()
   for (const e of events) {
     const d = e.data as Record<string, unknown>
     if (e.type === 'node_end' && d.role === 'planner') {
       plan = String(d.output ?? '')
+      plannerSource = { nodeId: String(d.nodeId), iteration: Number(d.iteration ?? 0) }
     }
     if (e.type === 'iteration_end') {
       lastIteration = Number(d.iteration ?? lastIteration)
@@ -126,5 +140,7 @@ export function reconstructRunState(events: JournalEvent[]): ReconstructedState 
   const feedback = failing.length > 0
     ? failing.map((v) => `[${v.nodeId}] ${v.evidence}`).join('\n')
     : null
-  return { plan, feedback }
+  const sources: { nodeId: string; iteration: number }[] = failing.map((v) => ({ nodeId: v.nodeId, iteration: lastIteration }))
+  if (plan !== null && plannerSource) sources.push(plannerSource)
+  return { plan, feedback, sources }
 }

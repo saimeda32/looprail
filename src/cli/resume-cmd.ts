@@ -51,8 +51,13 @@ export async function resumeAction(
   }
   const events = readJournal(journalPath)
   const priorIterations = summarizeJournal(events).iterations
-  const { plan, feedback } = reconstructRunState(events)
-  const cache = loadCache(journalPath, { excludeIteration: priorIterations })
+  const { plan, feedback, sources } = reconstructRunState(events)
+  // Excludes only the node_end entries whose own output composed the
+  // reconstructed feedback/plan above (see runs.ts's reconstructRunState
+  // and cache.ts's loadCache) - not every node_end sharing this iteration
+  // number, so already-completed, unrelated work doesn't get needlessly
+  // re-run just because it happened to finish in the same iteration.
+  const cache = loadCache(journalPath, { excludeNodes: sources })
   const def: LoopDef = (opts.maxIterations === undefined && opts.maxCostUsd === undefined && opts.maxWallMinutes === undefined)
     ? loaded.def
     : {
