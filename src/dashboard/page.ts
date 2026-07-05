@@ -199,7 +199,7 @@ export function buildPage(): string {
 <body>
 <div class="wrap">
   <div class="masthead">
-    <div class="wordmark"><span class="dot"></span> LOOPRAIL <a id="back-link" href="../../">&larr; mission control</a></div>
+    <div class="wordmark"><span class="dot"></span> LOOPRAIL <a id="back-link" href="../../../">&larr; mission control</a></div>
     <span id="status-pill" class="status-pill status-running">running</span>
   </div>
 
@@ -485,7 +485,7 @@ export function buildPage(): string {
   // noisiest, most avoidable part of "wall of text" - full markdown parsing
   // is out of scope for a live streaming pane.
   function markdownLiteInline(escaped) {
-    return escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    return escaped.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
   }
 
   function formatClockTime(ts) {
@@ -495,31 +495,28 @@ export function buildPage(): string {
   }
 
   // Chunks arrive as raw token-ish slices with no paragraph structure of
-  // their own; splitting the reconstructed full text on blank lines gives
-  // real paragraph boundaries, and walking chunk-end-offsets forward finds
-  // the real journal timestamp of whichever chunk completed each paragraph -
-  // an actual arrival time, not a render-time guess.
+  // their own. Blank-line splitting doesn't work here: several adapters
+  // (verified live - copilot-cli's own tool-narration style is one) stream
+  // terse, back-to-back thoughts with no blank line - or even a space -
+  // between them ("...updating.Now check..."). A real pause between chunk
+  // arrivals is a much more reliable break signal regardless of the model's
+  // own punctuation habits: it reflects an actual gap in the agent's own
+  // work (between tool calls, between turns), not a guess based on text
+  // shape. Each chunk's own ts is a real journal arrival time already, so
+  // grouping needs no extra bookkeeping to recover one after the fact.
   function paragraphsFromChunks(chunks) {
-    var full = '';
-    var boundaries = [];
+    var GAP_MS = 600;
+    var groups = [];
+    var current = null;
     chunks.forEach(function (c) {
-      full += c.text;
-      boundaries.push({ endPos: full.length, ts: c.ts });
-    });
-    var raw = full.split(/\n\s*\n/).filter(function (p) { return p.trim().length > 0; });
-    var result = [];
-    var searchFrom = 0;
-    raw.forEach(function (p) {
-      var idx = full.indexOf(p, searchFrom);
-      var endPos = idx + p.length;
-      searchFrom = endPos;
-      var ts = boundaries.length ? boundaries[boundaries.length - 1].ts : 0;
-      for (var i = 0; i < boundaries.length; i++) {
-        if (boundaries[i].endPos >= endPos) { ts = boundaries[i].ts; break; }
+      if (!current || (c.ts - current.ts) > GAP_MS) {
+        current = { text: '', ts: c.ts };
+        groups.push(current);
       }
-      result.push({ text: p, ts: ts });
+      current.text += c.text;
+      current.ts = c.ts;
     });
-    return result;
+    return groups.filter(function (g) { return g.text.trim().length > 0; });
   }
 
   function renderLiveOutput(model) {

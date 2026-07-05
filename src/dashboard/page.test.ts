@@ -1,5 +1,7 @@
+import ts from 'typescript'
 import { expect, test } from 'vitest'
 import { buildPage } from './page.js'
+import { matchRunRoute } from './mission-control-server.js'
 
 test('the page is a complete, self-contained HTML document', () => {
   const html = buildPage()
@@ -7,6 +9,43 @@ test('the page is a complete, self-contained HTML document', () => {
   expect(html).toContain('<style>')
   expect(html).toContain('<script>')
   expect(html).toContain('</html>')
+})
+
+// The inline <script> block is TypeScript source text embedded in a giant
+// template literal - `tsc` only ever sees it as a string, so a corrupted
+// escape sequence inside it (e.g. \n or \s written with a single backslash,
+// which the OUTER template literal itself interprets as an escape before the
+// text ever reaches the browser - turning /\n\s*\n/ into a regex containing
+// real newline bytes) compiles cleanly and produces a page whose embedded
+// script is a hard SyntaxError, silently killing every dynamic feature with
+// no compiler or lint signal. ts.transpileModule only parses/transpiles the
+// extracted text - it never executes it - so this surfaces the same syntax
+// error a browser would hit, without ever running the extracted text as
+// code the way a dynamic-code-execution approach would.
+test('the inline client script is syntactically valid JavaScript', () => {
+  const html = buildPage()
+  const match = html.match(/<script>([\s\S]*)<\/script>/)
+  expect(match).not.toBeNull()
+  const script = match![1]!
+  const { diagnostics } = ts.transpileModule(script, { reportDiagnostics: true })
+  const messages = (diagnostics ?? []).map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'))
+  expect(messages).toEqual([])
+})
+
+// The back-link is only ever shown when nested under mission control's
+// /run/<hash>/<runId>/ route (see the inline script's back.style.display
+// logic below), so its relative href must resolve from exactly that depth
+// back to mission control's own root - not to the /run/ path one level short
+// of it, which matchRunRoute (mission-control-server.ts) 404s on since it
+// requires both a hash and a runId segment.
+test('the back-link resolves from the nested run route to mission control\'s actual root, not a 404', () => {
+  const html = buildPage()
+  const match = html.match(/id="back-link" href="([^"]+)"/)
+  expect(match).not.toBeNull()
+  const href = match![1]!
+  const resolved = new URL(href, 'http://localhost/run/somehash/somerunid/').pathname
+  expect(resolved).toBe('/')
+  expect(matchRunRoute(resolved)).toBeNull()
 })
 
 test('nothing in the page reaches out to an external host', () => {
