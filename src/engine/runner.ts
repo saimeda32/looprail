@@ -219,44 +219,73 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     }
   }
 
-  const runPlanning = async (): Promise<void> => {
-    if (planning.length === 0) return
-    const maxRounds = Math.max(1, ...planning.map((n) => n.rounds ?? 1))
-    for (let round = 1; round <= maxRounds; round++) {
-      const outs = await runIteration({ ...expanded, agents: runAgents }, planning, state, deps, onNode, shouldContinue, onNodeStart, onChunk)
-      const planner = outs.find((o) => o.role === 'planner')
-      if (planner) state.plan = planner.output
-      if (guard.check(state.iteration)) return // breached mid-planning; loop halts on entry
+  // Result of a full runPlanning() attempt. `ok: false` means every
+  // available replan was spent and the planner STILL never produced
+  // parseable output - a definitive failure, not a transient one, that
+  // every call site must turn into a clean halt rather than letting known-
+  // invalid content reach a critic or a human gate.
+  type PlanningResult = { ok: true } | { ok: false; reason: string }
 
-      // A generates:'graph' planner's output must be parseable before a
-      // human or critic ever sees it. Whether it's valid YAML is a purely
-      // mechanical question - it never requires judgment the way "is this
-      // graph a good idea" does - so it gets one automatic, free
-      // self-correction round here, using the real parse error as
-      // feedback, instead of reaching a human as an undiagnosable "reject
-      // this and try to explain what's wrong" cycle (verified empirically:
-      // a planner can fail this same way for several rounds straight, and
-      // nothing about the failure is visible to a non-technical user
-      // without reading raw output directly).
-      const plannerNode = planner && expanded.nodes.find((n) => n.id === planner.nodeId)
-      if (plannerNode?.generates === 'graph') {
-        try {
-          parseGraphFragment(state.plan ?? '')
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          state.feedback = `OUTPUT FORMAT ERROR (automatic - not from a human or critic): ${msg}\nYour entire reply must be ONLY a parseable YAML document with a top-level graph: key - no prose, no markdown headers, no explanation before or after it. Fix this before anything else can be reviewed.`
-          continue
+  const runPlanning = async (): Promise<PlanningResult> => {
+    if (planning.length === 0) return { ok: true }
+    const replanLimit = def.rails.replanLimit ?? Infinity
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const maxRounds = Math.max(1, ...planning.map((n) => n.rounds ?? 1))
+      let formatError: string | null = null
+      for (let round = 1; round <= maxRounds; round++) {
+        const outs = await runIteration({ ...expanded, agents: runAgents }, planning, state, deps, onNode, shouldContinue, onNodeStart, onChunk)
+        const planner = outs.find((o) => o.role === 'planner')
+        if (planner) state.plan = planner.output
+        if (guard.check(state.iteration)) return { ok: true } // breached mid-planning; loop halts on entry
+
+        // A generates:'graph' planner's output must be parseable before a
+        // human or critic ever sees it. Whether it's valid YAML is a purely
+        // mechanical question - it never requires judgment the way "is this
+        // graph a good idea" does - so it gets one automatic, free
+        // self-correction round here (parseGraphFragment itself already
+        // strips a stray fence/prose wrapper first; this only fires for
+        // content that's still broken after that), using the real parse
+        // error as feedback, instead of reaching a human as an
+        // undiagnosable "reject this and try to explain what's wrong" cycle.
+        formatError = null
+        const plannerNode = planner && expanded.nodes.find((n) => n.id === planner.nodeId)
+        if (plannerNode?.generates === 'graph') {
+          try {
+            parseGraphFragment(state.plan ?? '')
+          } catch (err) {
+            formatError = err instanceof Error ? err.message : String(err)
+            state.feedback = `OUTPUT FORMAT ERROR (automatic - not from a human or critic): ${formatError}\nYour entire reply must be ONLY a parseable YAML document with a top-level graph: key - no prose, no markdown headers, no explanation before or after it. Fix this before anything else can be reviewed.`
+            continue
+          }
         }
+
+        const critiques = outs.filter((o) => o.verdict && o.verdict.status !== 'pass')
+        if (critiques.length === 0) return { ok: true }
+        state.feedback = critiques.map((o) => `[${o.nodeId}] ${o.verdict!.evidence}`).join('\n')
       }
 
-      const critiques = outs.filter((o) => o.verdict && o.verdict.status !== 'pass')
-      if (critiques.length === 0) return
-      state.feedback = critiques.map((o) => `[${o.nodeId}] ${o.verdict!.evidence}`).join('\n')
+      // Internal rounds exhausted. A lingering critique failure (formatError
+      // null) is pre-existing behavior unchanged by this fix - it falls
+      // through to the caller's own replan/gate handling with the last
+      // critique as feedback. A lingering FORMAT failure is different: it
+      // is never something a critic or human should have to triage, so it
+      // escalates through the same replans/replanLimit budget every other
+      // replan is bounded by, instead of silently handing invalid content
+      // onward.
+      if (!formatError) return { ok: true }
+      if (replans >= replanLimit) {
+        return { ok: false, reason: `plan generation failed: planner could not produce parseable YAML after ${replans} replan(s) (${formatError})` }
+      }
+      replans += 1
+      fingerprints.length = 0
+      emit('replan', { replans, feedback: state.feedback ?? undefined })
     }
   }
 
   if (!opts.skipPlanning) {
-    await runPlanning()
+    const initialPlan = await runPlanning()
+    if (!initialPlan.ok) return await finish('halted', initialPlan.reason)
     state.feedback = null
   }
 
@@ -332,7 +361,8 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
             replans += 1
             fingerprints.length = 0
             emit('replan', { replans, feedback: state.feedback })
-            await runPlanning()
+            const replanned = await runPlanning()
+            if (!replanned.ok) planApprovalHalt = replanned.reason
           }
         }
         planApprovalHandled = true
@@ -344,7 +374,8 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
           replans += 1
           fingerprints.length = 0
           emit('replan', { replans, feedback: state.feedback })
-          await runPlanning()
+          const replanned = await runPlanning()
+          if (!replanned.ok) planApprovalHalt = replanned.reason
         }
         planApprovalHandled = true
       }
@@ -371,7 +402,8 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
       replans += 1
       fingerprints.length = 0
       emit('replan', { replans, feedback: decision.feedback })
-      await runPlanning()
+      const replanned = await runPlanning()
+      if (!replanned.ok) return await finish('halted', replanned.reason)
     }
   }
 }

@@ -130,13 +130,23 @@ export interface GraphFragment {
   rails?: Partial<Rails>
 }
 
-// Parses a planner's own output when its node has `generates: 'graph'` (see
-// docs/superpowers/specs/2026-07-04-self-planning-loop-design.md) - a
-// smaller, looser sibling of parseLoopfile: only `graph:` is required,
-// `agents:`/`rails:` are optional, and there is no `name:`/`goal:` at all
-// (the fragment inherits the bootstrap loopfile's goal). Reuses
-// parseGraphNodes so node-shape rules never drift between the two parsers.
-export function parseGraphFragment(text: string): GraphFragment {
+// A planner's raw reply routinely arrives wrapped in a markdown code fence
+// or a leading sentence ("...I'll output it as clean YAML:\n\n```yaml") even
+// when told not to - that instruction is a prompt, not a guarantee. Neither
+// wrapping changes the actual graph content, so stripping them is a purely
+// mechanical fix-up, not a judgment call - it must never cost an extra LLM
+// round the way asking the planner to redo its whole reply would.
+function extractYamlCandidate(text: string): string {
+  const trimmed = text.trim()
+  const fenced = /```(?:ya?ml)?\s*\n([\s\S]*?)```/i.exec(trimmed)
+  let candidate = fenced ? fenced[1] : trimmed
+  const lines = candidate.split('\n')
+  const startIdx = lines.findIndex((l) => /^(graph|agents|rails):/.test(l.trim()))
+  if (startIdx > 0) candidate = lines.slice(startIdx).join('\n')
+  return candidate.trim()
+}
+
+function parseGraphFragmentStrict(text: string): GraphFragment {
   let raw: Record<string, unknown>
   try {
     raw = parse(text) as Record<string, unknown>
@@ -157,5 +167,24 @@ export function parseGraphFragment(text: string): GraphFragment {
     nodes,
     ...(agents !== undefined ? { agents } : {}),
     ...(Object.keys(rails).length > 0 ? { rails } : {}),
+  }
+}
+
+// Parses a planner's own output when its node has `generates: 'graph'` (see
+// docs/superpowers/specs/2026-07-04-self-planning-loop-design.md) - a
+// smaller, looser sibling of parseLoopfile: only `graph:` is required,
+// `agents:`/`rails:` are optional, and there is no `name:`/`goal:` at all
+// (the fragment inherits the bootstrap loopfile's goal). Reuses
+// parseGraphNodes so node-shape rules never drift between the two parsers.
+// Tries the text as-is first; only if that fails does it retry against a
+// fence/prose-stripped candidate, so well-formed replies never pay for the
+// extraction step's own extra parse attempt.
+export function parseGraphFragment(text: string): GraphFragment {
+  try {
+    return parseGraphFragmentStrict(text)
+  } catch (err) {
+    const candidate = extractYamlCandidate(text)
+    if (candidate === text.trim()) throw err
+    return parseGraphFragmentStrict(candidate)
   }
 }

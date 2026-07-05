@@ -602,3 +602,34 @@ rails:
   const events = readJournal(join(runDir, 'journal.jsonl'))
   expect(events.some((e) => e.type === 'node_start' && (e.data as { nodeId: string }).nodeId === 'build')).toBe(true)
 })
+
+test('a generates:graph planner that never produces parseable YAML exhausts replan_limit and halts cleanly, never reaching the gate', async () => {
+  const SELF_PLANNING_ALWAYS_BAD = `
+name: self-planning-always-bad-fixture
+goal: Do the generated thing.
+agents:
+  planner: { adapter: mock }
+graph:
+  plan:    { role: planner, agent: planner, generates: graph, rounds: 2 }
+  approve: { role: gate, after: plan }
+rails:
+  max_iterations: 8
+  max_cost_usd: 1
+  replan_limit: 2
+`
+  const { cwd, io } = setup(SELF_PLANNING_ALWAYS_BAD)
+  const registry = createRegistry()
+  // unfixable prose, every time: both rounds of the initial attempt, and
+  // both rounds of each of the 2 replans (replan_limit) - 6 calls total,
+  // never a 7th, since the run must halt once the limit is exhausted
+  // instead of silently letting the last bad attempt reach the gate.
+  registry.register(new MockAdapter(
+    Array.from({ length: 6 }, () => ({ match: /PLANNER/, output: 'Sorry, I could not produce a plan.' })),
+  ))
+  let gateCalls = 0
+  const code = await runAction(undefined, { cwd }, {
+    io, registry, gate: async () => { gateCalls += 1; return { approved: true } },
+  })
+  expect(code).toBe(2) // halted, not verified
+  expect(gateCalls).toBe(0) // the gate must never be asked about unparseable content
+})

@@ -169,3 +169,19 @@ graph:
   bad: { role: tester, run: echo hi, expect: "exit 1" }
 `)).toThrow(/unsupported expect/)
 })
+
+test('parseGraphFragment strips a leading sentence and a markdown code fence before parsing', () => {
+  const fragment = parseGraphFragment(
+    "All referenced files exist. The plan is sound; I'll output it as clean, valid YAML.\n\n" +
+    '```yaml\n' +
+    'graph:\n' +
+    '  build: { role: executor, agent: worker, prompt: Do the thing. }\n' +
+    '```\n',
+  )
+  expect(fragment.nodes.map((n) => n.id)).toEqual(['build'])
+})
+
+test('parseGraphFragment still throws its clear error when stripping a fence would not help', () => {
+  expect(() => parseGraphFragment('just some prose with no yaml at all'))
+    .toThrow(/^invalid graph fragment:/)
+})
