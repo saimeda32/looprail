@@ -231,10 +231,15 @@ agents:
   worker: { adapter: claude-code, model: sonnet, permissions: safe }
 ```
 
-`safe` accepts edits but asks before anything riskier; `standard` runs
-without asking; `full` skips the adapter's own sandboxing entirely. Leaving
-`permissions` unset reproduces each adapter's own pre-existing default
-(`safe` for claude-code/codex/aider; `full` for copilot-cli, which had no
+`safe` accepts edits but keeps the adapter's own sandbox for anything
+riskier; `standard` turns that sandboxing off; `full` also skips the
+adapter's own approval gating entirely. Looprail runs every agent
+non-interactively (no stdin attached), so "riskier" here means the
+adapter's own CLI denies or errors on the action rather than prompting a
+human through looprail - there's no live approval step surfaced back to
+you the way a loopfile's own `gate` node has. Leaving `permissions` unset
+reproduces each adapter's own pre-existing default (`safe` for
+claude-code/codex/aider; `full` for copilot-cli, which had no
 sandboxed mode to begin with) - set it explicitly rather than relying on
 that, since `full` is real reduced safety, not just less prompting.
 
