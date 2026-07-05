@@ -11,8 +11,7 @@ Claude Code, Codex, aider, GitHub Copilot, or any shell command. No API keys go
 into looprail. If `claude` works in your terminal, looprail works.
 
 ```bash
-git clone https://github.com/saimeda32/looprail.git
-cd looprail && npm install && npm run build && npm link
+npm install -g looprail
 looprail init          # detect your agents, scaffold a looprail.yaml
 looprail run           # run the loop, watch it work, stop when verified
 ```
@@ -28,8 +27,13 @@ dashboard shows you while a loop runs.
 
 ### Install
 
-Looprail needs Node 20 or newer. It isn't on the npm registry yet, so install
-it straight from the repo:
+Looprail needs Node 20 or newer.
+
+```bash
+npm install -g looprail
+```
+
+Or build straight from the repo instead:
 
 ```bash
 git clone https://github.com/saimeda32/looprail.git
@@ -38,9 +42,6 @@ npm install
 npm run build
 npm link                    # puts `looprail` on your PATH
 ```
-
-`npm link` is a one-time step; after that, `looprail` works from any
-directory, the same as a package installed with `npm install -g` would.
 
 You also need at least one agent CLI installed and logged in. Run
 `looprail doctor` to see what it found.

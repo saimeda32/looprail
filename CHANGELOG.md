@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.2.0
+
+Engine:
+
+- Self-planning loops: a planner node with `generates: graph` proposes a
+  graph from a plain-English goal instead of prose, reviewed by a
+  different model and gated behind explicit human approval before any of
+  it runs.
+- Compact `edits:` block for a re-planned graph: a targeted fix no longer
+  has to re-emit the whole graph, cutting retry output tokens 80%+ on a
+  representative fix.
+- Per-agent permission presets (`safe`/`standard`/`full`), independent of
+  which model an agent runs.
+- Time spent waiting for a gate no longer counts toward `max_wall_minutes`
+  - a slow human decision isn't the loop taking too long to do work.
+- Resume can now raise `replan_limit` and override the goal text, the same
+  way it already could raise `max_iterations`/`max_cost_usd`/
+  `max_wall_minutes`.
+- Cache exclusion on resume is now precise: only the node(s) whose output
+  fed the reconstructed feedback are excluded, not every node sharing that
+  iteration - already-passed independent work is no longer needlessly
+  re-run.
+
+Dashboard:
+
+- In-browser gate approval and resume (raised rails or an edited goal),
+  no need to switch back to a terminal.
+- Live elapsed-wall-time gauges, both on a single run and across mission
+  control's aggregate and per-tile figures.
+- DAG zoom/pan controls (buttons, ctrl+wheel, click-drag).
+- Cost figures show one combined real+estimated total instead of a
+  parenthetical breakdown.
+
+Examples:
+
+- Six new copy-paste example loopfiles matching `looprail init`'s
+  templates (`fix-tests`, `research-report`, `refactor`,
+  `content-pipeline`, `review-diff`, `build-app`), plus a
+  `multi-gate-approval` example, and a README for every example folder.
+
 ## 0.1.0
 
 First release.
