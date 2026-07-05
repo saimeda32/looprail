@@ -101,5 +101,20 @@ export function lintLoop(def: LoopDef): LintFinding[] {
   // 1.0, so a weighted loop with at least one verifier (guaranteed by L001) is
   // always satisfiable.
 
+  for (const n of def.nodes) {
+    const agent = n.agent ? def.agents[n.agent] : undefined
+    const raw = (agent?.permissions && typeof agent.permissions === 'object') ? agent.permissions.raw : undefined
+    if (raw) {
+      for (const rawAdapter of Object.keys(raw)) {
+        if (rawAdapter !== agent!.adapter) {
+          findings.push({
+            rule: 'L009', level: 'warn', node: n.id,
+            message: `node "${n.id}"'s agent uses adapter "${agent!.adapter}" but has a permissions.raw key for "${rawAdapter}" - it will never apply`,
+          })
+        }
+      }
+    }
+  }
+
   return findings
 }

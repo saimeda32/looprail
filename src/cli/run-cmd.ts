@@ -10,6 +10,7 @@ import {
 } from '../index.js'
 import { startDashboardServer, type DashboardServer } from '../dashboard/server.js'
 import { runsRoot } from '../journal/runs.js'
+import { hasStoredApproval, storeApproval } from '../journal/gate-approvals.js'
 import { defaultIo, dim, err, heading, ok, renderTable, warn, wrapText, type CliIo } from './ui.js'
 import { addWorkspace, defaultRegistryPath } from '../workspace/registry.js'
 
@@ -30,11 +31,15 @@ export interface GateTimerDeps {
 }
 
 export function makeGate(
-  rails: Rails, io: CliIo, autoApprove: boolean, timerDeps: GateTimerDeps = {},
+  rails: Rails, io: CliIo, autoApprove: boolean, cwd: string, timerDeps: GateTimerDeps = {},
 ): GateHandler {
   return async (node) => {
     if (autoApprove) {
       io.out(warn(`gate "${node.id}" auto-approved (--yes)`))
+      return true
+    }
+    if (hasStoredApproval(cwd, node)) {
+      io.out(warn(`gate "${node.id}" - previously approved, skipping prompt`))
       return true
     }
     const rl = createInterface({ input: process.stdin, output: process.stdout })
@@ -44,7 +49,7 @@ export function makeGate(
     const ac = new AbortController()
     let timeoutId: ReturnType<typeof setTimeout> | undefined
     try {
-      const question = rl.question(`gate "${node.id}" - approve? [y/N] `, { signal: ac.signal })
+      const question = rl.question(`gate "${node.id}" - approve? [y/N/a=always] `, { signal: ac.signal })
       const timeoutSec = rails.gateTimeoutSec
       // 0 and undefined both mean "wait forever" - only a positive timeout
       // starts the race. (A gateTimeoutSec of exactly 0 is not treated as
@@ -52,6 +57,10 @@ export function makeGate(
       // so it falls back to the same wait-forever behavior as unset.)
       if (!(timeoutSec !== undefined && timeoutSec > 0)) {
         const answer = await question
+        if (/^a(lways)?$/i.test(answer.trim())) {
+          storeApproval(cwd, node)
+          return true
+        }
         return /^y(es)?$/i.test(answer.trim())
       }
       // the infra: tag makes the router HALT (spec §10) instead of treating the
@@ -69,6 +78,10 @@ export function makeGate(
       question.catch(() => {})
       try {
         const answer = await Promise.race([question, timer])
+        if (/^a(lways)?$/i.test(answer.trim())) {
+          storeApproval(cwd, node)
+          return true
+        }
         return /^y(es)?$/i.test(answer.trim())
       } finally {
         // human answered first: stop the real timer so it never fires later
@@ -356,7 +369,7 @@ export async function runAction(
       io,
       json: !!opts.json,
       registry: deps.registry ?? createDefaultRegistry({ cwd: opts.cwd }),
-      gate: deps.gate ?? makeGate(loaded.def.rails, io, !!opts.yes),
+      gate: deps.gate ?? makeGate(loaded.def.rails, io, !!opts.yes, opts.cwd),
     })
   } finally {
     uninstallCancelHandler()

@@ -27,6 +27,27 @@ test('executor returns output with no verdict', async () => {
   expect(out).toMatchObject({ nodeId: 'do', output: 'did the work', verdict: null, costUsd: 0.02 })
 })
 
+test('permissions from AgentDef flows through to the adapter as part of the request', async () => {
+  const seen: unknown[] = []
+  const registry = createRegistry()
+  registry.register({
+    name: 'spy',
+    invoke: async (req) => {
+      seen.push(req.permissions)
+      return { output: 'done', costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  })
+  const spyDef: LoopDef = {
+    name: 'demo', goal: 'g',
+    agents: { worker: { adapter: 'spy', permissions: 'standard' } },
+    nodes: [{ id: 'do', role: 'executor', agent: 'worker' }],
+    rails: { maxIterations: 1, maxCostUsd: 1 },
+    verdictPolicy: { kind: 'all-pass' },
+  }
+  await executeNode(spyDef, spyDef.nodes[0], state, none, { registry })
+  expect(seen).toEqual(['standard'])
+})
+
 test('critic parses verdict from output', async () => {
   const deps = depsWith(new MockAdapter([{ output: 'VERDICT: fail\nEVIDENCE: broken' }]))
   const outcomes = new Map<string, NodeOutcome>([['do', {

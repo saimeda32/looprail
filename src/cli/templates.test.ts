@@ -285,4 +285,15 @@ describe('template gallery', () => {
     expect(yaml).toContain('role: gate')
     expect(yaml).toContain('# gate = pauses for human approval (y/n) before the loop can finish')
   })
+
+  test('every template scaffolds each agent with permissions: safe', () => {
+    for (const template of Object.values(TEMPLATES)) {
+      const adapters = Object.fromEntries(template.agentRoles.map((r) => [r.key, 'claude-code']))
+      const models = Object.fromEntries(template.agentRoles.map((r) => [r.key, undefined]))
+      const yaml = template.yaml(adapters, models)
+      for (const role of template.agentRoles) {
+        expect(agentLine(yaml, role.key), role.key).toContain('permissions: safe')
+      }
+    }
+  })
 })

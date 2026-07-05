@@ -43,7 +43,7 @@ export async function replayAction(
     io,
     json: !!opts.json,
     registry: deps.registry ?? createDefaultRegistry({ cwd: opts.cwd }),
-    gate: deps.gate ?? makeGate(loaded.def.rails, io, !!opts.yes),
+    gate: deps.gate ?? makeGate(loaded.def.rails, io, !!opts.yes, opts.cwd),
     cache,
   })
 }

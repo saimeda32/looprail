@@ -28,8 +28,22 @@ describe('createCodexAdapter', () => {
     }
     const res = await createCodexAdapter({ exec }).invoke({ prompt: 'do it', model: 'gpt-5' })
     expect(calls[0].file).toBe('codex')
-    expect(calls[0].args).toEqual(['exec', '--json', 'do it', '-m', 'gpt-5'])
+    expect(calls[0].args).toEqual([
+      'exec', '--json', 'do it', '-m', 'gpt-5', '--sandbox', 'workspace-write', '--ask-for-approval', 'on-request',
+    ])
     expect(res).toMatchObject({ output: 'FINAL ANSWER', tokens: 1000, costUsd: 0 })
+  })
+
+  test('appends permission flags after -m, resolved via resolvePermissionArgs', async () => {
+    const calls: string[][] = []
+    const exec: ExecFn = async (_f, args) => {
+      calls.push(args)
+      return { stdout: '', stderr: '', exitCode: 0 }
+    }
+    await createCodexAdapter({ exec }).invoke({ prompt: 'p', model: 'o3', permissions: 'standard' })
+    expect(calls[0]).toEqual([
+      'exec', '--json', 'p', '-m', 'o3', '--sandbox', 'workspace-write', '--ask-for-approval', 'never',
+    ])
   })
 
   test('streams reasoning and each agent_message live, before the node finishes', async () => {
