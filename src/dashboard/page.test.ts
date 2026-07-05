@@ -436,6 +436,19 @@ test('the page defines a gate-row for live gate approval, hidden by default, wit
   expect(html).toContain('id="gate-reject-input"')
 })
 
+// The gate label previously used the same dim, low-contrast color as
+// ordinary body text (--ink-dim) - easy to miss against everything else on
+// the page even though it's the one thing that's actually blocking the
+// run. It must stand out with the same accent color other "needs
+// attention" states already use (--signal), not blend in as regular text.
+test('the gate label uses the signal accent color, not dim body text, so it stands out as needing attention', () => {
+  const html = buildPage()
+  const rule = html.match(/\.gate-row \.gate-label\s*\{([^}]*)\}/)
+  expect(rule).not.toBeNull()
+  expect(rule![1]).toMatch(/color:\s*var\(--signal\)/)
+  expect(rule![1]).not.toMatch(/var\(--ink-dim\)/)
+})
+
 // Approve/reject must POST the exact same /control action shape
 // serveControl already validates (action + optional text) - no separate
 // endpoint or parallel approval mechanism.

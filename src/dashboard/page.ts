@@ -206,7 +206,8 @@ export function buildPage(): string {
     border: 1px solid var(--line); border-radius: 3px; color: var(--ink); padding: 6px 9px;
   }
   .resume-row textarea:focus { outline: 1px solid var(--signal-dim); border-color: var(--line-bright); }
-  .gate-row .gate-label { color: var(--ink-dim); font: 11px var(--sans); }
+  .gate-row { border-left: 2px solid var(--signal); }
+  .gate-row .gate-label { color: var(--signal); font: 600 11px var(--sans); letter-spacing: 0.02em; }
   #feedback-status, #resume-status, #gate-status { font-size: 11px; color: var(--ink-faint); }
   #feedback-status.ok, #resume-status.ok, #gate-status.ok { color: var(--pass); }
   #feedback-status.err, #resume-status.err, #gate-status.err { color: var(--fail); }
