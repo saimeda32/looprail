@@ -47,6 +47,33 @@ test('buildRunListEntry carries the loop\'s own name, goal, and total tokens - n
   expect(entry.tokens).toBe(250)
 })
 
+// Mission control's run tiles need to show WHY a run halted/canceled
+// without opening it (see dashboard/mission-control-page.ts's runCard) -
+// that string has to come from somewhere, and buildViewModel already
+// computes it correctly, so RunListEntry must carry it through verbatim
+// rather than the dashboard layer re-deriving or re-wording it.
+test('buildRunListEntry carries the halt/cancel reason string through from buildViewModel', () => {
+  const haltedEvents: JournalEvent[] = [
+    ev('run_start', { runId: 'r1', name: 'demo', goal: 'g' }, 100),
+    ev('halt', { reason: 'rail breached (maxCostUsd 5 exceeded)', costUsd: 5.2 }, 200),
+  ]
+  const halted = buildRunListEntry('/projects/demo', 'r1', '/irrelevant', haltedEvents)
+  expect(halted.status).toBe('halted')
+  expect(halted.reason).toBe('rail breached (maxCostUsd 5 exceeded)')
+
+  const canceledEvents: JournalEvent[] = [
+    ev('run_start', { runId: 'r2', name: 'demo', goal: 'g' }, 100),
+    ev('halt', { reason: 'canceled by user request', costUsd: 0.1 }, 200),
+  ]
+  const canceled = buildRunListEntry('/projects/demo', 'r2', '/irrelevant', canceledEvents)
+  expect(canceled.status).toBe('canceled')
+  expect(canceled.reason).toBe('canceled by user request')
+
+  const runningEvents: JournalEvent[] = [ev('run_start', { runId: 'r3', name: 'demo', goal: 'g' }, 100)]
+  const running = buildRunListEntry('/projects/demo', 'r3', '/irrelevant', runningEvents)
+  expect(running.reason).toBeUndefined()
+})
+
 test('discoverRuns on an empty workspace list returns no runs', () => {
   expect(discoverRuns([])).toEqual([])
 })

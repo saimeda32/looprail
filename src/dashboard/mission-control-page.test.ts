@@ -99,3 +99,28 @@ test('the inline script is ES5-only: no arrow functions, const, or let', () => {
   expect(script).not.toMatch(/\bconst\s/)
   expect(script).not.toMatch(/\blet\s/)
 })
+
+// Run tiles previously showed only the bare status word ("halted") with
+// no way to tell why without opening the run. A halted/canceled run's
+// tile must now also render a truncated one-line reason string (reused
+// verbatim from run.reason, threaded through from RunListEntry), distinct
+// from the goal/workspace lines via its own class, and it must be
+// skipped entirely for a run with no reason (e.g. running/verified).
+test('run tiles render a one-line reason for halted/canceled runs, distinctly classed, reusing run.reason verbatim', () => {
+  const html = buildMissionControlPage()
+  const fnMatch = html.match(/function runCard\(run\) \{[\s\S]*?\n  \}/)
+  expect(fnMatch).not.toBeNull()
+  const body = fnMatch![0]
+  expect(body).toMatch(/run\.status === 'halted'/)
+  expect(body).toMatch(/run\.status === 'canceled'/)
+  expect(body).toContain("'reason reason-' + run.status")
+  expect(body).toContain('run.reason')
+
+  const ruleMatch = html.match(/\.run-card \.reason\s*\{([^}]*)\}/)
+  expect(ruleMatch).not.toBeNull()
+  expect(ruleMatch![1]).toMatch(/overflow:\s*hidden/)
+  expect(ruleMatch![1]).toMatch(/white-space:\s*nowrap/)
+  expect(html).toContain('.reason.reason-halted')
+  expect(html).toContain('.reason.reason-canceled')
+})
+
