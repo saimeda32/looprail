@@ -74,6 +74,30 @@ test('buildRunListEntry carries the halt/cancel reason string through from build
   expect(running.reason).toBeUndefined()
 })
 
+// Mirrors the reason test above: mission control's cost display (see
+// dashboard/mission-control-page.ts) needs to fall back to the estimate when
+// an adapter (copilot-cli/codex/aider) can't report a real costUsd, so
+// RunListEntry must carry buildViewModel's estimatedCostUsd through verbatim
+// rather than silently dropping it like before.
+test('buildRunListEntry carries estimatedCostUsd through from buildViewModel, distinct from costUsd', () => {
+  const events: JournalEvent[] = [
+    ev('run_start', { runId: 'r1', name: 'demo', goal: 'g' }, 100),
+    ev('iteration_end', { iteration: 1, costUsd: 0, estimatedCostUsd: 0.42 }, 200),
+  ]
+  const entry = buildRunListEntry('/projects/demo', 'r1', '/irrelevant', events)
+  expect(entry.costUsd).toBe(0)
+  expect(entry.estimatedCostUsd).toBeCloseTo(0.42)
+})
+
+test('buildRunListEntry defaults estimatedCostUsd to 0 when no event ever carries one', () => {
+  const events: JournalEvent[] = [
+    ev('run_start', { runId: 'r1', name: 'demo', goal: 'g' }, 100),
+    ev('iteration_end', { iteration: 1, costUsd: 0.4 }, 200),
+  ]
+  const entry = buildRunListEntry('/projects/demo', 'r1', '/irrelevant', events)
+  expect(entry.estimatedCostUsd).toBe(0)
+})
+
 test('discoverRuns on an empty workspace list returns no runs', () => {
   expect(discoverRuns([])).toEqual([])
 })

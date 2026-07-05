@@ -106,6 +106,136 @@ test('the inline script is ES5-only: no arrow functions, const, or let', () => {
 // verbatim from run.reason, threaded through from RunListEntry), distinct
 // from the goal/workspace lines via its own class, and it must be
 // skipped entirely for a run with no reason (e.g. running/verified).
+// Executes the inline script's own runCard/renderUsage functions (extracted
+// verbatim from the built page, not reimplemented) against a minimal fake
+// DOM/document, the same technique page.test.ts uses for renderReport. This
+// proves actual runtime cost-display behavior, not just that certain
+// strings appear in the source.
+function makeFakeElement(tag: string) {
+  return {
+    tag,
+    className: '',
+    innerHTML: '',
+    textContent: '',
+    href: '',
+    children: [] as unknown[],
+    appendChild(child: unknown) { this.children.push(child); return child },
+  }
+}
+
+function loadRunCard(): (run: unknown) => ReturnType<typeof makeFakeElement> {
+  const html = buildMissionControlPage()
+  const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
+  const statusClassSrc = script.match(/var STATUS_CLASS = \{[\s\S]*?\};/)![0]
+  const elSrc = script.match(/function el\(tag, className, text\) \{[\s\S]*?\n  \}\n/)![0]
+  const formatTokensSrc = script.match(/function formatTokens\(n\) \{[\s\S]*?\n  \}\n/)![0]
+  const runCardSrc = script.match(/function runCard\(run\) \{[\s\S]*?\n  \}\n/)![0]
+  const factory = new Function('document', `
+    ${statusClassSrc}
+    ${elSrc}
+    ${formatTokensSrc}
+    ${runCardSrc}
+    return runCard;
+  `)
+  const fakeDocument = { createElement: (tag: string) => makeFakeElement(tag) }
+  return factory(fakeDocument) as (run: unknown) => ReturnType<typeof makeFakeElement>
+}
+
+function baseRun(overrides: Record<string, unknown>) {
+  return {
+    workspaceHash: 'h', runId: 'r1', name: 'demo', status: 'verified',
+    agents: [], iteration: 1, tokens: 100, costUsd: 0, estimatedCostUsd: 0,
+    ...overrides,
+  }
+}
+
+function findCostSpan(card: ReturnType<typeof makeFakeElement>) {
+  const stats = card.children.find((c) => (c as { className: string }).className === 'stats') as
+    { children: { className: string, innerHTML: string }[] } | undefined
+  return stats?.children.find((c) => c.innerHTML.indexOf('$') !== -1)
+}
+
+test('a run tile with costUsd 0 and a nonzero estimate shows the estimate prominently, not a flat $0.00', () => {
+  const runCard = loadRunCard()
+  const card = runCard(baseRun({ costUsd: 0, estimatedCostUsd: 0.42 }))
+  const cost = findCostSpan(card)
+  expect(cost).toBeDefined()
+  expect(cost!.innerHTML).toContain('0.42')
+  expect(cost!.innerHTML).toContain('est')
+  expect(cost!.innerHTML).not.toBe('$<b>0.00</b>')
+})
+
+test('a run tile with a nonzero real costUsd still shows the real figure as primary', () => {
+  const runCard = loadRunCard()
+  const card = runCard(baseRun({ costUsd: 1.5, estimatedCostUsd: 0 }))
+  const cost = findCostSpan(card)
+  expect(cost!.innerHTML).toBe('$<b>1.50</b>')
+})
+
+test('a run tile with both a nonzero real costUsd and an estimate keeps the real figure primary, estimate appended', () => {
+  const runCard = loadRunCard()
+  const card = runCard(baseRun({ costUsd: 1.5, estimatedCostUsd: 0.3 }))
+  const cost = findCostSpan(card)
+  expect(cost!.innerHTML).toContain('$<b>1.50</b>')
+  expect(cost!.innerHTML).toContain('~$0.30 est')
+})
+
+test('a run tile with costUsd 0 and no estimate still shows a flat $0.00 (nothing was actually spent)', () => {
+  const runCard = loadRunCard()
+  const card = runCard(baseRun({ costUsd: 0, estimatedCostUsd: 0 }))
+  const cost = findCostSpan(card)
+  expect(cost!.innerHTML).toBe('$<b>0.00</b>')
+})
+
+function loadRenderUsage() {
+  const html = buildMissionControlPage()
+  const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
+  const formatTokensSrc = script.match(/function formatTokens\(n\) \{[\s\S]*?\n  \}\n/)![0]
+  const renderUsageSrc = script.match(/function renderUsage\(runs\) \{[\s\S]*?\n  \}\n/)![0]
+  const factory = new Function('document', `
+    ${formatTokensSrc}
+    ${renderUsageSrc}
+    return renderUsage;
+  `)
+  const store: Record<string, { textContent: string }> = {
+    'usage-workspaces': { textContent: '' },
+    'usage-runs': { textContent: '' },
+    'usage-running': { textContent: '' },
+    'usage-cost': { textContent: '' },
+    'usage-tokens': { textContent: '' },
+  }
+  const fakeDocument = { getElementById: (id: string) => store[id] }
+  const renderUsage = factory(fakeDocument) as (runs: unknown[]) => void
+  return { renderUsage, store }
+}
+
+test('the aggregate cost total sums real and estimated spend separately across runs, then applies real-first precedence', () => {
+  const { renderUsage, store } = loadRenderUsage()
+  // One run reports real spend, another only an estimate - summed
+  // separately (0.5 real, 0.42 estimated) rather than conflated into one
+  // ambiguous per-run-derived number.
+  renderUsage([
+    baseRun({ costUsd: 0.5, estimatedCostUsd: 0 }),
+    baseRun({ costUsd: 0, estimatedCostUsd: 0.42 }),
+  ])
+  expect(store['usage-cost'].textContent).toBe('$0.50 (~$0.42 est)')
+})
+
+test('the aggregate cost total shows the combined estimate as primary when every run has a real costUsd of 0', () => {
+  const { renderUsage, store } = loadRenderUsage()
+  renderUsage([
+    baseRun({ costUsd: 0, estimatedCostUsd: 0.1 }),
+    baseRun({ costUsd: 0, estimatedCostUsd: 0.2 }),
+  ])
+  expect(store['usage-cost'].textContent).toBe('~$0.30 est')
+})
+
+test('the aggregate cost total stays a flat $0.00 when no run has any real or estimated spend', () => {
+  const { renderUsage, store } = loadRenderUsage()
+  renderUsage([baseRun({ costUsd: 0, estimatedCostUsd: 0 })])
+  expect(store['usage-cost'].textContent).toBe('$0.00')
+})
+
 test('run tiles render a one-line reason for halted/canceled runs, distinctly classed, reusing run.reason verbatim', () => {
   const html = buildMissionControlPage()
   const fnMatch = html.match(/function runCard\(run\) \{[\s\S]*?\n  \}/)
