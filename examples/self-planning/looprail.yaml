@@ -9,16 +9,15 @@ agents:
   reviewer: { adapter: copilot-cli, model: gpt-5.3-codex }
 
 graph:
-  # `generates: graph` means this node's ENTIRE output is parsed as YAML - a
-  # planner prompted only in prose ("propose a graph...") will describe the
-  # plan conceptually (numbered steps, prose explanations) rather than emit
-  # literal, parseable YAML, and the splice step will reject it (verified
-  # empirically while dogfooding this feature). Be explicit about the
-  # output format itself, not just what the graph should contain.
+  # generates: graph already gets you (as engine defaults, not something you
+  # need to ask for) the "reply must be only parseable YAML" instruction and
+  # a "make a targeted edit, don't rewrite from scratch" instruction on any
+  # replan - your own prompt below only needs to say what the graph should
+  # contain, not how it should be formatted.
   plan:    { role: planner, agent: planner, generates: graph,
-             prompt: Read the goal above and this repo's structure, then propose a graph of nodes (agents, dependencies, a tester, a critic) that would implement it. Reuse the planner/reviewer agent keys already declared above, or declare additional agents/rails of your own if the goal genuinely needs a different model. Your entire reply must be ONLY a YAML document with a top-level graph key (and agents/rails keys if you add any) - no prose, no numbered-step explanation, no markdown headers. It will be parsed as YAML directly; anything other than valid YAML will be rejected. If feedback below is about a specific part of your previous graph (shown above as the current plan), make a targeted edit addressing exactly that - keep every node and detail that was not flagged unchanged. Do not regenerate the whole graph from scratch each time; a full rewrite risks introducing new problems in parts that were already correct. }
+             prompt: Read the goal above and this repo's structure, then propose a graph of nodes (agents, dependencies, a tester, a critic) that would implement it. Reuse the planner/reviewer agent keys already declared above, or declare additional agents/rails of your own if the goal genuinely needs a different model. }
   review:  { role: critic, agent: reviewer, of: plan, after: plan,
-             prompt: Check whether this proposed graph would actually implement the goal - anything missing (tests? a critic step?), is the budget reasonable, do the dependencies make sense? Fail if the reply is not itself valid, parseable YAML with a graph key - prose describing a plan is not the same as emitting one. }
+             prompt: Check whether this proposed graph would actually implement the goal - anything missing (tests? a critic step?), is the budget reasonable, do the dependencies make sense? }
   approve: { role: gate, after: review }
 
 rails:

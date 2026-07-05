@@ -52,3 +52,30 @@ test('planner context asks for a plan with success criteria', () => {
   const ctx = composeContext(def, node, { plan: null, iteration: 0, feedback: null }, new Map())
   expect(ctx.toLowerCase()).toContain('success criteria')
 })
+
+test('a generates:graph planner is told its reply must be only parseable YAML, unconditionally', () => {
+  const node: NodeDef = { id: 'plan', role: 'planner', agent: 'a', generates: 'graph' }
+  const ctx = composeContext(def, node, { plan: null, iteration: 0, feedback: null }, new Map())
+  expect(ctx.toLowerCase()).toContain('only a parseable yaml document')
+  expect(ctx.toLowerCase()).toContain('graph key')
+})
+
+test('a plain planner (no generates:graph) never gets the YAML-only instruction', () => {
+  const node: NodeDef = { id: 'plan', role: 'planner', agent: 'a' }
+  const ctx = composeContext(def, node, { plan: null, iteration: 0, feedback: null }, new Map())
+  expect(ctx.toLowerCase()).not.toContain('parseable yaml document')
+})
+
+test('a generates:graph planner on a replan (has both a previous plan and feedback) is told to make a targeted edit, not rewrite from scratch', () => {
+  const node: NodeDef = { id: 'plan', role: 'planner', agent: 'a', generates: 'graph' }
+  const ctx = composeContext(def, node, state, new Map()) // state has both plan and feedback set
+  expect(ctx.toLowerCase()).toContain('targeted edit')
+  expect(ctx.toLowerCase()).toContain('do not')
+  expect(ctx.toLowerCase()).toContain('regenerate the whole graph')
+})
+
+test('a generates:graph planner on its first attempt (no prior plan yet) does not get the targeted-edit instruction - there is nothing to edit yet', () => {
+  const node: NodeDef = { id: 'plan', role: 'planner', agent: 'a', generates: 'graph' }
+  const ctx = composeContext(def, node, { plan: null, iteration: 0, feedback: null }, new Map())
+  expect(ctx.toLowerCase()).not.toContain('targeted edit')
+})

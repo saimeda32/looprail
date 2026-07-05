@@ -41,6 +41,29 @@ const ROLE_INSTRUCTIONS: Record<Role, string> = {
     'coherent result, resolving conflicts and removing duplicates.',
 }
 
+// A generates:'graph' planner's output is parsed as YAML, and a replan
+// gives it its own previous attempt in context ("# Current plan" below) -
+// but neither of those things is obvious from a plain "propose a graph"
+// prompt, and expecting every loopfile author to spell out "reply with
+// ONLY YAML" and "make a targeted edit, don't rewrite from scratch" in
+// their own prompt text puts real prompt-engineering expertise on users
+// this feature is supposed to spare that burden for. Both instructions are
+// unconditional, mechanical requirements of the *feature itself* - they
+// belong here as default tool behavior, not as something an example's
+// prompt happens to remember to ask for.
+const GENERATES_GRAPH_FORMAT_INSTRUCTIONS =
+  'Your entire reply must be ONLY a parseable YAML document with a top-level ' +
+  'graph key (and agents/rails keys if you need to add any) - no prose, no ' +
+  'markdown headers, no explanation before or after it. It will be parsed as ' +
+  'YAML directly; anything else will be rejected automatically.'
+
+const GENERATES_GRAPH_EDIT_INSTRUCTIONS =
+  'If feedback below is about a specific part of your previous graph (shown ' +
+  'above as the current plan), make a targeted edit addressing exactly that - ' +
+  'keep every node and detail that was not flagged unchanged. Do not ' +
+  'regenerate the whole graph from scratch; a full rewrite risks introducing ' +
+  'new problems in parts that were already correct.'
+
 export function composeContext(
   def: LoopDef,
   node: NodeDef,
@@ -68,6 +91,10 @@ export function composeContext(
   }
 
   parts.push(`# Your role\n${ROLE_INSTRUCTIONS[node.role]}`)
+  if (node.generates === 'graph') {
+    parts.push(GENERATES_GRAPH_FORMAT_INSTRUCTIONS)
+    if (state.plan && state.feedback) parts.push(GENERATES_GRAPH_EDIT_INSTRUCTIONS)
+  }
   if (node.prompt) parts.push(`# Additional instructions\n${node.prompt}`)
   if (node.role === 'critic' || node.role === 'judge') parts.push(VERDICT_FORMAT)
   return parts.join('\n\n')
