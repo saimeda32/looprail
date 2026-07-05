@@ -215,3 +215,79 @@ test('the DAG svg width is set to the real content width, not left at "100%", an
   expect(html).toContain("svg.setAttribute('width', String(Math.max(maxX, 400)))")
   expect(html).toContain('canvasWrap.scrollLeft = canvasWrap.scrollWidth')
 })
+
+// Executes the inline script's own htmlEl/renderReport functions (extracted
+// verbatim from the built page, not reimplemented) against a minimal fake
+// DOM, so this proves actual runtime behavior - not just that certain
+// strings appear in the source - for the one property that matters here:
+// the expandable files-touched element must exist if and only if
+// report.filesTouched has something in it.
+function loadRenderReport(): (report: unknown) => void {
+  const html = buildPage()
+  const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
+  const htmlElSrc = script.match(/function htmlEl\(tag, className, text\) \{[\s\S]*?\n  \}\n/)![0]
+  const renderReportSrc = script.match(/function renderReport\(report\) \{[\s\S]*?\n  \}\n(?=\n  \/\/|\n  function renderAgentTable)/)![0]
+  const factory = new Function('document', `
+    ${htmlElSrc}
+    ${renderReportSrc}
+    return renderReport;
+  `)
+
+  function makeFakeElement(tag: string) {
+    return {
+      tag,
+      className: '',
+      textContent: '',
+      style: {} as Record<string, string>,
+      children: [] as unknown[],
+      appendChild(child: unknown) { this.children.push(child); return child },
+      set innerHTML(_v: string) { this.children = [] },
+    }
+  }
+  const store: Record<string, ReturnType<typeof makeFakeElement>> = {
+    'report-head': makeFakeElement('div'),
+    'report-panel': makeFakeElement('div'),
+    'report-summary': makeFakeElement('div'),
+    'report-claims': makeFakeElement('div'),
+    'files-touched-container': makeFakeElement('div'),
+  }
+  const fakeDocument = {
+    createElement: (tag: string) => makeFakeElement(tag),
+    createTextNode: (text: string) => ({ tag: '#text', textContent: text }),
+    getElementById: (id: string) => store[id],
+    __store: store,
+  }
+  const renderReport = factory(fakeDocument) as (report: unknown) => void
+  return Object.assign(renderReport, { store })
+}
+
+test('renderReport creates the expandable files-touched element only when filesTouched is non-empty', () => {
+  const renderReport = loadRenderReport() as ((report: unknown) => void) & {
+    store: Record<string, { children: unknown[] }>
+  }
+  renderReport({ summary: 's', source: 'agent', claims: [], filesTouched: ['a.ts', 'b.ts'] })
+  const container = renderReport.store['files-touched-container']
+  expect(container.children).toHaveLength(1)
+  const details = container.children[0] as { tag: string; children: unknown[] }
+  expect(details.tag).toBe('details')
+  const summaryEl = details.children[0] as { tag: string; textContent: string }
+  expect(summaryEl.tag).toBe('summary')
+  expect(summaryEl.textContent).toBe('2 files touched')
+  const list = details.children[1] as { tag: string; children: { textContent: string }[] }
+  expect(list.tag).toBe('ul')
+  expect(list.children.map((li) => li.textContent)).toEqual(['a.ts', 'b.ts'])
+})
+
+test('renderReport renders nothing for files-touched when filesTouched is empty or absent', () => {
+  const renderReport = loadRenderReport() as ((report: unknown) => void) & {
+    store: Record<string, { children: unknown[] }>
+  }
+  renderReport({ summary: 's', source: 'agent', claims: [], filesTouched: [] })
+  expect(renderReport.store['files-touched-container'].children).toHaveLength(0)
+
+  const renderReport2 = loadRenderReport() as ((report: unknown) => void) & {
+    store: Record<string, { children: unknown[] }>
+  }
+  renderReport2({ summary: 's', source: 'agent', claims: [] })
+  expect(renderReport2.store['files-touched-container'].children).toHaveLength(0)
+})

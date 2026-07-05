@@ -1,4 +1,5 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -678,4 +679,36 @@ rails:
   })
   expect(code).toBe(2) // halted, not verified
   expect(gateCalls).toBe(0) // the gate must never be asked about unparseable content
+})
+
+test('the human-readable report shows a "files touched" count when the run cwd has real git changes', async () => {
+  const { cwd, io, lines } = setup(FIXTURE)
+  execFileSync('git', ['init', '-q'], { cwd })
+  writeFileSync(join(cwd, 'touched-1.txt'), 'a')
+  writeFileSync(join(cwd, 'touched-2.txt'), 'b')
+  const code = await runAction(undefined, { cwd }, { io })
+  expect(code).toBe(0)
+  const text = lines.join('\n')
+  // looprail.yaml itself is untracked too, so at least the 2 files above are
+  // always included, but the exact count also depends on the fixture file -
+  // just assert the note appears with some real number, not a specific one.
+  expect(text).toMatch(/\d+ files touched - run `git diff --stat`/)
+})
+
+test('the human-readable report omits the "files touched" note when the run cwd is not a git repo', async () => {
+  const { cwd, io, lines } = setup(FIXTURE)
+  const code = await runAction(undefined, { cwd }, { io })
+  expect(code).toBe(0)
+  const text = lines.join('\n')
+  expect(text).not.toContain('files touched')
+})
+
+test('--json includes filesTouched inside the nested report object', async () => {
+  const { cwd, io, lines } = setup(FIXTURE)
+  execFileSync('git', ['init', '-q'], { cwd })
+  writeFileSync(join(cwd, 'touched.txt'), 'a')
+  const code = await runAction(undefined, { cwd, json: true }, { io })
+  expect(code).toBe(0)
+  const parsed = JSON.parse(lines[0]) as { report: { filesTouched?: string[] } }
+  expect(parsed.report.filesTouched).toContain('touched.txt')
 })

@@ -1,12 +1,13 @@
 import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import { runLoop } from './runner.js'
 import { readJournal } from '../journal/journal.js'
 import { MockAdapter } from '../adapters/mock.js'
 import { createRegistry } from '../adapters/registry.js'
 import type { AgentResult, LoopDef } from '../core/types.js'
+import * as git from '../core/git.js'
 
 const loop = (over: Partial<LoopDef> = {}): LoopDef => ({
   name: 'demo',
@@ -540,4 +541,81 @@ test('rails.max_cost_usd fires on estimate-only spend (costUsd 0, estimatedCostU
   expect(mock.calls).toHaveLength(2) // judge's adapter was never invoked
   expect(report.costUsd).toBeCloseTo(0) // real spend genuinely stayed 0
   expect(report.estimatedCostUsd).toBeCloseTo(1.2) // estimate is what breached it
+})
+
+// filesTouched must come from real git state (core/git.ts), never from the
+// reporting agent's own narration - stubbed here rather than shelling out to
+// a real git repo, since what's under test is that buildFinalReport wires
+// opts.cwd through to the git helper and threads its result onto the report,
+// not that the git helper itself works (see core/git.test.ts for that).
+test('buildFinalReport populates report.filesTouched from the real git computation, keyed on opts.cwd', async () => {
+  const spy = vi.spyOn(git, 'filesTouched').mockReturnValue(['src/a.ts', 'src/b.ts'])
+  try {
+    const mock = new MockAdapter([
+      { match: /PLANNER/, output: 'the plan' },
+      { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: plan is sound' },
+      { match: /EXECUTOR/, output: 'DONE' },
+      { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: verified DONE' },
+    ])
+    const report = await runLoop(loop(), { registry: reg(mock), cwd: '/some/run/cwd' })
+    expect(report.report.filesTouched).toEqual(['src/a.ts', 'src/b.ts'])
+    expect(spy).toHaveBeenCalledWith('/some/run/cwd')
+  } finally {
+    spy.mockRestore()
+  }
+})
+
+test('buildFinalReport sets filesTouched to an empty list, never calling git, when no cwd was given', async () => {
+  const spy = vi.spyOn(git, 'filesTouched')
+  try {
+    const mock = new MockAdapter([
+      { match: /PLANNER/, output: 'the plan' },
+      { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: plan is sound' },
+      { match: /EXECUTOR/, output: 'DONE' },
+      { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: verified DONE' },
+    ])
+    const report = await runLoop(loop(), { registry: reg(mock) })
+    expect(report.report.filesTouched).toEqual([])
+    expect(spy).not.toHaveBeenCalled()
+  } finally {
+    spy.mockRestore()
+  }
+})
+
+// End-to-end degrade-gracefully proof, using the real (non-stubbed) git
+// helper against an actual non-git directory - see core/git.test.ts for the
+// exhaustive git-command coverage; this only proves buildFinalReport itself
+// never fails the run over it.
+test('buildFinalReport degrades to an empty filesTouched list when opts.cwd is not a git repo, without failing the run', async () => {
+  const nonGitDir = mkdtempSync(join(tmpdir(), 'lr-nongit-'))
+  const mock = new MockAdapter([
+    { match: /PLANNER/, output: 'the plan' },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: plan is sound' },
+    { match: /EXECUTOR/, output: 'DONE' },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: verified DONE' },
+  ])
+  const report = await runLoop(loop(), { registry: reg(mock), cwd: nonGitDir })
+  expect(report.status).toBe('verified')
+  expect(report.report.filesTouched).toEqual([])
+})
+
+// The fallback path (no reporting agent) is the one path buildFinalReport
+// takes on virtually every rail breach; filesTouched must still populate
+// there too, since it comes from git, entirely independent of whether any
+// reporting agent ever ran.
+test('buildFinalReport populates filesTouched on the fallback report path too (no reporting agent)', async () => {
+  const spy = vi.spyOn(git, 'filesTouched').mockReturnValue(['README.md'])
+  try {
+    const def = loop({
+      agents: {},
+      nodes: [
+        { id: 'do', role: 'tester', run: 'true', expect: 'exit 0' },
+      ],
+    })
+    const report = await runLoop(def, { registry: reg(new MockAdapter([])), cwd: '/tmp/whatever' })
+    expect(report.report.source).toBe('fallback')
+    expect(report.report.filesTouched).toEqual(['README.md'])
+  } finally {
+    spy.mockRestore()
+  }
 })
