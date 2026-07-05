@@ -104,11 +104,66 @@ test('spliceFragment throws the original collision error when every rename suffi
   )).toThrow(/invalid fragment:.*agent key "worker" already exists/)
 })
 
-test('spliceFragment throws on a node id that collides with an existing node', () => {
+test('spliceFragment auto-repairs a colliding node id by renaming it and rewiring after/of references', () => {
+  const result = spliceFragment(
+    {
+      nodes: [
+        { id: 'approve', role: 'executor', agent: 'worker' },
+        { id: 'review', role: 'critic', of: 'approve', agent: 'worker' },
+        { id: 'finish', role: 'executor', agent: 'worker', after: ['approve'] },
+      ],
+    },
+    { worker: WORKER },
+    new Set(['plan', 'approve']),
+    'plan',
+  )
+  // the colliding "approve" id is renamed to the first non-colliding suffix,
+  // and every other node in the same fragment that referenced it via `of`
+  // or `after` is rewired to the new id - no LLM replan needed.
+  expect(result.nodes.find((n) => n.id === 'approve')).toBeUndefined()
+  const renamed = result.nodes.find((n) => n.id === 'approve-2')!
+  expect(renamed).toBeDefined()
+  const review = result.nodes.find((n) => n.id === 'review')!
+  expect(review.of).toBe('approve-2')
+  const finish = result.nodes.find((n) => n.id === 'finish')!
+  expect(finish.after).toEqual(['approve-2'])
+})
+
+test('spliceFragment node id auto-repair picks the next free suffix when an earlier one is already taken', () => {
+  const result = spliceFragment(
+    { nodes: [{ id: 'plan', role: 'executor', agent: 'worker' }] },
+    { worker: WORKER },
+    new Set(['plan', 'plan-2', 'review', 'approve']),
+    'approve',
+  )
+  expect(result.nodes.find((n) => n.id === 'plan-3')).toBeDefined()
+})
+
+test('spliceFragment node id auto-repair avoids colliding with another id declared in the same fragment', () => {
+  const result = spliceFragment(
+    {
+      nodes: [
+        { id: 'plan', role: 'executor', agent: 'worker' },
+        { id: 'plan-2', role: 'executor', agent: 'worker', after: ['plan'] },
+      ],
+    },
+    { worker: WORKER },
+    new Set(['plan', 'review', 'approve']),
+    'approve',
+  )
+  const renamed = result.nodes.find((n) => n.id === 'plan-3')!
+  expect(renamed).toBeDefined()
+  const dependent = result.nodes.find((n) => n.id === 'plan-2')!
+  expect(dependent.after).toEqual(['plan-3'])
+})
+
+test('spliceFragment throws the original collision error when every node id rename suffix is already taken', () => {
+  const existingNodeIds = new Set(['plan', 'review', 'approve'])
+  for (let i = 2; i <= 1000; i++) existingNodeIds.add(`plan-${i}`)
   expect(() => spliceFragment(
     { nodes: [{ id: 'plan', role: 'executor', agent: 'worker' }] },
     { worker: WORKER },
-    new Set(['plan', 'review', 'approve']),
+    existingNodeIds,
     'approve',
   )).toThrow(/invalid fragment:.*node id "plan" already exists/)
 })

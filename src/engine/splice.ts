@@ -60,18 +60,50 @@ export function spliceFragment(
           : n
       ))
 
-  for (const n of renamedNodes) {
-    if (existingNodeIds.has(n.id)) {
+  // A colliding node id is the same kind of purely mechanical failure as a
+  // colliding agent key above: the live run's node ids are already known, so
+  // the fix (rename the one colliding id to something that doesn't collide,
+  // and rewire this fragment's own `after`/`of` references that point at it)
+  // has no judgment call in it either. `nodeIdRenames` tracks old id -> new
+  // id so those references can be rewritten below; `reservedNodeIds` is
+  // every id already spoken for (the live run's nodes, this fragment's own
+  // untouched ids, and any rename already chosen) so a rename can never
+  // collide with any of those.
+  const nodeIdRenames = new Map<string, string>()
+  const reservedNodeIds = new Set([...existingNodeIds, ...renamedNodes.map((n) => n.id)])
+  const idRenamedNodes = renamedNodes.map((n) => {
+    if (!existingNodeIds.has(n.id)) {
+      return n
+    }
+    let renamed: string | undefined
+    for (let i = 2; i <= MAX_RENAME_ATTEMPTS; i++) {
+      const candidate = `${n.id}-${i}`
+      if (!existingNodeIds.has(candidate) && !reservedNodeIds.has(candidate)) {
+        renamed = candidate
+        break
+      }
+    }
+    if (renamed === undefined) {
       throw new Error(`invalid fragment: node id "${n.id}" already exists`)
     }
-  }
+    nodeIdRenames.set(n.id, renamed)
+    reservedNodeIds.add(renamed)
+    return { ...n, id: renamed }
+  })
+  const rewiredNodes = nodeIdRenames.size === 0
+    ? idRenamedNodes
+    : idRenamedNodes.map((n) => ({
+        ...n,
+        after: n.after?.map((dep) => nodeIdRenames.get(dep) ?? dep),
+        of: n.of !== undefined && nodeIdRenames.has(n.of) ? nodeIdRenames.get(n.of)! : n.of,
+      }))
 
   const mergedAgents = { ...existingAgents, ...renamedFragmentAgents }
   // Root nodes (no `after` of their own) become dependents of the gate, so
   // the scheduler's topoLayers never runs them before the human approved -
   // nodes that already declare a dependency (on each other, within the
   // fragment) keep it untouched.
-  const wiredNodes = renamedNodes.map((n) => (
+  const wiredNodes = rewiredNodes.map((n) => (
     n.after === undefined || n.after.length === 0
       ? { ...n, after: [gateNodeId] }
       : n
