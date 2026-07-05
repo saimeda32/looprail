@@ -560,3 +560,45 @@ rails:
   expect(code).toBe(2) // halted, not verified - the limit was hit, not satisfied
   expect(gateCalls).toBe(3) // 1 initial approval attempt + 2 replans (replan_limit) - no 4th
 })
+
+test('a generates:graph planner that first replies with prose self-corrects automatically, never reaching the gate on the bad attempt', async () => {
+  const SELF_PLANNING_FORMAT = `
+name: self-planning-format-fixture
+goal: Do the generated thing.
+agents:
+  planner: { adapter: mock }
+graph:
+  plan:    { role: planner, agent: planner, generates: graph, rounds: 2 }
+  approve: { role: gate, after: plan }
+rails:
+  max_iterations: 5
+  max_cost_usd: 1
+`
+  const { cwd, io } = setup(SELF_PLANNING_FORMAT)
+  const registry = createRegistry()
+  registry.register(new MockAdapter([
+    // first attempt: prose, no graph: key at all - must self-correct, not reach the gate
+    { match: /PLANNER/, output: '## Plan\nHere is my plan in prose form, no YAML at all.' },
+    // second attempt, after the automatic format-error feedback: real YAML.
+    // Includes a critic so the spliced graph has a verifying node - without
+    // one, all-pass has nothing to ever pass and the run just iterates the
+    // executor forever until rails halt it (a test-fixture issue, not a
+    // property of the format-check fix itself).
+    { match: /PLANNER/, output: 'graph:\n  build: { role: executor, agent: planner }\n  check: { role: critic, of: build, agent: planner }\n' },
+    { output: '[mock] build done' }, // the spliced "build" node's own invocation
+    { output: 'VERDICT: pass\nEVIDENCE: looks good' }, // the spliced "check" critic's own invocation
+  ]))
+  let gateCalls = 0
+  const code = await runAction(undefined, { cwd }, {
+    io, registry, gate: async () => { gateCalls += 1; return { approved: true } },
+  })
+  expect(code).toBe(0)
+  // the gate was only ever asked about the SECOND (valid) attempt - the
+  // prose attempt never reached it at all
+  expect(gateCalls).toBe(1)
+  const { latestRunId, runsRoot } = await import('./status-cmd.js')
+  const { readJournal } = await import('../journal/journal.js')
+  const runDir = join(runsRoot(cwd), latestRunId(cwd)!)
+  const events = readJournal(join(runDir, 'journal.jsonl'))
+  expect(events.some((e) => e.type === 'node_start' && (e.data as { nodeId: string }).nodeId === 'build')).toBe(true)
+})

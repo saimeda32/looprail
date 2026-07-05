@@ -227,6 +227,28 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
       const planner = outs.find((o) => o.role === 'planner')
       if (planner) state.plan = planner.output
       if (guard.check(state.iteration)) return // breached mid-planning; loop halts on entry
+
+      // A generates:'graph' planner's output must be parseable before a
+      // human or critic ever sees it. Whether it's valid YAML is a purely
+      // mechanical question - it never requires judgment the way "is this
+      // graph a good idea" does - so it gets one automatic, free
+      // self-correction round here, using the real parse error as
+      // feedback, instead of reaching a human as an undiagnosable "reject
+      // this and try to explain what's wrong" cycle (verified empirically:
+      // a planner can fail this same way for several rounds straight, and
+      // nothing about the failure is visible to a non-technical user
+      // without reading raw output directly).
+      const plannerNode = planner && expanded.nodes.find((n) => n.id === planner.nodeId)
+      if (plannerNode?.generates === 'graph') {
+        try {
+          parseGraphFragment(state.plan ?? '')
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          state.feedback = `OUTPUT FORMAT ERROR (automatic - not from a human or critic): ${msg}\nYour entire reply must be ONLY a parseable YAML document with a top-level graph: key - no prose, no markdown headers, no explanation before or after it. Fix this before anything else can be reviewed.`
+          continue
+        }
+      }
+
       const critiques = outs.filter((o) => o.verdict && o.verdict.status !== 'pass')
       if (critiques.length === 0) return
       state.feedback = critiques.map((o) => `[${o.nodeId}] ${o.verdict!.evidence}`).join('\n')
