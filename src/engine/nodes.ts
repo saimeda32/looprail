@@ -1,6 +1,6 @@
 import { execa } from 'execa'
 import type { Adapter, AgentDef, GateHandler, LoopDef, NodeDef, NodeOutcome } from '../core/types.js'
-import { normalizeGateAnswer } from '../core/types.js'
+import { DEFAULT_VERDICT_THRESHOLD, normalizeGateAnswer } from '../core/types.js'
 import { composeContext, type RunState } from '../core/context.js'
 import { parseVerdict } from '../core/verdict.js'
 import type { AdapterRegistry } from '../adapters/registry.js'
@@ -157,11 +157,20 @@ export async function executeNode(
       res = retry
     }
 
-    if (node.role === 'judge' && verdict && node.threshold !== undefined && verdict.status === 'pass') {
+    if (VERIFYING.has(node.role) && verdict && verdict.status === 'pass') {
+      // Every critic/judge is held to an effective threshold: the loopfile's
+      // explicit `threshold:` when set, else DEFAULT_VERDICT_THRESHOLD.
+      const effectiveThreshold = node.threshold ?? DEFAULT_VERDICT_THRESHOLD
       if (verdict.score === undefined || !Number.isFinite(verdict.score)) {
-        verdict = { ...verdict, status: 'fail', evidence: `judge reported no usable SCORE; threshold ${node.threshold} requires one` }
-      } else if (verdict.score < node.threshold) {
-        verdict = { ...verdict, status: 'fail', evidence: `score ${verdict.score} below threshold ${node.threshold}` }
+        // No usable SCORE to compare: only an explicit threshold fails the
+        // verdict here (preserves prior judge behavior). A merely-default
+        // threshold must not fail every score-less reply, since most
+        // existing critic replies never include a SCORE at all.
+        if (node.threshold !== undefined) {
+          verdict = { ...verdict, status: 'fail', evidence: `${node.role} reported no usable SCORE; threshold ${node.threshold} requires one` }
+        }
+      } else if (verdict.score < effectiveThreshold) {
+        verdict = { ...verdict, status: 'fail', evidence: `score ${verdict.score} below threshold ${effectiveThreshold}` }
       }
     }
 

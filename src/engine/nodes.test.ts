@@ -74,6 +74,53 @@ test('judge below threshold fails even when it says pass', async () => {
   expect(out.verdict!.evidence).toContain('threshold')
 })
 
+// The app-level DEFAULT_VERDICT_THRESHOLD (0.7, see core/types.ts) applies to
+// critic/judge nodes whenever the loopfile omits an explicit `threshold:`.
+test('critic with no explicit threshold fails when its own SCORE is below the app default', async () => {
+  const deps = depsWith(new MockAdapter([{ output: 'VERDICT: pass\nSCORE: 0.5\nEVIDENCE: ok' }]))
+  const node: NodeDef = { id: 'c', role: 'critic', agent: 'a' }
+  const out = await executeNode(def, node, state, none, deps)
+  expect(out.verdict!.status).toBe('fail')
+  expect(out.verdict!.evidence).toContain('threshold')
+  expect(out.verdict!.evidence).toContain('0.7')
+})
+
+test('critic with no explicit threshold still passes when its own SCORE meets the app default', async () => {
+  const deps = depsWith(new MockAdapter([{ output: 'VERDICT: pass\nSCORE: 0.7\nEVIDENCE: ok' }]))
+  const node: NodeDef = { id: 'c', role: 'critic', agent: 'a' }
+  const out = await executeNode(def, node, state, none, deps)
+  expect(out.verdict!.status).toBe('pass')
+})
+
+test('explicit YAML threshold overrides the app default stricter (fails below explicit even though above default)', async () => {
+  const deps = depsWith(new MockAdapter([{ output: 'VERDICT: pass\nSCORE: 0.75\nEVIDENCE: ok' }]))
+  const node: NodeDef = { id: 'c', role: 'critic', agent: 'a', threshold: 0.9 }
+  const out = await executeNode(def, node, state, none, deps)
+  expect(out.verdict!.status).toBe('fail')
+  expect(out.verdict!.evidence).toContain('0.9')
+})
+
+test('explicit YAML threshold overrides the app default looser (passes below default because explicit is lower)', async () => {
+  const deps = depsWith(new MockAdapter([{ output: 'VERDICT: pass\nSCORE: 0.5\nEVIDENCE: ok' }]))
+  const node: NodeDef = { id: 'c', role: 'critic', agent: 'a', threshold: 0.3 }
+  const out = await executeNode(def, node, state, none, deps)
+  expect(out.verdict!.status).toBe('pass')
+})
+
+test('critic reply with no SCORE at all is unaffected by the app default threshold', async () => {
+  const deps = depsWith(new MockAdapter([{ output: 'VERDICT: pass\nEVIDENCE: looks good' }]))
+  const node: NodeDef = { id: 'c', role: 'critic', agent: 'a' }
+  const out = await executeNode(def, node, state, none, deps)
+  expect(out.verdict!.status).toBe('pass')
+})
+
+test('judge reply with no SCORE at all is unaffected by the app default threshold (no explicit threshold set)', async () => {
+  const deps = depsWith(new MockAdapter([{ output: 'VERDICT: pass\nEVIDENCE: looks good' }]))
+  const node: NodeDef = { id: 'j', role: 'judge', agent: 'a' }
+  const out = await executeNode(def, node, state, none, deps)
+  expect(out.verdict!.status).toBe('pass')
+})
+
 test('tester passes on exit 0 and fails with output evidence otherwise', async () => {
   const deps: EngineDeps = { registry: createRegistry() }
   const pass = await executeNode(def, { id: 't1', role: 'tester', run: 'true' }, state, none, deps)
