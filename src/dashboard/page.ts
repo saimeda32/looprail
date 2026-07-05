@@ -193,6 +193,12 @@ export function buildPage(): string {
   #feedback-status.err, #resume-status.err { color: var(--fail); }
 
   #detail-panel { white-space: pre-wrap; font: 12px/1.55 var(--mono); background: var(--panel); border: 1px solid var(--line); border-radius: 3px; color: var(--ink); padding: 14px 16px; max-height: 260px; overflow: auto; }
+  /* Same boxed-container treatment as #detail-panel (Selected node) - the
+     report previously sat as bare text with no visual container at all. */
+  #report-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 14px 16px; }
+  /* Same boxed-container treatment as #detail-panel/#report-panel - plan
+     evolution previously sat as bare text with no visual container either. */
+  #plans { background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 14px 16px; }
   .plan-version { border-left: 2px solid var(--line-bright); padding: 4px 0 4px 12px; margin-bottom: 10px; font-size: 12px; color: var(--ink-dim); }
   .plan-version pre { white-space: pre-wrap; margin: 4px 0 0; color: var(--ink); font-family: var(--mono); max-height: 240px; overflow-y: auto; }
   .report-summary { font-size: 13px; line-height: 1.6; color: var(--ink); margin-bottom: 14px; }

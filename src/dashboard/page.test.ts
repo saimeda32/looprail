@@ -291,3 +291,22 @@ test('renderReport renders nothing for files-touched when filesTouched is empty 
   renderReport2({ summary: 's', source: 'agent', claims: [] })
   expect(renderReport2.store['files-touched-container'].children).toHaveLength(0)
 })
+
+// Final report and Plan evolution both previously sat as bare text with
+// no visual container at all, unlike #detail-panel (Selected node) which
+// has a proper boxed treatment - background/border/radius/padding. Match
+// that same treatment on all three.
+test('#report-panel and #plans have the same boxed-container treatment as #detail-panel', () => {
+  const html = buildPage()
+  const detailRule = html.match(/#detail-panel\s*\{([^}]*)\}/)
+  const reportRule = html.match(/#report-panel\s*\{([^}]*)\}/)
+  const plansRule = html.match(/#plans\s*\{([^}]*)\}/)
+  expect(detailRule).not.toBeNull()
+  expect(reportRule).not.toBeNull()
+  expect(plansRule).not.toBeNull()
+  for (const prop of ['background:', 'border:', 'border-radius:', 'padding:']) {
+    expect(detailRule![1]).toContain(prop)
+    expect(reportRule![1]).toContain(prop)
+    expect(plansRule![1]).toContain(prop)
+  }
+})
