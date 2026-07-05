@@ -3,12 +3,13 @@ import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import type { Command } from 'commander'
 import {
-  createDefaultRegistry, expandPanels, JournalWriter, lintLoop, parseLoopfile, readJournal, runLoop,
-  summarizeJournal,
-  type AdapterRegistry, type GateHandler, type JournalEvent, type LoopDef,
+  createDefaultRegistry, expandPanels, findPlanGenerator, JournalWriter, lintLoop, normalizeGateAnswer,
+  parseLoopfile, readJournal, runLoop, summarizeJournal,
+  type AdapterRegistry, type GateAnswer, type GateHandler, type JournalEvent, type LoopDef, type NodeDef,
   type NodeOutcome, type Rails, type RunReport,
 } from '../index.js'
 import { DEFAULT_DASHBOARD_PORT, startDashboardServer, type DashboardServer } from '../dashboard/server.js'
+import { registerPendingGate, resolvePendingGate, sweepPendingGates } from '../dashboard/gate-registry.js'
 import { runsRoot } from '../journal/runs.js'
 import { persistRunLoopDef } from '../journal/loopfile-persist.js'
 import { hasStoredApproval, storeApproval } from '../journal/gate-approvals.js'
@@ -98,6 +99,165 @@ export function makeGate(
       }
     } finally {
       rl.close()
+    }
+  }
+}
+
+// Written to the run's own directory the instant a gate begins waiting for a
+// human answer, and removed the instant it settles - modeled directly on
+// writeRunPid/removeRunPid's "describe live OS/engine state next to the
+// journal, not inside it" pattern (see those functions' own comments). This
+// exists because a dashboard's view-model (view-model.ts's buildViewModel)
+// is pure and journal-derived: there is no "gate is currently waiting" event
+// in the journal itself (the gate node's node_start already happened; its
+// node_end only lands once the gate settles), so a viewer process (the
+// server started by `looprail ui` running against this same run directory
+// from a separate process) has no other way to know a gate is pending right
+// now. The gate call's own in-process registry entry (dashboard/gate-
+// registry.ts) already lets the SAME process answer it directly; this file
+// is what makes that fact visible to any OTHER process reading this run
+// directory too.
+export interface GateWaitingMarker {
+  nodeId: string
+  isPlanApproval: boolean
+  question: string
+}
+
+function gateWaitingPath(runDir: string): string {
+  return join(runDir, 'gate-waiting.json')
+}
+
+export function writeGateWaitingMarker(runDir: string, marker: GateWaitingMarker): void {
+  try {
+    writeFileSync(gateWaitingPath(runDir), JSON.stringify(marker))
+  } catch {
+    // swallowed - a run must never fail just because it couldn't record this
+  }
+}
+
+export function removeGateWaitingMarker(runDir: string): void {
+  try {
+    unlinkSync(gateWaitingPath(runDir))
+  } catch {
+    // swallowed - already gone, or never written; either way nothing to clean up
+  }
+}
+
+export function readGateWaitingMarker(runDir: string): GateWaitingMarker | undefined {
+  try {
+    return JSON.parse(readFileSync(gateWaitingPath(runDir), 'utf8')) as GateWaitingMarker
+  } catch {
+    return undefined
+  }
+}
+
+// Builds the GateHandler used ONLY when `looprail run --ui` is active (see
+// runAction below) - a live blocked gate answerable from EITHER the
+// terminal OR the dashboard's /control approve-gate/reject-gate actions,
+// whichever answers first. makeGate above is completely untouched: when
+// --ui is not set, this function is never called and the CLI's existing
+// stdin-only behavior is exactly what it always was.
+//
+// autoApprove and hasStoredApproval are honored FIRST, identically to
+// makeGate - an already-decided gate (via --yes or a prior "always" answer)
+// never even registers with the dashboard, exactly mirroring makeGate's own
+// short-circuit.
+//
+// isPlanApproval is computed once per gate call via findPlanGenerator
+// (extracted from engine/runner.ts, see that function's own comment) against
+// the full panel-expanded node list, so the dashboard can label a plan-
+// approval gate distinctly from an ordinary one without re-deriving a
+// second, possibly-diverging detection of its own.
+//
+// A dashboard-supplied GateAnswer flows through resolvePendingGate exactly
+// like the readline-answered path below - both funnel into the exact same
+// GateAnswer shape callers (runner.ts's routeIteration/plan-approval
+// splice handling) already expect via normalizeGateAnswer; there is no
+// second, parallel approval mechanism.
+export function makeUiGate(
+  rails: Rails, io: CliIo, autoApprove: boolean, cwd: string,
+  runId: string, runDir: string, expandedNodes: NodeDef[],
+  timerDeps: GateTimerDeps = {},
+  stdin: NodeJS.ReadableStream = process.stdin,
+): GateHandler {
+  return async (node, context) => {
+    if (autoApprove) {
+      io.out(warn(`gate "${node.id}" auto-approved (--yes)`))
+      return { approved: true }
+    }
+    if (hasStoredApproval(cwd, node)) {
+      io.out(warn(`gate "${node.id}" - previously approved, skipping prompt`))
+      return { approved: true }
+    }
+
+    const isPlanApproval = !!findPlanGenerator(expandedNodes, node)
+    writeGateWaitingMarker(runDir, { nodeId: node.id, isPlanApproval, question: context })
+
+    const rl = createInterface({ input: stdin, output: process.stdout })
+    // Same abort seam makeGate uses for the readline question - whichever
+    // of stdin / dashboard / timeout settles first, the others must be
+    // settled too so nothing is left dangling for the process lifetime.
+    const ac = new AbortController()
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+
+    // Wraps the raw readline answer into the same GateAnswer shape a
+    // dashboard-supplied answer already has, using the identical parsing
+    // makeGate itself performs (a/always stores the approval, y/yes
+    // approves, empty rejects with no feedback, anything else is captured
+    // as rejection feedback) - so whichever channel wins the race, the
+    // caller downstream sees one consistent GateAnswer shape either way.
+    const stdinAnswered: Promise<GateAnswer> = (async () => {
+      const answer = await rl.question(`gate "${node.id}" - approve? [y/N/a=always] `, { signal: ac.signal })
+      if (/^a(lways)?$/i.test(answer.trim())) {
+        storeApproval(cwd, node)
+        return { approved: true }
+      }
+      const trimmed = answer.trim()
+      if (/^y(es)?$/i.test(trimmed)) return { approved: true }
+      if (trimmed.length === 0) return { approved: false }
+      return { approved: false, feedback: trimmed }
+    })()
+    stdinAnswered.catch(() => {}) // a loser's abort-rejection must never surface as unhandled
+
+    const registryAnswered = new Promise<GateAnswer>((resolve) => {
+      registerPendingGate({ resolve, question: context, nodeId: node.id, runId, isPlanApproval })
+    })
+
+    try {
+      const timeoutSec = rails.gateTimeoutSec
+      const racers: Promise<GateAnswer>[] = [stdinAnswered, registryAnswered]
+      // 0 and undefined both mean "wait forever" - same convention as makeGate
+      if (timeoutSec !== undefined && timeoutSec > 0) {
+        // the infra: tag makes the router HALT (spec §10) instead of treating
+        // the timeout as an ordinary gate rejection
+        const message = `infra: gate "${node.id}" timed out after ${timeoutSec}s awaiting human approval`
+        const timer = timerDeps.gateTimer
+          ? timerDeps.gateTimer(timeoutSec * 1000, message)
+          : new Promise<never>((_, reject) => {
+              timeoutId = setTimeout(() => reject(new Error(message)), timeoutSec * 1000)
+              timeoutId.unref()
+            })
+        // when the timer wins, abort the still-pending stdin question so it
+        // settles; swallow the loser's rejection so it never surfaces as unhandled
+        timer.catch(() => ac.abort())
+        try {
+          const answer = await Promise.race([...racers, timer])
+          return normalizeGateAnswer(answer)
+        } finally {
+          clearTimeout(timeoutId)
+        }
+      }
+      const answer = await Promise.race(racers)
+      return normalizeGateAnswer(answer)
+    } finally {
+      // whichever channel won, the entry must not outlive this gate call - a
+      // repeat resolve of an already-settled promise (or of an already-
+      // deleted registry entry) is a harmless no-op, exactly like the MCP
+      // gate path's own finally + sweepPendingGates.
+      resolvePendingGate(runId, node.id, { approved: false })
+      ac.abort()
+      rl.close()
+      removeGateWaitingMarker(runDir)
     }
   }
 }
@@ -398,19 +558,22 @@ export async function runAction(
   // with the splice-extended graph by engine/runner.ts's applySplice
   // whenever a generates:'graph' fragment is approved. See
   // journal/loopfile-persist.ts.
-  persistRunLoopDef(runDir, expandPanels(loaded.def))
+  // Computed once, up front, and reused for the dashboard's `def:`, the
+  // persisted bootstrap graph, and (when --ui is set) makeUiGate's plan-
+  // approval detection - all three need the SAME panel-expanded node ids
+  // the engine will actually journal (runLoop does this same expansion
+  // internally - see splitRegions/expandPanels in engine/runner.ts).
+  const expanded = expandPanels(loaded.def)
+  persistRunLoopDef(runDir, expanded)
   const uninstallCancelHandler = installCancelHandler(runDir, join(runDir, 'journal.jsonl'))
 
   let dashboard: DashboardServer | undefined
   if (opts.ui) {
     try {
-      // panel-expand up front so node ids in the dashboard match the ids the
-      // engine will actually journal (runLoop does this same expansion
-      // internally - see splitRegions/expandPanels in engine/runner.ts)
       dashboard = await startWithStableDefault(opts.port, DEFAULT_DASHBOARD_PORT, (port) =>
         startDashboardServer({
           journalPath: join(runDir, 'journal.jsonl'),
-          def: expandPanels(loaded.def),
+          def: expanded,
           port,
         }))
     } catch (e) {
@@ -432,11 +595,23 @@ export async function runAction(
       io,
       json: !!opts.json,
       registry: deps.registry ?? createDefaultRegistry({ cwd: opts.cwd }),
-      gate: deps.gate ?? makeGate(loaded.def.rails, io, !!opts.yes, opts.cwd),
+      // Only a `--ui` run's gate is answerable from the dashboard too - a
+      // plain `run` gets the exact same stdin-only makeGate it always has.
+      gate: deps.gate ?? (opts.ui
+        ? makeUiGate(loaded.def.rails, io, !!opts.yes, opts.cwd, runId, runDir, expanded.nodes)
+        : makeGate(loaded.def.rails, io, !!opts.yes, opts.cwd)),
     })
   } finally {
     uninstallCancelHandler()
     removeRunPid(runDir)
+    // A gate this run's engine never got to ask (a sibling node's failure
+    // ended the run first) must not leave a stray registry entry sitting
+    // around for this process's remaining lifetime - see dashboard/gate-
+    // registry.ts's sweepPendingGates and the MCP gate path's identical
+    // rationale. Harmless no-op for a plain (non --ui) run: makeGate never
+    // registers anything here in the first place.
+    sweepPendingGates(runId)
+    removeGateWaitingMarker(runDir)
     if (dashboard) await dashboard.close()
   }
 }

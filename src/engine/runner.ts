@@ -51,6 +51,37 @@ export interface RunOptions {
   skipPlanning?: boolean
 }
 
+// A gate whose dependency chain leads back to a generates:'graph' planner is
+// a plan-approval gate, not an ordinary one - its approval splices a
+// fragment in, and its non-empty-feedback rejection forces an immediate
+// replan rather than the generic iterate/stall path. Ordinary gates (no such
+// ancestor) are completely unaffected. Extracted as a standalone exported
+// function (rather than kept as a runLoop-local closure) so callers outside
+// the engine - e.g. cli/run-cmd.ts's makeUiGate, which must classify a gate
+// as plan-approval or not BEFORE runLoop itself ever sees the gate call, in
+// order to tell the dashboard how to render it - can run the exact same
+// detection runLoop uses internally, instead of re-deriving a second,
+// possibly-diverging version of this logic.
+//
+// `nodes` must be the full, panel-expanded node list (LoopDef.nodes after
+// expandPanels), since a gate's `after` edge to its planner ancestor is only
+// resolvable against that full list - splitRegions' execution/planning
+// split strips the very edge this lookup needs.
+export function findPlanGenerator(nodes: NodeDef[], gateNode: NodeDef): NodeDef | undefined {
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const original = byId.get(gateNode.id) ?? gateNode
+  for (const depId of original.after ?? []) {
+    const dep = byId.get(depId)
+    if (!dep) continue
+    if (dep.role === 'planner' && dep.generates === 'graph') return dep
+    if (dep.role === 'critic' && dep.of) {
+      const target = byId.get(dep.of)
+      if (target?.role === 'planner' && target.generates === 'graph') return target
+    }
+  }
+  return undefined
+}
+
 export function contextHash(nodeId: string, prompt: string): string {
   return createHash('sha256').update(`${nodeId}\0${prompt}`).digest('hex')
 }
@@ -160,30 +191,12 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   let replans = 0
   const fingerprints: string[] = []
 
-  // A gate whose dependency chain leads back to a generates:'graph' planner
-  // is a plan-approval gate, not an ordinary one - its approval splices a
-  // fragment in, and its non-empty-feedback rejection forces an immediate
-  // replan (bounded by replan_limit) rather than the generic iterate/stall
-  // path. Ordinary gates (no such ancestor) are completely unaffected.
-  // Looks the gate up in expanded.nodes (its original, pre-splitRegions
-  // definition) rather than the current execution list: splitRegions
-  // strips a gate's `after` edge into the planning region (the dependency
-  // this very check needs to see), since that edge is meaningless to the
-  // execution-region scheduler.
-  const planGeneratorFor = (gateNode: NodeDef): NodeDef | undefined => {
-    const byId = new Map(expanded.nodes.map((n) => [n.id, n]))
-    const original = byId.get(gateNode.id) ?? gateNode
-    for (const depId of original.after ?? []) {
-      const dep = byId.get(depId)
-      if (!dep) continue
-      if (dep.role === 'planner' && dep.generates === 'graph') return dep
-      if (dep.role === 'critic' && dep.of) {
-        const target = byId.get(dep.of)
-        if (target?.role === 'planner' && target.generates === 'graph') return target
-      }
-    }
-    return undefined
-  }
+  // Looks the gate up against expanded.nodes (its original, pre-splitRegions
+  // definition) rather than the current execution list: splitRegions strips
+  // a gate's `after` edge into the planning region (the dependency this
+  // very check needs to see), since that edge is meaningless to the
+  // execution-region scheduler. See findPlanGenerator above.
+  const planGeneratorFor = (gateNode: NodeDef): NodeDef | undefined => findPlanGenerator(expanded.nodes, gateNode)
 
   // Validates and merges an approved fragment into the live run. The
   // now-resolved gate is dropped from `execution` (its job is done - it

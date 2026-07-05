@@ -1,9 +1,12 @@
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { dirname, join } from 'node:path'
-import type { LoopDef } from '../core/types.js'
+import type { GateAnswer, LoopDef } from '../core/types.js'
 import { readJournal } from '../journal/journal.js'
 import { queueHumanFeedback } from '../journal/human-feedback.js'
+import {
+  getPendingGate as defaultGetPendingGate, resolvePendingGate as defaultResolvePendingGate, type PendingGate,
+} from './gate-registry.js'
 import { buildDashboardPayload } from './layout.js'
 import { buildPage } from './page.js'
 import { buildReplay, encodeSseFrame } from './sse.js'
@@ -43,6 +46,17 @@ export interface DashboardServerOptions {
   // from cli/). Undefined means this dashboard has no way to resume a run
   // (e.g. mission control views a workspace with no loadable loopfile).
   onResume?: (overrides: ResumeOverrides) => Promise<void>
+  // Looks up/answers the gate (if any) currently blocking this run's own
+  // process - the same in-process registry makeUiGate (src/cli/run-cmd.ts)
+  // registers into via src/dashboard/gate-registry.ts. Defaults to that
+  // module's real process-lifetime Map so a `looprail run --ui` process
+  // wires up gate approval "for free"; tests inject their own so several
+  // dashboards in one test file don't share the one real Map. Injected
+  // rather than imported unconditionally so this module's exports stay
+  // easy to fake in isolation - not because dashboard/ would otherwise
+  // import cli/ (gate-registry.ts already lives in dashboard/ itself).
+  getPendingGate?: (runId: string) => PendingGate | undefined
+  resolvePendingGate?: (runId: string, nodeId: string, answer: GateAnswer) => boolean
 }
 
 export interface DashboardServer {
@@ -117,7 +131,12 @@ function controlState(
 
 export function serveModel(
   res: ServerResponse,
-  opts: { journalPath: string; def?: LoopDef; onResume?: (overrides: ResumeOverrides) => Promise<void> },
+  opts: {
+    journalPath: string
+    def?: LoopDef
+    onResume?: (overrides: ResumeOverrides) => Promise<void>
+    getPendingGate?: (runId: string) => PendingGate | undefined
+  },
 ): void {
   try {
     // payload.totals.maxIterations/maxCostUsd already carry the run's own
@@ -127,8 +146,16 @@ export function serveModel(
     // Canceling is a deliberate "stop this" action, not a rail-breach halt -
     // it's not resumable. Someone who wants to continue starts a fresh run.
     const resumable = payload.status === 'halted' && !!opts.onResume
+    // Whether a gate is CURRENTLY waiting for a human answer is engine/
+    // registry state, not journal-derived (buildViewModel is pure and has
+    // no "gate is waiting" event - see run-cmd.ts's GateWaitingMarker
+    // comment for the full rationale) - so it is looked up separately here,
+    // by this same process's own in-memory registry, and merged into the
+    // /model payload the same way controlState already is.
+    const pending = (opts.getPendingGate ?? defaultGetPendingGate)(payload.runId)
+    const pendingGate = pending ? { nodeId: pending.nodeId, isPlanApproval: pending.isPlanApproval } : null
     res.writeHead(200, { 'content-type': 'application/json' })
-    res.end(JSON.stringify({ ...payload, ...controlState(opts.journalPath, resumable) }))
+    res.end(JSON.stringify({ ...payload, ...controlState(opts.journalPath, resumable), pendingGate }))
   } catch (err) {
     sendReadError(res, '/model failed to read journal', err)
   }
@@ -181,7 +208,12 @@ function isSameOrigin(req: IncomingMessage): boolean {
 // pid: once a run's journal shows verified/halted, this refuses to signal
 // anything at all, regardless of what the pid file still says.
 export async function serveControl(
-  req: IncomingMessage, res: ServerResponse, opts: { journalPath: string },
+  req: IncomingMessage, res: ServerResponse,
+  opts: {
+    journalPath: string
+    getPendingGate?: (runId: string) => PendingGate | undefined
+    resolvePendingGate?: (runId: string, nodeId: string, answer: GateAnswer) => boolean
+  },
 ): Promise<void> {
   if (!isSameOrigin(req)) {
     sendJson(res, 403, { error: 'cross-origin request rejected' })
@@ -198,20 +230,54 @@ export async function serveControl(
     sendJson(res, 400, { error: 'invalid request body' })
     return
   }
-  if (action !== 'pause' && action !== 'resume' && action !== 'cancel' && action !== 'feedback') {
+  if (
+    action !== 'pause' && action !== 'resume' && action !== 'cancel' && action !== 'feedback'
+    && action !== 'approve-gate' && action !== 'reject-gate'
+  ) {
     sendJson(res, 400, { error: `unknown action "${String(action)}"` })
     return
   }
+  if (action === 'reject-gate' && (typeof text !== 'string' || text.trim().length === 0)) {
+    sendJson(res, 400, { error: 'reject-gate requires a non-empty feedback text' })
+    return
+  }
 
+  let runId: string
   let status: string
   try {
-    status = buildDashboardPayload(readEvents(opts.journalPath)).status
+    const payload = buildDashboardPayload(readEvents(opts.journalPath))
+    runId = payload.runId
+    status = payload.status
   } catch (err) {
     sendReadError(res, '/control failed to read journal', err)
     return
   }
   if (status !== 'running') {
     sendJson(res, 409, { error: `run is ${status}, not running - nothing to ${action}` })
+    return
+  }
+
+  // Approves or rejects (with the mandatory free-text feedback) whichever
+  // gate is currently blocking this run's own process - looked up via the
+  // exact same in-process registry makeUiGate (src/cli/run-cmd.ts) races its
+  // stdin question against (src/dashboard/gate-registry.ts). The resolved
+  // GateAnswer flows through the identical normalizeGateAnswer path a
+  // CLI/MCP answer already does downstream - there is no second, parallel
+  // approval mechanism here, only a different way to produce the same
+  // GateAnswer value.
+  if (action === 'approve-gate' || action === 'reject-gate') {
+    const getPending = opts.getPendingGate ?? defaultGetPendingGate
+    const resolvePending = opts.resolvePendingGate ?? defaultResolvePendingGate
+    const pending = getPending(runId)
+    if (!pending) {
+      sendJson(res, 409, { error: 'no gate is currently waiting for this run' })
+      return
+    }
+    const answer: GateAnswer = action === 'approve-gate'
+      ? { approved: true }
+      : { approved: false, feedback: text as string }
+    resolvePending(runId, pending.nodeId, answer)
+    sendJson(res, 200, { ok: true })
     return
   }
 

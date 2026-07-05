@@ -382,3 +382,94 @@ test('refresh() never has more than one fetch(\'model\') in flight, even when ca
 
   expect(getPeakConcurrentFetches()).toBeLessThanOrEqual(1)
 })
+
+// Terraform-Cloud-style gate approval: a form/button row shown ONLY while
+// a gate is actually pending on this run (model.pendingGate, sourced from
+// the dashboard's in-process gate registry), never a permanently-visible
+// control - mirrors feedback-row/resume-row's conditional-display shape.
+test('the page defines a gate-row for live gate approval, hidden by default, with approve/reject controls', () => {
+  const html = buildPage()
+  expect(html).toContain('id="gate-row"')
+  const rowMatch = html.match(/<div class="gate-row" id="gate-row"([^>]*)>/)
+  expect(rowMatch).not.toBeNull()
+  expect(rowMatch![1]).toContain('display:none')
+  expect(html).toContain('id="btn-gate-approve"')
+  expect(html).toContain('id="btn-gate-reject"')
+  expect(html).toContain('id="gate-reject-input"')
+})
+
+// Approve/reject must POST the exact same /control action shape
+// serveControl already validates (action + optional text) - no separate
+// endpoint or parallel approval mechanism.
+test('the inline client posts approve-gate and reject-gate to /control, mirroring the feedback action shape', () => {
+  const html = buildPage()
+  expect(html).toMatch(/sendGateDecision\('approve-gate'\)/)
+  expect(html).toMatch(/sendGateDecision\('reject-gate', text\)/)
+  expect(html).toMatch(/action:\s*action/) // sendGateDecision forwards the action generically
+  expect(html).toContain("fetch('control'")
+  const fnMatch = html.match(/function sendGateDecision\(action, text\) \{[\s\S]*?\n  \}/)
+  expect(fnMatch).not.toBeNull()
+  expect(fnMatch![0]).toContain("text: text")
+})
+
+// render() must call renderGateRow on every re-render, the same way it
+// already calls renderControls/renderFeedbackRow/renderResumeRow.
+test('render(model) calls renderGateRow on every re-render', () => {
+  const html = buildPage()
+  const fnMatch = html.match(/function render\(model\) \{[\s\S]*?\n  \}/)
+  expect(fnMatch).not.toBeNull()
+  expect(fnMatch![0]).toContain('renderGateRow(model)')
+})
+
+// Executes the real renderGateRow function extracted from the built page
+// against a minimal fake DOM, proving the row is shown if and only if
+// model.status === 'running' && model.pendingGate is set - not merely that
+// the right strings appear somewhere in the source.
+function loadRenderGateRow(): (model: unknown) => void {
+  const html = buildPage()
+  const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
+  const renderGateRowSrc = script.match(/function renderGateRow\(model\) \{[\s\S]*?\n  \}\n/)![0]
+  const factory = new Function('document', `
+    ${renderGateRowSrc}
+    return renderGateRow;
+  `)
+  function makeFakeElement() {
+    return { style: {} as Record<string, string>, textContent: '' }
+  }
+  const store: Record<string, ReturnType<typeof makeFakeElement>> = {
+    'gate-row': makeFakeElement(),
+    'gate-label': makeFakeElement(),
+  }
+  const fakeDocument = { getElementById: (id: string) => store[id] }
+  const renderGateRow = factory(fakeDocument) as (model: unknown) => void
+  return Object.assign(renderGateRow, { store })
+}
+
+test('renderGateRow shows the row only when running with a pendingGate, and labels plan-approval distinctly', () => {
+  const renderGateRow = loadRenderGateRow() as ((model: unknown) => void) & {
+    store: Record<string, { style: Record<string, string>; textContent: string }>
+  }
+  renderGateRow({ status: 'running', pendingGate: null })
+  expect(renderGateRow.store['gate-row'].style.display).toBe('none')
+
+  renderGateRow({ status: 'halted', pendingGate: { nodeId: 'n1', isPlanApproval: false } })
+  expect(renderGateRow.store['gate-row'].style.display).toBe('none')
+
+  renderGateRow({ status: 'running', pendingGate: { nodeId: 'n1', isPlanApproval: false } })
+  expect(renderGateRow.store['gate-row'].style.display).toBe('flex')
+  expect(renderGateRow.store['gate-label'].textContent).toBe('Gate awaiting approval')
+
+  renderGateRow({ status: 'running', pendingGate: { nodeId: 'n2', isPlanApproval: true } })
+  expect(renderGateRow.store['gate-row'].style.display).toBe('flex')
+  expect(renderGateRow.store['gate-label'].textContent).toBe('Plan awaiting approval')
+})
+
+// When isPlanApproval is true, the row must not duplicate plan rendering -
+// the existing "Plan evolution" section already shows the pending plan
+// content, so gate-row's own markup must contain no plan-rendering logic.
+test('the plan-approval gate row relies on the existing Plan evolution section, not a duplicate plan renderer', () => {
+  const html = buildPage()
+  const gateRowBlock = html.match(/<div class="gate-row"[\s\S]*?<\/div>/)![0]
+  expect(gateRowBlock).not.toContain('plan-version')
+  expect(html).toContain('Plan evolution')
+})
