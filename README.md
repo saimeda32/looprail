@@ -61,6 +61,11 @@ you decide the cost/quality tradeoff per role instead of guessing at YAML by
 hand. Pass `--yes` to accept every recommended default with zero prompts, or
 `--template <name> --agent <adapter>` to skip detection entirely.
 
+Prefer to start from a real file instead of a wizard? Every template also
+exists as a standalone example under [`examples/`](examples/) - each one
+has its own README explaining what it demonstrates and what to change,
+ready to `cp` into your project.
+
 ### Writing a Loopfile
 
 A loop lives in a `looprail.yaml`. Here is a small one that fixes failing
@@ -172,6 +177,48 @@ Planning and execution are just regions of the same graph. Planners and their
 critics run first and can revise the plan a few rounds before any work starts.
 Everything else iterates until the verdict comes back clean.
 
+### Self-planning loops
+
+You don't always have to write the graph yourself. A planner node with
+`generates: graph` proposes one from a plain-English goal instead of prose:
+
+```yaml
+agents:
+  planner:  { adapter: claude-code, model: opus }
+  reviewer: { adapter: codex }              # different model, catches what the planner's own review misses
+
+graph:
+  plan:    { role: planner, agent: planner, generates: graph,
+             prompt: Propose a graph of nodes that would implement the goal above. }
+  review:  { role: critic, agent: reviewer, of: plan, after: plan }
+  approve: { role: gate, after: review }    # pauses for you before anything the plan proposes actually runs
+```
+
+The planner's reply is parsed as a loopfile fragment, reviewed by a
+different model, and spliced into the live graph only after the `approve`
+gate lets it through - reject or edit it there if it's wrong, rather than
+rubber-stamping it. See [`examples/self-planning`](examples/self-planning)
+for a runnable version. On a re-plan, the planner can reply with a compact
+`edits:` block targeting just what changed instead of re-emitting the whole
+graph, which cuts the output-token cost of a retry by 80%+ on a typical fix.
+
+### Agent permissions
+
+Each agent's `permissions` picks how much it's allowed to do on its own,
+independent of which model it runs:
+
+```yaml
+agents:
+  worker: { adapter: claude-code, model: sonnet, permissions: safe }
+```
+
+`safe` accepts edits but asks before anything riskier; `standard` runs
+without asking; `full` skips the adapter's own sandboxing entirely. Leaving
+`permissions` unset reproduces each adapter's own pre-existing default
+(`safe` for claude-code/codex/aider; `full` for copilot-cli, which had no
+sandboxed mode to begin with) - set it explicitly rather than relying on
+that, since `full` is real reduced safety, not just less prompting.
+
 ### Mixing models
 
 Each node picks which agent runs it, so you can shape a loop by cost and by
@@ -262,10 +309,18 @@ showing the DAG live: which node is running, which have passed or failed, and
 a per-node output panel you can click into. When a node is still running, its
 output streams into that panel as the agent produces it - no "please wait,"
 you watch it write. If more than one node is running at once (a critic panel,
-say), a tab switcher lets you flip between watching each one live. Cost and
-iteration count show as running totals against your rails, broken down per
-agent so a three-way critic panel shows you exactly which model is expensive,
-not just a combined number.
+say), a tab switcher lets you flip between watching each one live. Cost,
+iteration count, and elapsed wall time all show as running totals against
+your rails, broken down per agent so a three-way critic panel shows you
+exactly which model is expensive, not just a combined number. Zoom/pan
+controls (buttons, ctrl+wheel, click-drag) keep a dense or deep self-planned
+graph legible instead of squeezed to fit.
+
+A `gate` node pauses the run right there in the browser - approve, reject
+with feedback, or cancel from the page itself, no need to switch back to the
+terminal. A halted run's dashboard also lets you resume in place with raised
+rails (`max_iterations`, `max_cost_usd`, `max_wall_minutes`, `replan_limit`)
+or an edited goal, the same overrides `looprail resume` takes as flags.
 
 Every project you run a loop in registers itself automatically, so looprail
 knows about it without any setup on your part.
@@ -315,8 +370,10 @@ anything the CLI can run, the SDK can too. See
 ## Status
 
 The engine, the CLI, the adapters, the Loopfile format, and the `bench` A/B
-harness are here and tested. The dashboard is here too, with live streaming
-output, in both a single-run view (`looprail ui`) and a mission-control view
+harness are here and tested. Self-planning loops (`generates: graph`) and
+per-agent permission presets are here too. The dashboard is here, with live
+streaming output, in-browser gate approval and resume, and a live wall-time
+gauge, in both a single-run view (`looprail ui`) and a mission-control view
 across every registered project (`looprail ui --all`). `looprail mcp` runs
 looprail as an MCP server for Claude Desktop, Cursor, and VS Code's Copilot
 Chat. See `benchmarks/` for three mock-backed benchmarks comparing a naive
