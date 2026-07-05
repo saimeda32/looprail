@@ -26,3 +26,17 @@ test('wall-clock breach with injected clock', () => {
   t = 11 * 60_000
   expect(g.check(1)).toMatchObject({ rail: 'wall' })
 })
+
+test('tighten lowers maxIterations/maxCostUsd when the fragment asks for less, never raises them', () => {
+  const guard = new RailsGuard({ maxIterations: 10, maxCostUsd: 20 })
+  guard.tighten({ maxIterations: 5, maxCostUsd: 50 }) // cost: fragment asks for MORE - must not win
+  expect(guard.check(6)).toEqual({ rail: 'iterations', detail: 'iteration 6 exceeds max 5' })
+  guard.addCost(19.99)
+  expect(guard.check(1)).toBeNull() // cost ceiling stayed at the outer 20, not the fragment's looser 50
+})
+
+test('tighten with an empty partial changes nothing', () => {
+  const guard = new RailsGuard({ maxIterations: 3, maxCostUsd: 1 })
+  guard.tighten({})
+  expect(guard.check(4)).toEqual({ rail: 'iterations', detail: 'iteration 4 exceeds max 3' })
+})

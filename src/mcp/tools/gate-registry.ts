@@ -1,7 +1,7 @@
-import type { GateHandler, NodeDef, Rails } from '../../index.js'
+import type { GateAnswer, GateHandler, NodeDef, Rails } from '../../index.js'
 
 export interface PendingGate {
-  resolve: (approved: boolean) => void
+  resolve: (answer: GateAnswer) => void
   question: string
   nodeId: string
   runId: string
@@ -55,7 +55,7 @@ export function makeMcpGate(runId: string, rails: Rails, timerDeps: GateTimerDep
   const gateTimer = timerDeps.gateTimer ?? defaultGateTimer
   return async (node: NodeDef, context: string) => {
     const key = gateKey(runId, node.id)
-    const answered = new Promise<boolean>((resolve) => {
+    const answered = new Promise<GateAnswer>((resolve) => {
       pendingGates.set(key, { resolve, question: context, nodeId: node.id, runId })
     })
     try {

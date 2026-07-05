@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { parseLoopfile } from './loopfile.js'
+import { parseGraphFragment, parseLoopfile } from './loopfile.js'
 
 const SAMPLE = `
 name: research-report
@@ -126,4 +126,46 @@ test('gate_timeout rail maps to gateTimeoutSec', () => {
   const def = parseLoopfile(
     SAMPLE.replace('max_iterations: 8', 'max_iterations: 8\n  gate_timeout: 300'))
   expect(def.rails.gateTimeoutSec).toBe(300)
+})
+
+test('parseGraphFragment parses a graph-only fragment with no agents/rails', () => {
+  const fragment = parseGraphFragment(`
+graph:
+  build: { role: executor, agent: worker, prompt: Do the thing. }
+  tests: { role: tester, after: build, run: npm test, expect: exit 0 }
+`)
+  expect(fragment.nodes.map((n) => n.id)).toEqual(['build', 'tests'])
+  expect(fragment.nodes[0]).toMatchObject({ role: 'executor', agent: 'worker', prompt: 'Do the thing.' })
+  expect(fragment.nodes[1]).toMatchObject({ role: 'tester', after: ['build'], run: 'npm test' })
+  expect(fragment.agents).toBeUndefined()
+  expect(fragment.rails).toBeUndefined()
+})
+
+test('parseGraphFragment parses its own agents and rails when present', () => {
+  const fragment = parseGraphFragment(`
+agents:
+  extra: { adapter: copilot-cli, model: gpt-5-codex }
+graph:
+  build: { role: executor, agent: extra }
+rails:
+  max_cost_usd: 5
+  max_iterations: 3
+`)
+  expect(fragment.agents).toEqual({ extra: { adapter: 'copilot-cli', model: 'gpt-5-codex' } })
+  expect(fragment.rails).toEqual({ maxCostUsd: 5, maxIterations: 3 })
+})
+
+test('parseGraphFragment throws a clearly-prefixed error on invalid YAML', () => {
+  expect(() => parseGraphFragment('graph: [not, a, map]')).toThrow(/^invalid graph fragment:/)
+})
+
+test('parseGraphFragment throws when graph is missing entirely', () => {
+  expect(() => parseGraphFragment('agents: {}')).toThrow(/^invalid graph fragment:\ngraph is required/)
+})
+
+test('parseGraphFragment rejects an unsupported tester expect, same as parseLoopfile', () => {
+  expect(() => parseGraphFragment(`
+graph:
+  bad: { role: tester, run: echo hi, expect: "exit 1" }
+`)).toThrow(/unsupported expect/)
 })

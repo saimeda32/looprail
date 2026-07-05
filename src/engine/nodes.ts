@@ -1,5 +1,6 @@
 import { execa } from 'execa'
 import type { Adapter, AgentDef, GateHandler, LoopDef, NodeDef, NodeOutcome } from '../core/types.js'
+import { normalizeGateAnswer } from '../core/types.js'
 import { composeContext, type RunState } from '../core/context.js'
 import { parseVerdict } from '../core/verdict.js'
 import type { AdapterRegistry } from '../adapters/registry.js'
@@ -71,11 +72,15 @@ export async function executeNode(
         return { ...base, output: '', verdict: { node: node.id, status: 'error', evidence: 'config: no gate handler configured' } }
       }
       const context = composeContext(def, node, state, outcomes)
-      const approved = await deps.gate(node, context)
+      const answer = normalizeGateAnswer(await deps.gate(node, context))
       return {
         ...base,
-        output: approved ? 'approved' : 'rejected',
-        verdict: { node: node.id, status: approved ? 'pass' : 'fail', evidence: approved ? 'human approved' : 'human rejected' },
+        output: answer.approved ? 'approved' : (answer.feedback ?? 'rejected'),
+        verdict: {
+          node: node.id,
+          status: answer.approved ? 'pass' : 'fail',
+          evidence: answer.approved ? 'human approved' : (answer.feedback ? `human feedback: ${answer.feedback}` : 'human rejected'),
+        },
       }
     } catch (err) {
       // a gate handler that throws is usually a wiring bug (no handler,

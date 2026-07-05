@@ -49,6 +49,11 @@ export interface NodeDef {
   of?: string               // critic target node id
   panel?: number | string[] // fan-out: count (same agent) or one per agent key
   rounds?: number           // planner-critic revision rounds (critics of planner)
+  // When set on a planner node, its output is parsed as a loopfile-fragment
+  // (a graph: list, optionally its own agents:/rails:) instead of prose, and
+  // spliced into the live run once a gate approves it. See
+  // docs/superpowers/specs/2026-07-04-self-planning-loop-design.md.
+  generates?: 'graph'
   prompt?: string
   run?: string              // tester shell command
   expect?: string           // tester expectation, e.g. "exit 0"
@@ -121,7 +126,19 @@ export interface RunReport {
   report: FinalReport
 }
 
-export type GateHandler = (node: NodeDef, context: string) => Promise<boolean>
+// A gate handler may return a plain boolean (existing behavior, unchanged)
+// or a GateAnswer carrying free-text feedback - a non-empty, non-approval
+// answer that should drive a replan rather than a flat rejection. See
+// normalizeGateAnswer below and docs/superpowers/specs/2026-07-04-self-planning-loop-design.md.
+export interface GateAnswer {
+  approved: boolean
+  feedback?: string
+}
+export type GateHandler = (node: NodeDef, context: string) => Promise<boolean | GateAnswer>
+
+export function normalizeGateAnswer(result: boolean | GateAnswer): GateAnswer {
+  return typeof result === 'boolean' ? { approved: result } : result
+}
 
 export interface JournalEvent {
   ts: number

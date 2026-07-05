@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { expect, test, vi } from 'vitest'
 import { agentCostBreakdown, makeGate, runAction } from './run-cmd.js'
-import { JournalWriter, parseLoopfile } from '../index.js'
+import { JournalWriter, MockAdapter, parseLoopfile } from '../index.js'
 import { runsRoot } from '../journal/runs.js'
 import { hasStoredApproval, storeApproval } from '../journal/gate-approvals.js'
 import { startDashboardServer } from '../dashboard/server.js'
@@ -194,7 +194,7 @@ test('makeGate --yes auto-approves without touching stdin', async () => {
   const lines: string[] = []
   const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
   const gate = makeGate({ maxIterations: 1, maxCostUsd: 1 }, { out: (l) => lines.push(l) }, true, cwd)
-  await expect(gate({ id: 'approve', role: 'gate' }, 'ctx')).resolves.toBe(true)
+  await expect(gate({ id: 'approve', role: 'gate' }, 'ctx')).resolves.toEqual({ approved: true })
   expect(lines.join('\n')).toContain('auto-approved')
 })
 
@@ -228,7 +228,7 @@ test('makeGate clears the timeout when the human answers first, leaving no linge
     const p = gate({ id: 'approve', role: 'gate' }, 'ctx')
     await Promise.resolve() // let readline wire up its line listener
     fakeStdin.write('y\n')
-    await expect(p).resolves.toBe(true)
+    await expect(p).resolves.toEqual({ approved: true })
     // the 1h timeout must have been cleared, not left pending for the process
     expect(vi.getTimerCount()).toBe(0)
   } finally {
@@ -284,7 +284,7 @@ test('answering "a" at a gate prompt stores the approval so a later run of the s
     const p = gate(node, 'ctx')
     await Promise.resolve() // let readline wire up its line listener
     fakeStdin.write('a\n')
-    await expect(p).resolves.toBe(true)
+    await expect(p).resolves.toEqual({ approved: true })
     expect(hasStoredApproval(cwd, node)).toBe(true)
   } finally {
     Object.defineProperty(process, 'stdin', origStdin)
@@ -298,8 +298,26 @@ test('a gate whose approval was already stored is auto-approved without promptin
   storeApproval(cwd, node)
   const lines: string[] = []
   const gate = makeGate({ maxIterations: 1, maxCostUsd: 1 }, { out: (l) => lines.push(l) }, false, cwd)
-  await expect(gate(node, 'ctx')).resolves.toBe(true)
+  await expect(gate(node, 'ctx')).resolves.toEqual({ approved: true })
   expect(lines.join('\n')).toContain('previously approved')
+})
+
+test('makeGate: a non-y/n answer is captured as feedback, not treated as rejection', async () => {
+  const lines: string[] = []
+  const input = new PassThrough()
+  const gate = makeGate({ maxIterations: 1, maxCostUsd: 1 }, { out: (l) => lines.push(l) }, false, 'cwd', {}, input)
+  const answerPromise = gate({ id: 'approve', role: 'gate' }, 'ctx')
+  input.write('the tests node is missing, add one\n')
+  const answer = await answerPromise
+  expect(answer).toEqual({ approved: false, feedback: 'the tests node is missing, add one' })
+})
+
+test('makeGate: a plain y/n answer still returns a bare boolean-shaped GateAnswer with no feedback', async () => {
+  const input = new PassThrough()
+  const gate = makeGate({ maxIterations: 1, maxCostUsd: 1 }, { out: () => {} }, false, 'cwd', {}, input)
+  const answerPromise = gate({ id: 'approve', role: 'gate' }, 'ctx')
+  input.write('y\n')
+  expect(await answerPromise).toEqual({ approved: true })
 })
 
 
@@ -437,4 +455,108 @@ test('a registry file the process cannot write to never fails the run', async ()
   const registryPath = join(blocker, 'workspaces.json')
   const code = await runAction(undefined, { cwd, json: true }, { io: capture().io, registryPath })
   expect(code).toBe(0)
+})
+
+test('a generates:graph planner node splices its approved fragment into the live run', async () => {
+  const SELF_PLANNING = `
+name: self-planning-fixture
+goal: Do the generated thing.
+agents:
+  planner: { adapter: mock }
+graph:
+  plan:    { role: planner, agent: planner, generates: graph }
+  approve: { role: gate, after: plan }
+rails:
+  max_iterations: 5
+  max_cost_usd: 1
+`
+  const { cwd, io } = setup(SELF_PLANNING)
+  const registry = createRegistry()
+  registry.register(new MockAdapter([
+    { match: /PLANNER/, output: 'graph:\n  build: { role: executor, agent: planner }\n  check: { role: critic, of: build, agent: planner }\n' },
+    { output: '[mock] build done' }, // the spliced "build" node's own invocation
+    { output: 'VERDICT: pass\nEVIDENCE: looks good' }, // the spliced "check" critic's own invocation
+  ]))
+  const code = await runAction(undefined, { cwd }, {
+    io, registry, gate: async () => ({ approved: true }),
+  })
+  expect(code).toBe(0)
+  // the spliced "build" node actually ran as part of this same run
+  const { latestRunId, runsRoot } = await import('./status-cmd.js')
+  const { readJournal } = await import('../journal/journal.js')
+  const runDir = join(runsRoot(cwd), latestRunId(cwd)!)
+  const events = readJournal(join(runDir, 'journal.jsonl'))
+  expect(events.some((e) => e.type === 'node_start' && (e.data as { nodeId: string }).nodeId === 'build')).toBe(true)
+})
+
+test('a plan-approval gate rejection with feedback triggers an immediate replan, not a flat halt', async () => {
+  const SELF_PLANNING_FEEDBACK = `
+name: self-planning-feedback-fixture
+goal: Do the generated thing.
+agents:
+  planner: { adapter: mock }
+graph:
+  plan:    { role: planner, agent: planner, generates: graph }
+  approve: { role: gate, after: plan }
+rails:
+  max_iterations: 5
+  max_cost_usd: 1
+`
+  const { cwd, io } = setup(SELF_PLANNING_FEEDBACK)
+  const registry = createRegistry()
+  registry.register(new MockAdapter([
+    // one planner call before the first (rejected) approval, one more after
+    // the feedback-triggered replan
+    { match: /PLANNER/, output: 'graph:\n  build: { role: executor, agent: planner }\n  check: { role: critic, of: build, agent: planner }\n' },
+    { match: /PLANNER/, output: 'graph:\n  build: { role: executor, agent: planner }\n  check: { role: critic, of: build, agent: planner }\n' },
+    { output: '[mock] build done' },
+    { output: 'VERDICT: pass\nEVIDENCE: looks good' },
+  ]))
+  let gateCalls = 0
+  const code = await runAction(undefined, { cwd }, {
+    io, registry,
+    gate: async () => {
+      gateCalls += 1
+      return gateCalls === 1 ? { approved: false, feedback: 'add a tests node' } : { approved: true }
+    },
+  })
+  expect(code).toBe(0)
+  expect(gateCalls).toBe(2) // first rejection replanned, second approved
+})
+
+test('a plan-approval gate rejection with feedback stops replanning once replan_limit is hit', async () => {
+  const SELF_PLANNING_FEEDBACK_LIMIT = `
+name: self-planning-feedback-limit-fixture
+goal: Do the generated thing.
+agents:
+  planner: { adapter: mock }
+graph:
+  plan:    { role: planner, agent: planner, generates: graph }
+  approve: { role: gate, after: plan }
+rails:
+  max_iterations: 8
+  max_cost_usd: 1
+  replan_limit: 2
+`
+  const { cwd, io } = setup(SELF_PLANNING_FEEDBACK_LIMIT)
+  const registry = createRegistry()
+  // the planner is asked once up front plus once per replan (bounded by
+  // replan_limit: 2) - never a 4th time, since the run must halt once the
+  // limit is exhausted instead of replanning forever
+  registry.register(new MockAdapter([
+    { match: /PLANNER/, output: 'graph:\n  build: { role: executor, agent: planner }\n' },
+    { match: /PLANNER/, output: 'graph:\n  build: { role: executor, agent: planner }\n' },
+    { match: /PLANNER/, output: 'graph:\n  build: { role: executor, agent: planner }\n' },
+  ]))
+  let gateCalls = 0
+  const code = await runAction(undefined, { cwd }, {
+    io, registry,
+    // always rejects with feedback - would replan forever without a limit
+    gate: async () => {
+      gateCalls += 1
+      return { approved: false, feedback: `still not right (${gateCalls})` }
+    },
+  })
+  expect(code).toBe(2) // halted, not verified - the limit was hit, not satisfied
+  expect(gateCalls).toBe(3) // 1 initial approval attempt + 2 replans (replan_limit) - no 4th
 })
