@@ -551,3 +551,32 @@ test('renderWallGauge shows elapsed minutes since startedTs, capped/over-flagged
   renderWallGauge({ startedTs, lastEventTs: startedTs + 5 * 60_000, maxWallMinutes: undefined }, 'halted')
   expect(renderWallGauge.store['wall-label'].innerHTML).toBe('5m<span class="of"> no max set</span>')
 })
+
+// Real bug reproduced live: a pure geometric midpoint bend let two entirely
+// unrelated edges land on the exact same (x, y) bend corner - one edge's
+// vertical continuing where another's ended made them read as a single
+// continuous line through a shared node column, misattributing which node
+// an edge actually came from. edgeBendFraction derives the bend point from
+// the edge's own (sourceId, targetId) identity instead, so this proves two
+// coincidentally-aligned edges get distinct fractions while the SAME edge
+// stays stable across calls (no per-render jitter).
+function loadEdgeBendFraction(): (sourceId: string, targetId: string) => number {
+  const html = buildPage()
+  const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
+  const src = script.match(/function edgeBendFraction\(sourceId, targetId\) \{[\s\S]*?\n  \}\n/)![0]
+  const factory = new Function(`
+    ${src}
+    return edgeBendFraction;
+  `)
+  return factory() as (sourceId: string, targetId: string) => number
+}
+
+test('edgeBendFraction is deterministic per edge and spreads coincidentally-aligned edges apart', () => {
+  const edgeBendFraction = loadEdgeBendFraction()
+  const a = edgeBendFraction('red-tests', 'review-coverage')
+  const b = edgeBendFraction('implement', 'review-precision')
+  expect(a).not.toBe(b)
+  expect(edgeBendFraction('red-tests', 'review-coverage')).toBe(a)
+  expect(a).toBeGreaterThanOrEqual(0.35)
+  expect(a).toBeLessThanOrEqual(0.65)
+})

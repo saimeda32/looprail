@@ -664,6 +664,24 @@ export function buildPage(): string {
     return escaped.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
   }
 
+  // A pure midpoint bend (0.5 between source's right edge and target's
+  // left edge) can coincide EXACTLY across two unrelated edges - reproduced
+  // live: two different-source edges landing at the same computed x, with
+  // one source row's y also matching the other's bend-corner y, made two
+  // separate edges (e.g. one node's own dependency, and an unrelated
+  // skip-ahead edge) look like a single continuous line through a shared
+  // node column. Deriving the bend fraction from the edge's own
+  // (sourceId, targetId) identity instead of purely from geometry spreads
+  // coincidentally-aligned edges apart while staying deterministic (same
+  // edge always bends at the same fraction, so the graph doesn't jitter
+  // between renders).
+  function edgeBendFraction(sourceId, targetId) {
+    var s = sourceId + '>' + targetId;
+    var h = 0;
+    for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return 0.35 + (h % 100) / 100 * 0.3;
+  }
+
   function formatClockTime(ts) {
     var d = new Date(ts);
     var pad = function (n) { return n < 10 ? '0' + n : String(n); };
@@ -681,7 +699,13 @@ export function buildPage(): string {
   // shape. Each chunk's own ts is a real journal arrival time already, so
   // grouping needs no extra bookkeeping to recover one after the fact.
   function paragraphsFromChunks(chunks) {
-    var GAP_MS = 600;
+    // 600ms was too tight - back-to-back chunks with a normal thinking
+    // pause between them (well under a real gap between tool calls/turns)
+    // routinely exceeded it, breaking a single sentence into several
+    // separately-timestamped paragraphs mid-word. 5s groups a genuine
+    // burst of narration into one paragraph while still starting a fresh
+    // one across a real pause (a tool call, a long generation gap).
+    var GAP_MS = 5000;
     var groups = [];
     var current = null;
     chunks.forEach(function (c) {
@@ -810,7 +834,7 @@ export function buildPage(): string {
       var targetNode = byId[pair[1]];
       var isLive = targetNode && targetNode.status === 'running';
       var x1 = a.x + BOX_W, y1 = a.y + BOX_H / 2, x2 = b.x, y2 = b.y + BOX_H / 2;
-      var midX = (x1 + x2) / 2;
+      var midX = x1 + (x2 - x1) * edgeBendFraction(pair[0], pair[1]);
       var d = 'M ' + x1 + ' ' + y1 + ' L ' + midX + ' ' + y1 + ' L ' + midX + ' ' + y2 + ' L ' + x2 + ' ' + y2;
       el('path', { class: 'trace' + (isLive ? ' edge-live' : ''), d: d }, edgesG);
     });
