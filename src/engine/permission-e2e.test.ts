@@ -1,4 +1,4 @@
-import http from 'node:http'
+import http, { createServer, type Server } from 'node:http'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,7 +10,48 @@ import { createRegistry } from '../adapters/registry.js'
 import type { JournalEvent, LoopDef } from '../core/types.js'
 import { getPendingPermission } from '../dashboard/permission-registry.js'
 import { buildViewModel } from '../dashboard/view-model.js'
-import { startDashboardServer, type DashboardServer } from '../dashboard/server.js'
+import { serveControl } from '../dashboard/server.js'
+
+// startDashboardServer (a whole second, separately-maintained createServer
+// + listen implementation) was deleted in favor of consolidating every
+// real dashboard entrypoint onto mission-control-server.ts - see that
+// file's own routing and dashboard/server.test.ts's identically-scoped
+// local harness for the full rationale. This test only needs POST
+// /control's real serveControl route (not the full multi-route/workspace
+// apparatus mission-control-server.ts wires up), so it gets its own
+// minimal, test-only wrapper around exactly that one function - proving
+// the same production serveControl code a human's browser POST would
+// hit, without needing to fabricate a registered workspace for a run
+// this test drives directly through runLoop (no cwd/registry involved).
+interface TestDashboard {
+  server: Server
+  url: string
+  close(): Promise<void>
+}
+
+function startTestControlServer(journalPath: string): Promise<TestDashboard> {
+  const server = createServer((req, res) => {
+    const url = new URL(req.url ?? '/', 'http://localhost')
+    if (req.method === 'POST' && url.pathname === '/control') {
+      void serveControl(req, res, { journalPath })
+      return
+    }
+    res.writeHead(404, { 'content-type': 'text/plain' })
+    res.end('not found')
+  })
+  return new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address()
+      const port = addr && typeof addr === 'object' ? addr.port : 0
+      resolve({
+        server,
+        url: `http://127.0.0.1:${port}`,
+        close: () => new Promise((res) => server.close(() => res())),
+      })
+    })
+  })
+}
 
 const loop = (over: Partial<LoopDef> = {}): LoopDef => ({
   name: 'demo',
@@ -99,9 +140,9 @@ test('a MockAdapter permission prompt is surfaced through the dashboard view-mod
   // answer-permission action - no injected fake getPendingPermission/
   // resolvePendingPermission, so this hits the exact same production
   // permission-registry.ts Map runner.ts's onPermission registered into.
-  let dashboard: DashboardServer | undefined
+  let dashboard: TestDashboard | undefined
   try {
-    dashboard = await startDashboardServer({ journalPath: join(runDir, 'journal.jsonl') })
+    dashboard = await startTestControlServer(join(runDir, 'journal.jsonl'))
     const res = await post(dashboard.url + '/control', { action: 'answer-permission', nodeId: 'do', approved: true })
     expect(res.status).toBe(200)
   } finally {
