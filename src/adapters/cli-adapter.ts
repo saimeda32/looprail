@@ -45,6 +45,14 @@ export interface ParsedResponse {
   output: string
   costUsd?: number
   tokens?: number
+  // See AgentResult.estimatedCostUsd/inputTokens/outputTokens in
+  // core/types.ts - same meaning here, mapped straight through by
+  // CliAdapter.invoke without ever touching costUsd/tokens.
+  estimatedCostUsd?: number
+  inputTokens?: number
+  outputTokens?: number
+  // See AgentResult.resolvedModel in core/types.ts.
+  resolvedModel?: string
 }
 
 export type ResponseParser = (stdout: string) => ParsedResponse
@@ -75,6 +83,18 @@ export function lineBufferedTransform(
   }
 }
 
+// Post-parse hook for adapters whose CLI never reports a real dollar cost
+// (copilot, codex, aider): given the request (for a pinned AgentRequest.model)
+// and the parsed response (for split tokens / a resolved model), returns a
+// pricing-derived estimate, or undefined when no estimate is computable
+// (unknown model, no token counts). Never invoked if the parser itself
+// already produced an estimatedCostUsd. Injectable so adapter tests can mock
+// pricing lookups instead of exercising the real fetch/cache module.
+export type CostEstimator = (
+  req: AgentRequest,
+  parsed: ParsedResponse,
+) => number | undefined | Promise<number | undefined>
+
 export interface CliAdapterOptions {
   name: string
   command: string     // whitespace-tokenized argv template; the token {prompt} becomes one arg
@@ -84,6 +104,7 @@ export interface CliAdapterOptions {
   exec?: ExecFn
   cwd?: string
   extraArgs?: (req: AgentRequest) => string[]  // per-request args appended after the template
+  estimator?: CostEstimator
 }
 
 export class CliAdapter implements Adapter {
@@ -120,10 +141,18 @@ export class CliAdapter implements Adapter {
       )
     }
     const parsed = this.opts.parser?.(res.stdout) ?? { output: res.stdout.trim() }
+    // Only consult the estimator when the parser itself didn't already
+    // produce an estimate - claude-code's parser never sets estimatedCostUsd
+    // and never gets an estimator wired in, so this branch is a no-op there.
+    const estimatedCostUsd = parsed.estimatedCostUsd ?? (await this.opts.estimator?.(req, parsed))
     return {
       output: parsed.output,
       costUsd: parsed.costUsd ?? 0,
       tokens: parsed.tokens ?? 0,
+      estimatedCostUsd,
+      inputTokens: parsed.inputTokens,
+      outputTokens: parsed.outputTokens,
+      resolvedModel: parsed.resolvedModel,
       durationMs: Date.now() - started,
     }
   }

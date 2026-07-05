@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { expect, test, vi } from 'vitest'
-import { agentCostBreakdown, makeGate, runAction } from './run-cmd.js'
+import { agentCostBreakdown, agentEstimatedCostBreakdown, makeGate, runAction } from './run-cmd.js'
 import { JournalWriter, MockAdapter, parseLoopfile } from '../index.js'
 import { runsRoot } from '../journal/runs.js'
 import { hasStoredApproval, storeApproval } from '../journal/gate-approvals.js'
@@ -179,6 +179,35 @@ test('--json emits a machine-readable summary as the only stdout line', async ()
   expect(parsed.runId).toMatch(/^run-/)
 })
 
+test('--json surfaces estimatedCostUsd as a distinct field, never folded into costUsd', async () => {
+  const { cwd, io, lines } = setup(FIXTURE)
+  const registry = createRegistry()
+  registry.register(new MockAdapter([
+    { output: '[mock] estimate-only executor', costUsd: 0, estimatedCostUsd: 0.05 },
+    { output: 'VERDICT: pass\nEVIDENCE: ok', costUsd: 0, estimatedCostUsd: 0.02 },
+  ]))
+  const code = await runAction(undefined, { cwd, json: true }, { io, registry })
+  expect(code).toBe(0)
+  const parsed = JSON.parse(lines[0]) as { costUsd: number; estimatedCostUsd: number }
+  expect(parsed.costUsd).toBe(0)
+  expect(parsed.estimatedCostUsd).toBeCloseTo(0.07)
+})
+
+test('the human-readable report labels estimated spend as "est", separate from real cost', async () => {
+  const { cwd, io, lines } = setup(FIXTURE)
+  const registry = createRegistry()
+  registry.register(new MockAdapter([
+    { output: '[mock] estimate-only executor', costUsd: 0, estimatedCostUsd: 0.05 },
+    { output: 'VERDICT: pass\nEVIDENCE: ok', costUsd: 0, estimatedCostUsd: 0.02 },
+  ]))
+  const code = await runAction(undefined, { cwd }, { io, registry })
+  expect(code).toBe(0)
+  const text = lines.join('\n')
+  expect(text).toContain('total cost: $0.00')
+  expect(text).toContain('est')
+  expect(text).toMatch(/~\$0\.07 est/)
+})
+
 test('gate handler is consulted and drives the verdict', async () => {
   const { cwd, io } = setup(GATED)
   const gated: string[] = []
@@ -329,6 +358,23 @@ test('agentCostBreakdown folds journal costs per agent (panel clones collapse)',
   w.write('node_end', { nodeId: 'crit@1', costUsd: 0.15 })
   w.write('node_end', { nodeId: 'crit@2', costUsd: 0.05 })
   expect(agentCostBreakdown(def, w.path)).toEqual([['worker', 0.3], ['checker', 0.2]])
+})
+
+test('agentEstimatedCostBreakdown folds journal estimates per agent, separate from real cost', async () => {
+  const def = parseLoopfile(FIXTURE)
+  const dir = join(mkdtempSync(join(tmpdir(), 'lr-bd-')), 'run')
+  const w = new JournalWriter(dir, () => 1)
+  w.write('node_end', { nodeId: 'do', costUsd: 0, estimatedCostUsd: 0.4 })
+  w.write('node_end', { nodeId: 'crit@1', costUsd: 0, estimatedCostUsd: 0.1 })
+  expect(agentEstimatedCostBreakdown(def, w.path)).toEqual([['worker', 0.4], ['checker', 0.1]])
+})
+
+test('agentEstimatedCostBreakdown omits an agent that never produced an estimate (not a 0 entry)', async () => {
+  const def = parseLoopfile(FIXTURE)
+  const dir = join(mkdtempSync(join(tmpdir(), 'lr-bd-')), 'run')
+  const w = new JournalWriter(dir, () => 1)
+  w.write('node_end', { nodeId: 'do', costUsd: 0.3 }) // no estimatedCostUsd at all
+  expect(agentEstimatedCostBreakdown(def, w.path)).toEqual([])
 })
 
 function capture() {

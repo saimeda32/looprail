@@ -31,6 +31,23 @@ export interface AgentResult {
   output: string
   costUsd: number
   tokens: number
+  // Optional, structurally separate from costUsd: a pricing-derived estimate
+  // for adapters whose underlying CLI never reports a real dollar cost
+  // (copilot, codex, aider). Undefined means no estimate was computable
+  // (e.g. unknown model) - never coerced into 0 or merged into costUsd,
+  // which keeps meaning "real, adapter-reported cost".
+  estimatedCostUsd?: number
+  // Optional split of tokens by direction, needed because input and output
+  // tokens are billed at different per-token rates. `tokens` remains the
+  // total (sum) for every existing caller.
+  inputTokens?: number
+  outputTokens?: number
+  // The model the underlying CLI actually resolved to, when it reports one
+  // (e.g. copilot's session.tools_updated data.model). Needed for pricing
+  // lookup when AgentRequest.model was omitted or "auto" - config alone
+  // gives no usable key in that case. Undefined when the CLI never
+  // surfaces a resolved model.
+  resolvedModel?: string
   durationMs: number
 }
 
@@ -89,6 +106,9 @@ export interface NodeOutcome {
   verdict: Verdict | null
   costUsd: number
   tokens: number
+  estimatedCostUsd?: number
+  inputTokens?: number
+  outputTokens?: number
   durationMs: number
   contextHash?: string
 }
@@ -122,6 +142,11 @@ export interface RunReport {
   iterations: number
   replans: number
   costUsd: number
+  // Pricing-derived estimated spend (RailsGuard.estimatedSpentUsd), separate
+  // from costUsd (real, adapter-reported spend). Never merged into costUsd -
+  // see RailsGuard and NodeOutcome.estimatedCostUsd for why the distinction
+  // must survive end to end.
+  estimatedCostUsd: number
   outcomes: NodeOutcome[]
   report: FinalReport
 }

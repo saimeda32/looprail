@@ -15,3 +15,15 @@ import { join } from 'node:path'
 const fakeHome = mkdtempSync(join(tmpdir(), 'looprail-test-home-'))
 process.env.HOME = fakeHome
 process.env.USERPROFILE = fakeHome
+
+// No test process may make a real network call by omission. This bit us
+// once already (the fakeHome fix above) for on-disk state; the same
+// principle applies to the pricing module's default fetch - any adapter or
+// pricing test that doesn't explicitly inject a fetchFn/loadTable would
+// otherwise silently hit raw.githubusercontent.com on every run, making the
+// suite slow, flaky offline, and dependent on a third party. Stubbing the
+// global fetch to always reject means every such test instead exercises the
+// documented fallback (empty/cached table -> no estimate), fast and
+// deterministic. Tests that specifically need to verify fetch behavior
+// inject their own fetchFn and are unaffected by this stub.
+globalThis.fetch = (() => Promise.reject(new Error('network calls are disabled in tests'))) as typeof fetch

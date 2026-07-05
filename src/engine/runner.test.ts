@@ -503,3 +503,41 @@ test('a loop with no streaming adapter never emits node_progress (opt-in, zero o
   await runLoop(def, { registry: reg(mock), onEvent: (e) => seen.push(e.type) })
   expect(seen).not.toContain('node_progress')
 })
+
+// The core bug this feature exists to fix: an adapter (copilot/codex/aider)
+// that always reports costUsd 0 but carries a nonzero, pricing-derived
+// estimatedCostUsd must still be able to breach rails.max_cost_usd. Before
+// RailsGuard tracked estimated spend separately and check() breached on the
+// combined total, this exact scenario could NEVER halt on cost - the guard
+// only ever saw 0, no matter how much a run actually spent (per its own
+// estimate). This test fails against that pre-fix behavior and passes now.
+test('rails.max_cost_usd fires on estimate-only spend (costUsd 0, estimatedCostUsd > 0)', async () => {
+  // Mirrors "denies verified when a rail-skipped node leaves verification
+  // incomplete" above, but with only an estimate driving the breach: do and
+  // crit both report costUsd 0 with a nonzero estimatedCostUsd. The combined
+  // estimated spend breaches max_cost_usd after crit, so judge is skipped
+  // pre-start, leaving verification incomplete -> halted, not verified.
+  const mock = new MockAdapter([
+    { match: /EXECUTOR/, output: 'DONE', costUsd: 0, estimatedCostUsd: 0.6 },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok', costUsd: 0, estimatedCostUsd: 0.6 },
+    // no JUDGE step: if the judge were ever invoked, the mock would throw
+    // "exhausted" instead of naturally reporting a fail-worthy low score
+  ])
+  const def = loop({
+    nodes: [
+      { id: 'do', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'do', after: ['do'] },
+      { id: 'judge', role: 'judge', agent: 'a', of: 'do', after: ['crit'], threshold: 0.9 },
+    ],
+    rails: { maxIterations: 4, maxCostUsd: 1.0 },
+  })
+  const runDir = join(mkdtempSync(join(tmpdir(), 'lr-')), 'run')
+  const report = await runLoop(def, { registry: reg(mock), runDir })
+
+  expect(report.status).toBe('halted')
+  expect(report.reason).toContain('rail breached (cost)')
+  expect(report.reason).toContain('est')
+  expect(mock.calls).toHaveLength(2) // judge's adapter was never invoked
+  expect(report.costUsd).toBeCloseTo(0) // real spend genuinely stayed 0
+  expect(report.estimatedCostUsd).toBeCloseTo(1.2) // estimate is what breached it
+})

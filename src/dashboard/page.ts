@@ -351,20 +351,25 @@ export function buildPage(): string {
     return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
   }
 
-  function renderMeter(fillId, labelId, value, max, unit) {
+  function renderMeter(fillId, labelId, value, max, unit, estimated) {
     var fill = document.getElementById(fillId);
     var label = document.getElementById(labelId);
+    // "estimated" (pricing-derived, never a real reported cost - see
+    // core/rails.ts) is folded into the gauge's value/percentage since
+    // that's what rails.max_cost_usd actually breaches on, but always
+    // labeled separately so it never reads as real spend.
+    var estSuffix = unit === '$' && estimated ? (' incl ~$' + estimated.toFixed(2) + ' est') : '';
     if (max === undefined || max === null) {
       fill.style.width = '100%';
       fill.className = '';
-      label.innerHTML = unit === '$' ? ('$' + value.toFixed(2) + '<span class="of"> no budget set</span>') : (value + '<span class="of"> no max set</span>');
+      label.innerHTML = unit === '$' ? ('$' + value.toFixed(2) + estSuffix + '<span class="of"> no budget set</span>') : (value + '<span class="of"> no max set</span>');
       return;
     }
     var pct = max > 0 ? Math.min(100, (value / max) * 100) : 100;
     fill.style.width = pct + '%';
     fill.className = value > max ? 'over' : '';
     label.innerHTML = unit === '$'
-      ? ('$' + value.toFixed(2) + '<span class="of"> / $' + max.toFixed(2) + '</span>')
+      ? ('$' + value.toFixed(2) + estSuffix + '<span class="of"> / $' + max.toFixed(2) + '</span>')
       : (value + '<span class="of"> / ' + max + '</span>');
   }
 
@@ -436,12 +441,13 @@ export function buildPage(): string {
     var order = []
     nodes.forEach(function (n) {
       var key = n.agent || ('(' + n.role + ')')
-      if (!groups[key]) { groups[key] = { label: key, adapter: n.adapter || '', model: n.model || '', nodeIds: [], calls: 0, tokens: 0, costUsd: 0 }; order.push(key) }
+      if (!groups[key]) { groups[key] = { label: key, adapter: n.adapter || '', model: n.model || '', nodeIds: [], calls: 0, tokens: 0, costUsd: 0, estimatedCostUsd: 0 }; order.push(key) }
       var g = groups[key]
       if (g.nodeIds.indexOf(n.id) === -1) g.nodeIds.push(n.id)
       g.calls += n.iterations.length
       g.tokens += n.tokens
       g.costUsd += n.costUsd
+      g.estimatedCostUsd += n.estimatedCostUsd || 0
     })
     var table = document.getElementById('agent-table')
     table.innerHTML = ''
@@ -463,7 +469,7 @@ export function buildPage(): string {
       row.appendChild(htmlEl('span', 'role', g.nodeIds.join(', ')))
       row.appendChild(htmlEl('span', 'num', String(g.calls)))
       row.appendChild(htmlEl('span', 'num', formatTokens(g.tokens)))
-      row.appendChild(htmlEl('span', 'num', '$' + g.costUsd.toFixed(3)))
+      row.appendChild(htmlEl('span', 'num', '$' + g.costUsd.toFixed(3) + (g.estimatedCostUsd ? (' (~$' + g.estimatedCostUsd.toFixed(3) + ' est)') : '')))
       table.appendChild(row)
     })
     var total = htmlEl('div', 'agent-row total')
@@ -473,7 +479,7 @@ export function buildPage(): string {
     total.appendChild(htmlEl('span', null, ''))
     total.appendChild(htmlEl('span', 'num', String(nodes.reduce(function (a, n) { return a + n.iterations.length }, 0))))
     total.appendChild(htmlEl('span', 'num', formatTokens(totals.tokens)))
-    total.appendChild(htmlEl('span', 'num', '$' + totals.costUsd.toFixed(3)))
+    total.appendChild(htmlEl('span', 'num', '$' + totals.costUsd.toFixed(3) + (totals.estimatedCostUsd ? (' (~$' + totals.estimatedCostUsd.toFixed(3) + ' est)') : '')))
     table.appendChild(total)
   }
 
@@ -595,6 +601,7 @@ export function buildPage(): string {
       // gauge already includes other, already-finished nodes. Without this
       // label the two numbers next to each other read as a mismatch.
       r2.textContent = 'this node: ' + formatTokens(current.tokens) + ' tokens \\u00b7 $' + current.costUsd.toFixed(3)
+        + (current.estimatedCostUsd ? (' (~$' + current.estimatedCostUsd.toFixed(3) + ' est)') : '')
         + (current.status === 'running' ? ' (updates once it finishes)' : '');
       meta.appendChild(r2);
     }
@@ -614,7 +621,11 @@ export function buildPage(): string {
     var back = document.getElementById('back-link');
     back.style.display = location.pathname.indexOf('/run/') === 0 ? 'inline' : 'none';
 
-    renderMeter('cost-fill', 'cost-label', model.totals.costUsd, model.totals.maxCostUsd, '$');
+    renderMeter(
+      'cost-fill', 'cost-label',
+      model.totals.costUsd + (model.totals.estimatedCostUsd || 0),
+      model.totals.maxCostUsd, '$', model.totals.estimatedCostUsd,
+    );
     renderMeter('iter-fill', 'iter-label', model.totals.iteration, model.totals.maxIterations, '');
     document.getElementById('tokens-label').textContent = formatTokens(model.totals.tokens);
     document.getElementById('replans-label').textContent = String(model.totals.replans);

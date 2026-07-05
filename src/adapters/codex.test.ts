@@ -11,7 +11,23 @@ const JSONL = [
 
 describe('parseCodexJsonl', () => {
   test('takes the last agent_message and the turn usage', () => {
-    expect(parseCodexJsonl(JSONL)).toEqual({ output: 'FINAL ANSWER', tokens: 1000 })
+    expect(parseCodexJsonl(JSONL)).toEqual({
+      output: 'FINAL ANSWER',
+      tokens: 1000,
+      inputTokens: 900,
+      outputTokens: 100,
+    })
+  })
+
+  test('preserves distinct input/output token counts, not just the combined total', () => {
+    const jsonl = [
+      '{"type":"item.completed","item":{"type":"agent_message","text":"ANSWER"}}',
+      '{"type":"turn.completed","usage":{"input_tokens":750,"output_tokens":250}}',
+    ].join('\n')
+    const parsed = parseCodexJsonl(jsonl)
+    expect(parsed.inputTokens).toBe(750)
+    expect(parsed.outputTokens).toBe(250)
+    expect(parsed.tokens).toBe(1000)
   })
 
   test('falls back to raw text when no agent_message exists', () => {
@@ -55,6 +71,24 @@ describe('createCodexAdapter', () => {
     const res = await createCodexAdapter({ exec }).invoke({ prompt: 'p' }, (c) => chunks.push(c))
     expect(chunks).toEqual(['[reasoning] thinking', 'partial', 'FINAL ANSWER'])
     expect(res.output).toBe('FINAL ANSWER')
+  })
+
+  test('estimates a mixed-rate cost from the pinned model + split input/output tokens, without touching costUsd', async () => {
+    const exec: ExecFn = async () => ({ stdout: JSONL, stderr: '', exitCode: 0 })
+    const loadPricingTable = () => ({
+      'gpt-5-codex': { input_cost_per_token: 1.25e-6, output_cost_per_token: 1e-5 },
+    })
+    const res = await createCodexAdapter({ exec, loadPricingTable }).invoke({ prompt: 'p', model: 'gpt-5-codex' })
+    // JSONL fixture: input_tokens 900, output_tokens 100.
+    expect(res.costUsd).toBe(0)
+    expect(res.estimatedCostUsd).toBeCloseTo(900 * 1.25e-6 + 100 * 1e-5)
+  })
+
+  test('leaves estimatedCostUsd undefined (never 0) when there is no resolvable model', async () => {
+    const exec: ExecFn = async () => ({ stdout: JSONL, stderr: '', exitCode: 0 })
+    const res = await createCodexAdapter({ exec, loadPricingTable: () => ({}) }).invoke({ prompt: 'p' })
+    expect(res.costUsd).toBe(0)
+    expect(res.estimatedCostUsd).toBeUndefined()
   })
 })
 

@@ -93,6 +93,13 @@ describe('createClaudeCodeAdapter', () => {
     expect(res).toMatchObject({ output: 'THE ANSWER', costUsd: 0.0123, tokens: 1250 })
   })
 
+  test('never fabricates an estimatedCostUsd alongside the real reported cost - claude-code has no estimator wired', async () => {
+    const exec: ExecFn = async () => ({ stdout: STREAM, stderr: '', exitCode: 0 })
+    const res = await createClaudeCodeAdapter({ exec }).invoke({ prompt: 'p', model: 'sonnet' })
+    expect(res.costUsd).toBe(0.0123)
+    expect(res.estimatedCostUsd).toBeUndefined()
+  })
+
   test('omits --model when the request has none, but still applies the safe default permission flags', async () => {
     const calls: string[][] = []
     const exec: ExecFn = async (_f, args) => {

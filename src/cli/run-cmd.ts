@@ -116,6 +116,28 @@ export function agentCostBreakdown(def: LoopDef, journalPath: string): [string, 
     .sort((a, b) => b[1] - a[1])
 }
 
+// Mirrors agentCostBreakdown but folds estimatedCostUsd instead of costUsd -
+// kept as a SEPARATE function (rather than widening agentCostBreakdown's
+// tuple) so real-cost callers/tests are untouched, and so a caller can never
+// mistake an estimated figure for a real one by pattern-matching the tuple
+// shape. Only agents that ever produced an estimate appear here (an agent
+// with no estimate anywhere in the journal contributes nothing, not a 0).
+export function agentEstimatedCostBreakdown(def: LoopDef, journalPath: string): [string, number][] {
+  const byAgent = new Map<string, number>()
+  for (const e of readJournal(journalPath)) {
+    if (e.type !== 'node_end') continue
+    const d = e.data as { nodeId?: unknown; estimatedCostUsd?: unknown }
+    if (d.estimatedCostUsd === undefined || d.estimatedCostUsd === null) continue
+    const baseId = String(d.nodeId ?? '').split('@')[0]
+    const node = def.nodes.find((n) => n.id === baseId)
+    const key = node?.agent ?? `(${node?.role ?? 'unknown'})`
+    byAgent.set(key, (byAgent.get(key) ?? 0) + Number(d.estimatedCostUsd))
+  }
+  return [...byAgent.entries()]
+    .map(([k, v]) => [k, Number(v.toFixed(6))] as [string, number])
+    .sort((a, b) => b[1] - a[1])
+}
+
 export interface ExecCtx {
   cwd: string
   runId: string
@@ -148,12 +170,16 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
       case 'node_end': {
         const v = d.verdict as { status?: string } | null
         const mark = !v ? dim('done') : v.status === 'pass' ? ok('pass') : err(String(v.status))
-        ctx.io.out(`    ${mark} ${String(d.nodeId)} ($${Number(d.costUsd ?? 0).toFixed(3)})`)
+        const est = d.estimatedCostUsd === undefined || d.estimatedCostUsd === null ? ''
+          : ` (~$${Number(d.estimatedCostUsd).toFixed(3)} est)`
+        ctx.io.out(`    ${mark} ${String(d.nodeId)} ($${Number(d.costUsd ?? 0).toFixed(3)}${est})`)
         break
       }
-      case 'iteration_end':
-        ctx.io.out(dim(`  - iteration ${String(d.iteration)} · $${Number(d.costUsd).toFixed(2)} of $${def.rails.maxCostUsd} budget`))
+      case 'iteration_end': {
+        const est = Number(d.estimatedCostUsd ?? 0) > 0 ? ` incl ~$${Number(d.estimatedCostUsd).toFixed(2)} est` : ''
+        ctx.io.out(dim(`  - iteration ${String(d.iteration)} · $${Number(d.costUsd).toFixed(2)}${est} of $${def.rails.maxCostUsd} budget`))
         break
+      }
       case 'replan':
         ctx.io.out(warn(`  ↻ replan #${String(d.replans)}`))
         break
@@ -183,6 +209,7 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
       runId: report.runId, status: report.status, reason: report.reason,
       iterations: report.iterations, replans: report.replans,
       costUsd: Number(report.costUsd.toFixed(4)),
+      estimatedCostUsd: Number(report.estimatedCostUsd.toFixed(4)),
       report: report.report,
     }))
     return report.status === 'verified' ? 0 : 2
@@ -192,13 +219,17 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
   ctx.io.out(report.status === 'verified'
     ? ok(`verified - ${report.reason}`)
     : err(`halted - ${report.reason}`))
-  ctx.io.out(`  iterations: ${report.iterations} · replans: ${report.replans} · total cost: $${report.costUsd.toFixed(2)}`)
+  const estimatedSummary = report.estimatedCostUsd > 0 ? ` (~$${report.estimatedCostUsd.toFixed(2)} est)` : ''
+  ctx.io.out(`  iterations: ${report.iterations} · replans: ${report.replans} · total cost: $${report.costUsd.toFixed(2)}${estimatedSummary}`)
   const breakdown = agentCostBreakdown(def, join(ctx.runDir, 'journal.jsonl'))
+  const estimatedBreakdown = new Map(agentEstimatedCostBreakdown(def, join(ctx.runDir, 'journal.jsonl')))
   if (breakdown.length > 0) {
     ctx.io.out(renderTable(
       ['agent', 'adapter', 'cost'],
-      breakdown.map(([agent, cost]) =>
-        [agent, def.agents[agent]?.adapter ?? '-', `$${cost.toFixed(3)}`]),
+      breakdown.map(([agent, cost]) => {
+        const est = estimatedBreakdown.get(agent)
+        return [agent, def.agents[agent]?.adapter ?? '-', `$${cost.toFixed(3)}${est ? ` (~$${est.toFixed(3)} est)` : ''}`]
+      }),
     ))
   }
   ctx.io.out('')
@@ -292,8 +323,12 @@ export function removeRunPid(runDir: string): void {
 export function installCancelHandler(runDir: string, journalPath: string): () => void {
   const onSigterm = (): void => {
     try {
-      const costUsd = existsSync(journalPath) ? summarizeJournal(readJournal(journalPath)).costUsd : 0
-      new JournalWriter(runDir).write('halt', { reason: 'canceled by user request', costUsd })
+      const summary = existsSync(journalPath) ? summarizeJournal(readJournal(journalPath)) : undefined
+      new JournalWriter(runDir).write('halt', {
+        reason: 'canceled by user request',
+        costUsd: summary?.costUsd ?? 0,
+        estimatedCostUsd: summary?.estimatedCostUsd ?? 0,
+      })
     } catch {
       // best-effort - the process exits either way
     }

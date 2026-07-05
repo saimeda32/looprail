@@ -1,20 +1,33 @@
 import type { Adapter, AgentRequest } from '../core/types.js'
+import type { PricingTable } from '../core/pricing.js'
 import { CliAdapter, type ExecFn, type ParsedResponse } from './cli-adapter.js'
 import { resolvePermissionArgs } from './permissions.js'
+import { createPricingEstimator } from './pricing-estimator.js'
 
 interface CopilotEvent {
   type?: string
-  data?: { content?: string; deltaContent?: string; outputTokens?: number }
+  data?: { content?: string; deltaContent?: string; outputTokens?: number; model?: string }
 }
 
 // `copilot -p ... --output-format json` emits one JSON object per line:
-// session/tool bookkeeping, an assistant.message_delta per token as the
-// reply is generated, a final assistant.message with the complete content
-// and its own output token count, then a result line. It reports no dollar
-// cost anywhere in this format - costUsd stays 0 (default).
+// session/tool bookkeeping (including a session.tools_updated event whose
+// data.model names the model copilot actually resolved to - the only
+// reliable model key when AgentRequest.model was omitted or "auto", since
+// config alone gives nothing to look pricing up by in that case), an
+// assistant.message_delta per token as the reply is generated, a final
+// assistant.message with the complete content and its own output token
+// count, then a result line. It reports no dollar cost anywhere in this
+// format - costUsd stays 0 (default). Verified empirically (live run,
+// `copilot -p ... --output-format json --allow-all-tools`): neither the
+// final assistant.message nor the result line's `usage` object (which only
+// carries premiumRequests/timing/codeChanges) contains an input-token
+// count anywhere - only outputTokens exists. inputTokens is therefore left
+// undefined (never coerced to 0, which would falsely claim "zero input
+// tokens" instead of "unknown").
 export function parseCopilotJsonl(stdout: string): ParsedResponse {
   let output = ''
   let tokens = 0
+  let resolvedModel: string | undefined
   for (const line of stdout.split('\n')) {
     if (!line.trim()) continue
     let e: CopilotEvent
@@ -23,12 +36,16 @@ export function parseCopilotJsonl(stdout: string): ParsedResponse {
     } catch {
       continue
     }
+    if (e.type === 'session.tools_updated' && typeof e.data?.model === 'string') {
+      resolvedModel = e.data.model
+    }
     if (e.type === 'assistant.message' && typeof e.data?.content === 'string') {
       output = e.data.content
       tokens = e.data.outputTokens ?? 0
     }
   }
-  return output ? { output, tokens } : { output: stdout.trim() }
+  if (!output) return { output: stdout.trim() }
+  return { output, tokens, outputTokens: tokens, resolvedModel }
 }
 
 // Unlike claude-code and codex, copilot's JSON mode streams genuine
@@ -61,7 +78,7 @@ export function copilotStreamLine(line: string): string | null {
 // has nothing to prompt for approval and the model just declines or
 // describes what it would do.
 export function createCopilotAdapter(
-  opts: { exec?: ExecFn; cwd?: string } = {},
+  opts: { exec?: ExecFn; cwd?: string; loadPricingTable?: () => Promise<PricingTable> | PricingTable } = {},
 ): Adapter {
   return new CliAdapter({
     name: 'copilot-cli',
@@ -75,6 +92,10 @@ export function createCopilotAdapter(
     ],
     parser: parseCopilotJsonl,
     streamHandler: copilotStreamLine,
+    // copilot never reports a real dollar cost (see parseCopilotJsonl); this
+    // estimator derives one from the split tokens + resolved model via the
+    // runtime pricing module, without ever touching costUsd.
+    estimator: createPricingEstimator({ loadTable: opts.loadPricingTable }),
     exec: opts.exec,
     cwd: opts.cwd,
   })

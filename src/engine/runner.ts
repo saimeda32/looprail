@@ -103,10 +103,10 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     },
   }
   const onNode = (o: NodeOutcome) => {
-    guard.addCost(o.costUsd)
+    guard.addCost(o.costUsd, o.estimatedCostUsd)
     emit('node_end', {
       nodeId: o.nodeId, role: o.role, verdict: o.verdict, iteration: state.iteration,
-      costUsd: o.costUsd, tokens: o.tokens, durationMs: o.durationMs,
+      costUsd: o.costUsd, estimatedCostUsd: o.estimatedCostUsd, tokens: o.tokens, durationMs: o.durationMs,
       output: o.output, contextHash: o.contextHash,
     })
   }
@@ -211,11 +211,13 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
 
   const finish = async (status: RunReport['status'], reason: string): Promise<RunReport> => {
     const report = await buildFinalReport(status, reason)
-    emit(status === 'verified' ? 'verified' : 'halt', { reason, costUsd: guard.spentUsd, report })
+    emit(status === 'verified' ? 'verified' : 'halt', {
+      reason, costUsd: guard.spentUsd, estimatedCostUsd: guard.estimatedSpentUsd, report,
+    })
     return {
       runId, status, reason,
       iterations: state.iteration, replans,
-      costUsd: guard.spentUsd, outcomes, report,
+      costUsd: guard.spentUsd, estimatedCostUsd: guard.estimatedSpentUsd, outcomes, report,
     }
   }
 
@@ -276,7 +278,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     outcomes = await runIteration({ ...expanded, agents: runAgents }, execution, state, deps, onNode, shouldContinue, onNodeStart, onChunk)
     const verdicts = outcomes.flatMap((o) => (o.verdict ? [o.verdict] : []))
     fingerprints.push(verdictFingerprint(verdicts))
-    emit('iteration_end', { iteration: state.iteration, costUsd: guard.spentUsd })
+    emit('iteration_end', { iteration: state.iteration, costUsd: guard.spentUsd, estimatedCostUsd: guard.estimatedSpentUsd })
 
     const breach = guard.check(state.iteration)
     // a rail can preempt the pool between layers (scheduler.ts pre-node check),

@@ -66,6 +66,31 @@ test('unparseable verdict re-asks once, then fails', async () => {
   expect(out.verdict).toMatchObject({ status: 'fail', evidence: 'verdict unparseable' })
 })
 
+test('estimatedCostUsd passes through unchanged for a node with no verdict retry', async () => {
+  const deps = depsWith(new MockAdapter([{ output: 'did the work', costUsd: 0, estimatedCostUsd: 0.03 }]))
+  const out = await executeNode(def, { id: 'do', role: 'executor', agent: 'a' }, state, none, deps)
+  expect(out.costUsd).toBe(0)
+  expect(out.estimatedCostUsd).toBe(0.03)
+})
+
+test('estimatedCostUsd sums across the verdict-retry call, like costUsd/tokens', async () => {
+  const mock = new MockAdapter([
+    { output: 'looks fine to me', estimatedCostUsd: 0.01 },
+    { output: 'VERDICT: pass\nEVIDENCE: ok', estimatedCostUsd: 0.02 },
+  ])
+  const out = await executeNode(def, { id: 'c', role: 'critic', agent: 'a' }, state, none, depsWith(mock))
+  expect(out.estimatedCostUsd).toBeCloseTo(0.03)
+})
+
+test('estimatedCostUsd stays undefined (not 0) when neither call produces an estimate', async () => {
+  const mock = new MockAdapter([
+    { output: 'looks fine to me' },
+    { output: 'VERDICT: pass\nEVIDENCE: ok' },
+  ])
+  const out = await executeNode(def, { id: 'c', role: 'critic', agent: 'a' }, state, none, depsWith(mock))
+  expect(out.estimatedCostUsd).toBeUndefined()
+})
+
 test('judge below threshold fails even when it says pass', async () => {
   const deps = depsWith(new MockAdapter([{ output: 'VERDICT: pass\nSCORE: 0.6\nEVIDENCE: ok' }]))
   const node: NodeDef = { id: 'j', role: 'judge', agent: 'a', threshold: 0.85 }
