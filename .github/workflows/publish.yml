@@ -1,0 +1,45 @@
+name: Publish to npm
+
+# Fires when a GitHub Release is published (the same `gh release create` /
+# release-page flow already used for every tagged version) - not on every
+# push to main, so publishing stays a deliberate, versioned act tied to a
+# real release, not an automatic side effect of merging.
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # id-token: write is the OIDC permission npm's Trusted Publisher flow
+      # needs to exchange a GitHub-issued token for a short-lived npm
+      # publish token - no NPM_TOKEN secret stored anywhere. Trust is
+      # established on npm's side instead (package settings -> Trusted
+      # Publisher -> GitHub Actions -> this exact repo + workflow
+      # filename), so only a workflow run matching that exact identity can
+      # ever publish.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Trusted Publisher support landed in npm 11.5.1 - setup-node's
+      # bundled npm on the node:20 image predates it.
+      - run: npm install -g npm@latest
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+      # package.json's version must already match the release tag (bump it
+      # in the same commit/PR that's tagged - see CONTRIBUTING.md) - this
+      # workflow publishes whatever version is checked out, it does not
+      # bump it itself. No auth token needed - npm exchanges this run's
+      # OIDC identity for a publish token automatically.
+      - run: npm publish --provenance --access public
