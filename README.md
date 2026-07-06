@@ -22,6 +22,14 @@ It works with the agent CLIs you already have installed and logged into:
 Claude Code, Codex, aider, GitHub Copilot, or any shell command. No API keys go
 into looprail. If `claude` works in your terminal, looprail works.
 
+> **Looprail is not an agent.** It doesn't write code, and it has no model of
+> its own. It's the loop AROUND an agent: the part that decides what to run
+> next, checks the result against a real command or a second model, and
+> feeds the failure back - the part you'd otherwise be doing by hand,
+> re-prompting the same agent and re-running the same test yourself. Point
+> it at Claude Code, Codex, aider, or Copilot and it drives whichever one(s)
+> you pick; it never replaces them.
+
 ```bash
 npm install -g looprail
 looprail init          # detect your agents, scaffold a looprail.yaml
@@ -260,6 +268,44 @@ codex/aider binaries weren't even installed to test against, so nothing
 was invented. Wiring a real detector for any of them is deferred until
 that shape can be verified against the real CLI's actual output.
 
+### Security and isolation
+
+The honest version, not the reassuring one:
+
+- **No API keys or credentials ever touch looprail.** It shells out to the
+  agent CLI you already logged into (`claude`, `codex`, `aider`, `gh
+  copilot`) the same way you'd run it yourself - looprail never sees, stores,
+  or transmits a key.
+- **Looprail does not sandbox anything itself.** It has no container, no VM,
+  no filesystem jail of its own. Whatever isolation a node's execution has
+  comes entirely from the underlying adapter CLI's own sandboxing (see
+  [Agent permissions](#agent-permissions) above) - a `full`-permissions
+  agent can do anything your OS user account can do, in your real working
+  directory, on your real filesystem. Treat `permissions: full` as exactly
+  as risky as running that CLI yourself with its safety flags off, because
+  that is literally what it is.
+- **Each node runs as its own OS subprocess**, so one hanging or crashing
+  node doesn't take down the loop - a wall-clock rail forcibly kills a node
+  that outlives its budget (see [Rails](#rails)) instead of hanging forever.
+  That's process isolation for reliability, not a security boundary.
+- **A `role: gate` node is the one real, engine-level control point**: it
+  pauses the whole loop, mid-graph, for an explicit human yes/no before
+  anything past it runs - useful for "review the plan before any code gets
+  touched," not a sandbox around what runs after you approve it.
+- **The mid-node permission relay is new and unproven against real CLIs
+  yet** - see [Agent permissions](#agent-permissions) above for exactly
+  what's shipped (the mechanism, proven against a mock adapter) versus
+  what's deliberately deferred (a real detector for any of the four actual
+  adapter CLIs, since none of their real permission-prompt output could be
+  confirmed without inventing a format).
+
+If your threat model needs an actual sandbox around agent execution
+(untrusted input, a multi-tenant setting, code you don't trust running with
+your full permissions), put looprail's subprocess inside your own
+container/VM boundary - that's a deliberate design choice to stay a thin
+orchestration layer over whatever agent CLI and OS-level isolation you
+already trust, not a gap we're hiding.
+
 ### Mixing models
 
 Every `agents:` entry names an `adapter:` - which CLI actually runs that
@@ -429,6 +475,33 @@ code instead of YAML. The YAML compiles to the same objects the SDK builds, so
 anything the CLI can run, the SDK can too. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the internals.
 
+## How looprail compares
+
+These four tools get mentioned in the same breath as looprail often enough
+that they're worth comparing honestly - they're not all solving the same
+problem, and the differences matter more than a checkmark grid usually shows.
+
+| | **looprail** | **LangGraph** | **OpenHands** | **Cline** | **aider** |
+| --- | --- | --- | --- | --- | --- |
+| What it is | CLI orchestrator | Code-first graph library | Standalone coding agent | IDE extension (+ CLI) | Standalone CLI coding agent |
+| Drives other agent CLIs? | Yes - that's the point | No - you build a custom agent in code | No - it is the agent | No - it is the agent | No - it is the agent |
+| Verify-until-pass, built in? | Yes - a real command or a second model's review, retried until it passes or a budget runs out | No - you hand-build an evaluator-optimizer pattern yourself | No - the model self-judges "done" (`AgentFinishAction`) | No - human-approval-gated or auto-approve, no mechanical pass/fail gate | Yes, but scoped to one agent/model - `--auto-test` retries against your test command |
+| Sandboxing | None of its own - inherits whatever the adapter CLI does | N/A (a library, not an execution environment) | Yes - every action runs inside a Docker container | No | No |
+| Primary audience | Developers who already use an agent CLI and want a real verification loop around it | Developers building their own custom LLM application | Whoever wants an autonomous coding agent, not a CLI wrapper | Developers who want an in-editor (or terminal) pair-programmer | Developers who want one fast, scriptable terminal coding agent |
+
+The one that doesn't fit neatly into "competitor": **aider is one of
+looprail's own adapters.** It's not a peer in this table so much as a tool
+looprail can literally run as a node in your loop - `agents: { worker: {
+adapter: aider } }` - alongside Claude Code, Codex, or Copilot, and its own
+`--auto-test` loop is exactly the kind of single-agent verify-retry pattern
+looprail generalizes across models, panels, and a real dashboard.
+
+The honest gap on the other side: **OpenHands' Docker sandboxing is real
+isolation looprail does not have.** If your threat model needs that, run
+looprail's own subprocess inside a container boundary yourself (see
+[Security and isolation](#security-and-isolation)) - it isn't something
+looprail provides today.
+
 ## Status
 
 The engine, the CLI, the adapters, the Loopfile format, and the `bench` A/B
@@ -441,6 +514,42 @@ looprail as an MCP server for Claude Desktop, Cursor, and VS Code's Copilot
 Chat. See `benchmarks/` for three mock-backed benchmarks comparing a naive
 prompting baseline against an engineered looprail config, and
 `benchmarks/README.md` for running the same comparison against real agents.
+
+### Limitations
+
+Stated plainly, not buried:
+
+- **Single machine, single process per run.** There's no distributed
+  execution, no queue, no multi-node fan-out across machines - a loop runs
+  where you started it.
+- **No sandboxing of its own** - see [Security and isolation](#security-and-isolation)
+  above. This is a deliberate scope choice, not an oversight, but it means
+  looprail is only as safe as the adapter CLI (and OS user) you're running.
+- **The mid-node permission relay has no real adapter wired up yet** -
+  proven against a mock adapter only; each real adapter explicitly defers
+  rather than guessing at a prompt format it couldn't confirm.
+- **A `tester` node's `expect` only supports `exit 0`** - there's no richer
+  assertion language (matching stdout content, a numeric threshold, etc.)
+  yet; express anything more specific as a real shell command that exits
+  nonzero on failure.
+- **No web UI for authoring a loopfile** - `looprail init`'s wizard and the
+  `examples/` folder are the two on-ramps; there's no drag-and-drop graph
+  builder.
+- **Verdict scoring is model self-report, not ground truth**, the same as
+  every LLM-judge approach - a critic's score is only as reliable as the
+  model producing it, which is exactly why cross-model critic panels and
+  mechanical `tester` checks exist as the harder floor underneath it.
+
+### When not to use looprail
+
+If your task's "done" can't be checked by a real command or an independent
+model's honest review - "make this feel more premium," "pick the better
+design" with no rubric, anything fundamentally subjective - looprail can't
+verify it, and a loop with no real verifier is just a slower way to prompt
+an agent in a circle. `looprail lint` refuses to run a loop with no
+tester/critic/judge at all for exactly this reason, but it can't stop you
+from writing a critic whose rubric is itself too vague to mean anything.
+Loops are for goals you can actually check, not ones you can only vibe-check.
 
 ## Contributing
 
