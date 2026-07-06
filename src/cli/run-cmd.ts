@@ -677,6 +677,15 @@ export async function runAction(
     // child - use the runId its parent already announced, take gate answers
     // via the cross-process answer file, notify on completion.
     detachedChild?: string
+    // Run the loaded loopfile against a DIFFERENT goal without touching the
+    // file on disk - the same override posture as resume's goal override
+    // (see resume-cmd.ts). This is what lets `looprail queue` run one graph
+    // shape against many goals.
+    goal?: string
+    // Applied only when the loopfile sets NO gate_timeout of its own - an
+    // unattended run (queue) must never hang forever on a gate nobody is
+    // watching; it parks instead. A loopfile's own explicit value always wins.
+    defaultGateTimeoutSec?: number
   },
   deps: RunDeps = {},
 ): Promise<number> {
@@ -687,6 +696,12 @@ export async function runAction(
   } catch (e) {
     io.out(err(e instanceof Error ? e.message : String(e)))
     return 1
+  }
+  if (opts.goal !== undefined) {
+    loaded = { ...loaded, def: { ...loaded.def, goal: opts.goal } }
+  }
+  if (opts.defaultGateTimeoutSec !== undefined && loaded.def.rails.gateTimeoutSec === undefined) {
+    loaded = { ...loaded, def: { ...loaded.def, rails: { ...loaded.def.rails, gateTimeoutSec: opts.defaultGateTimeoutSec } } }
   }
   autoRegisterWorkspace(resolve(opts.cwd), deps.registryPath ?? defaultRegistryPath())
   const findings = lintLoop(loaded.def)
