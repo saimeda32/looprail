@@ -1,4 +1,4 @@
-import type { GateAnswer, GateHandler, NodeDef, Rails } from '../../index.js'
+import { gateParkedMessage, type GateAnswer, type GateHandler, type NodeDef, type Rails } from '../../index.js'
 
 export interface PendingGate {
   resolve: (answer: GateAnswer) => void
@@ -47,10 +47,10 @@ function defaultGateTimer(ms: number, message: string): Promise<never> {
 //
 // The one exception mirrors the CLI exactly: if the loopfile's
 // rails.gate_timeout is set, this races the pending answer against the same
-// infra:-tagged timeout makeGate produces (see src/cli/run-cmd.ts), so a gate
-// that times out halts the run identically whether it was started via the
-// CLI or via run_loop (router.ts's infra: branch turns that rejection into a
-// halt, not an ordinary rejected-gate iterate).
+// parked:-tagged timeout makeGate produces (see src/cli/run-cmd.ts's
+// gateParkedMessage), so a gate that times out parks the run identically
+// whether it was started via the CLI or via run_loop (router.ts's parked:
+// branch turns that rejection into a resumable park, not a failure halt).
 export function makeMcpGate(runId: string, rails: Rails, timerDeps: GateTimerDeps = {}): GateHandler {
   const gateTimer = timerDeps.gateTimer ?? defaultGateTimer
   return async (node: NodeDef, context: string) => {
@@ -65,10 +65,7 @@ export function makeMcpGate(runId: string, rails: Rails, timerDeps: GateTimerDep
       if (timeoutSec !== undefined && timeoutSec > 0) {
         return await Promise.race([
           answered,
-          gateTimer(
-            timeoutSec * 1000,
-            `infra: gate "${node.id}" timed out after ${timeoutSec}s awaiting human approval`,
-          ),
+          gateTimer(timeoutSec * 1000, gateParkedMessage(node.id, timeoutSec)),
         ])
       }
       return await answered

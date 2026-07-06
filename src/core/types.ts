@@ -223,6 +223,16 @@ export function normalizeGateAnswer(result: boolean | GateAnswer): GateAnswer {
   return typeof result === 'boolean' ? { approved: result } : result
 }
 
+// The parked: tag routes a gate timeout to router.ts's parked branch (a
+// halt presented as "resume to answer", never as an error) - shared by all
+// three gate implementations (cli/run-cmd.ts's makeGate and makeUiGate,
+// mcp/tools/gate-registry.ts's makeMcpGate) so a timed-out gate parks
+// identically no matter how the run was started. Lives here, not in the
+// CLI layer, because the MCP layer must not import from cli/.
+export function gateParkedMessage(nodeId: string, timeoutSec: number): string {
+  return `parked: gate "${nodeId}" got no human answer within ${timeoutSec}s - resume the run to answer it`
+}
+
 export interface JournalEvent {
   ts: number
   type: 'run_start' | 'node_start' | 'node_end' | 'node_skipped' | 'node_progress' | 'iteration_end'

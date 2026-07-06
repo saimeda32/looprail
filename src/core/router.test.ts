@@ -71,6 +71,23 @@ test('transient error verdict routes like a failure (iterate with feedback)', ()
   expect((d as { feedback: string }).feedback).toContain('adapter died')
 })
 
+// A gate timeout is a human being busy, not the tool failing - it parks the
+// run (resumable, presented as "resume to answer") instead of halting as an
+// infrastructure error. Real halt caught live: a run that planned, survived
+// review, built, and passed its tests was reported as "infrastructure error"
+// purely because its human missed a 10-minute approval window.
+test('parked-tagged error verdict halts as parked-awaiting-approval, never as an infrastructure error', () => {
+  const d = routeIteration({
+    outcomes: [outcome('approve', 'error', 'parked: gate "approve" got no human answer within 600s - resume the run to answer it')],
+    policy: { kind: 'all-pass' },
+    fingerprints: [], rails, replansUsed: 0, breach: null,
+  })
+  expect(d).toMatchObject({ action: 'halt' })
+  const reason = (d as { reason: string }).reason
+  expect(reason).toBe('parked awaiting human approval: gate "approve" got no human answer within 600s - resume the run to answer it')
+  expect(reason).not.toContain('infrastructure')
+})
+
 test('infra-tagged error verdict halts with the evidence', () => {
   const d = routeIteration({
     outcomes: [outcome('j', 'error', 'infra: 401 unauthorized - run `looprail doctor`')],

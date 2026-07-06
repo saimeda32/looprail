@@ -58,6 +58,20 @@ test('reconstructRunState returns null feedback when the last iteration had no f
   expect(reconstructRunState(events).feedback).toBeNull()
 })
 
+// "No human answered in time" is not actionable feedback for any agent -
+// and if it leaked into the reconstructed feedback, every downstream node's
+// prompt (and therefore cache hash) would change on resume, silently
+// re-running and re-billing work the run finished before it parked.
+test('reconstructRunState excludes a parked: gate verdict from feedback and sources - parking must cost zero repeated work on resume', () => {
+  const events = [
+    ev('node_end', { nodeId: 'approve', iteration: 1, verdict: { status: 'error', evidence: 'parked: gate "approve" got no human answer within 600s - resume the run to answer it' } }),
+    ev('iteration_end', { iteration: 1 }),
+  ]
+  const { feedback, sources } = reconstructRunState(events)
+  expect(feedback).toBeNull()
+  expect(sources).toEqual([])
+})
+
 // --- precise-exclusion provenance: `sources` names exactly the node_end
 // entries that fed `feedback`/`plan`, so cache.ts's loadCache can exclude
 // only those, instead of every node_end sharing the halted iteration number.

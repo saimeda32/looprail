@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import type { Command } from 'commander'
 import {
-  createDefaultRegistry, expandPanels, findPlanGenerator, JournalWriter, lintLoop, normalizeGateAnswer,
+  createDefaultRegistry, expandPanels, findPlanGenerator, gateParkedMessage, JournalWriter, lintLoop, normalizeGateAnswer,
   parseLoopfile, readJournal, runLoop, summarizeJournal,
   type AdapterRegistry, type GateAnswer, type GateHandler, type JournalEvent, type LoopDef, type NodeDef,
   type NodeOutcome, type Rails, type RunReport,
@@ -17,6 +17,7 @@ import { runsRoot, workspaceHash } from '../journal/runs.js'
 import { persistRunLoopDef } from '../journal/loopfile-persist.js'
 import { hasStoredApproval, storeApproval } from '../journal/gate-approvals.js'
 import { defaultIo, dim, err, heading, ok, renderTable, startWithStableDefault, warn, wrapText, type CliIo } from './ui.js'
+import { desktopNotifier, type Notifier } from './notify.js'
 import { addWorkspace, defaultRegistryPath } from '../workspace/registry.js'
 import { loadExpandedLoopDef } from './ui-cmd.js'
 import { resumeAction } from './resume-cmd.js'
@@ -35,6 +36,12 @@ export interface GateTimerDeps {
   // cleared once the human answers); tests inject a fake that rejects
   // immediately to exercise the timeout path deterministically.
   gateTimer?: (ms: number, message: string) => Promise<never>
+  // Fired when a gate starts waiting for a human, and again if it parks on
+  // timeout. Defaults to a NO-OP here so unit-constructed gates stay silent;
+  // the real desktopNotifier is wired in explicitly by runAction/resumeAction
+  // (the actual CLI entrypoints), keeping notification a product behavior of
+  // running looprail, not a side effect of constructing a gate handler.
+  notify?: Notifier
 }
 
 export function makeGate(
@@ -50,6 +57,8 @@ export function makeGate(
       io.out(warn(`gate "${node.id}" - previously approved, skipping prompt`))
       return { approved: true }
     }
+    const notify = timerDeps.notify ?? (() => {})
+    notify('looprail - approval needed', `gate "${node.id}" is waiting for your answer`)
     const rl = createInterface({ input: stdin, output: process.stdout })
     // Abort seam for the readline question: readline never rejects a pending
     // question on rl.close(), so the timeout path aborts it explicitly to
@@ -74,9 +83,10 @@ export function makeGate(
         if (trimmed.length === 0) return { approved: false }
         return { approved: false, feedback: trimmed }
       }
-      // the infra: tag makes the router HALT (spec §10) instead of treating the
-      // timeout as an ordinary gate rejection
-      const message = `infra: gate "${node.id}" timed out after ${timeoutSec}s awaiting human approval`
+      // the parked: tag makes the router HALT as parked-resumable (see
+      // router.ts's parked branch) instead of treating the timeout as an
+      // infrastructure error or an ordinary gate rejection
+      const message = gateParkedMessage(node.id, timeoutSec)
       const timer = timerDeps.gateTimer
         ? timerDeps.gateTimer(timeoutSec * 1000, message)
         : new Promise<never>((_, reject) => {
@@ -85,7 +95,10 @@ export function makeGate(
           })
       // when the timer wins, abort the still-pending question so it settles;
       // swallow both losers' rejections so neither surfaces as an unhandled one
-      timer.catch(() => ac.abort())
+      timer.catch(() => {
+        ac.abort()
+        notify('looprail - run parked', `gate "${node.id}" got no answer in time - resume the run to answer it`)
+      })
       question.catch(() => {})
       try {
         const answer = await Promise.race([question, timer])
@@ -197,6 +210,8 @@ export function makeUiGate(
 
     const isPlanApproval = !!findPlanGenerator(expandedNodes, node)
     writeGateWaitingMarker(runDir, { nodeId: node.id, isPlanApproval, question: context })
+    const notify = timerDeps.notify ?? (() => {})
+    notify('looprail - approval needed', `gate "${node.id}" is waiting for your answer (run ${runId})`)
 
     const rl = createInterface({ input: stdin, output: process.stdout })
     // Same abort seam makeGate uses for the readline question - whichever
@@ -233,9 +248,10 @@ export function makeUiGate(
       const racers: Promise<GateAnswer>[] = [stdinAnswered, registryAnswered]
       // 0 and undefined both mean "wait forever" - same convention as makeGate
       if (timeoutSec !== undefined && timeoutSec > 0) {
-        // the infra: tag makes the router HALT (spec §10) instead of treating
-        // the timeout as an ordinary gate rejection
-        const message = `infra: gate "${node.id}" timed out after ${timeoutSec}s awaiting human approval`
+        // the parked: tag makes the router HALT as parked-resumable (see
+        // router.ts's parked branch) instead of treating the timeout as an
+        // infrastructure error or an ordinary gate rejection
+        const message = gateParkedMessage(node.id, timeoutSec)
         const timer = timerDeps.gateTimer
           ? timerDeps.gateTimer(timeoutSec * 1000, message)
           : new Promise<never>((_, reject) => {
@@ -244,7 +260,10 @@ export function makeUiGate(
             })
         // when the timer wins, abort the still-pending stdin question so it
         // settles; swallow the loser's rejection so it never surfaces as unhandled
-        timer.catch(() => ac.abort())
+        timer.catch(() => {
+          ac.abort()
+          notify('looprail - run parked', `gate "${node.id}" got no answer in time - resume run ${runId} to answer it`)
+        })
         try {
           const answer = await Promise.race([...racers, timer])
           return normalizeGateAnswer(answer)
@@ -382,9 +401,18 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
   }
 
   ctx.io.out('')
+  // A parked run (gate timed out awaiting a human - router.ts's parked
+  // branch) is deliberately NOT rendered through the same red "halted -"
+  // line as a genuine failure: nothing went wrong, the work already done is
+  // cached in the journal, and the single action needed is a resume.
+  const isParked = report.status === 'halted' && report.reason.startsWith('parked')
   ctx.io.out(report.status === 'verified'
     ? ok(`verified - ${report.reason}`)
+    : isParked ? warn(`parked - ${report.reason}`)
     : err(`halted - ${report.reason}`))
+  if (isParked) {
+    ctx.io.out(dim(`  nothing failed - resume with \`looprail resume ${report.runId}\` (or from mission control) and the gate will ask again`))
+  }
   const estimatedSummary = report.estimatedCostUsd > 0 ? ` (~$${report.estimatedCostUsd.toFixed(2)} est)` : ''
   ctx.io.out(`  iterations: ${report.iterations} · replans: ${report.replans} · total cost: $${report.costUsd.toFixed(2)}${estimatedSummary}`)
   const breakdown = agentCostBreakdown(def, join(ctx.runDir, 'journal.jsonl'))
@@ -623,8 +651,8 @@ export async function runAction(
       // Only a `--ui` run's gate is answerable from the dashboard too - a
       // plain `run` gets the exact same stdin-only makeGate it always has.
       gate: deps.gate ?? (opts.ui
-        ? makeUiGate(loaded.def.rails, io, !!opts.yes, opts.cwd, runId, runDir, expanded.nodes)
-        : makeGate(loaded.def.rails, io, !!opts.yes, opts.cwd)),
+        ? makeUiGate(loaded.def.rails, io, !!opts.yes, opts.cwd, runId, runDir, expanded.nodes, { notify: desktopNotifier })
+        : makeGate(loaded.def.rails, io, !!opts.yes, opts.cwd, { notify: desktopNotifier })),
     })
   } finally {
     uninstallCancelHandler()

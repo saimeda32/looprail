@@ -11,6 +11,7 @@ import {
 } from './run-cmd.js'
 import { latestRunId, runsRoot } from './status-cmd.js'
 import { defaultIo, dim, err } from './ui.js'
+import { desktopNotifier } from './notify.js'
 
 export interface ResumeOverrides {
   maxIterations?: number
@@ -108,7 +109,7 @@ export async function resumeAction(
       io,
       json: !!opts.json,
       registry: deps.registry ?? createDefaultRegistry({ cwd: opts.cwd }),
-      gate: deps.gate ?? makeGate(def.rails, io, !!opts.yes, opts.cwd),
+      gate: deps.gate ?? makeGate(def.rails, io, !!opts.yes, opts.cwd, { notify: desktopNotifier }),
       cache,
       startIteration: priorIterations,
       initialPlan: plan,

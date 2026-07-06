@@ -232,7 +232,7 @@ test('makeGate --yes auto-approves without touching stdin', async () => {
   expect(lines.join('\n')).toContain('auto-approved')
 })
 
-test('makeGate rejects with an infra-tagged message via the injected gate timer - no real timer used', async () => {
+test('makeGate rejects with a parked-tagged message via the injected gate timer - no real timer used', async () => {
   const lines: string[] = []
   const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
   const gate = makeGate(
@@ -244,8 +244,10 @@ test('makeGate rejects with an infra-tagged message via the injected gate timer 
     // seconds - this is the whole point of the seam
     { gateTimer: async (_ms, message) => { throw new Error(message) } },
   )
+  // parked:, NOT infra: - a human not answering in time is a human being
+  // busy, not an infrastructure failure (see router.ts's parked branch)
   await expect(gate({ id: 'approve', role: 'gate' }, 'ctx'))
-    .rejects.toThrow('infra: gate "approve" timed out after 5s awaiting human approval')
+    .rejects.toThrow('parked: gate "approve" got no human answer within 5s')
 })
 
 test('makeGate clears the timeout when the human answers first, leaving no lingering timer', async () => {
@@ -282,7 +284,7 @@ test('a timed-out gate leaves no unhandled rejection (the aborted question is se
       { out: () => {} }, false, cwd,
       { gateTimer: async (_ms, message) => { throw new Error(message) } },
     )
-    await expect(gate({ id: 'approve', role: 'gate' }, 'ctx')).rejects.toThrow(/timed out/)
+    await expect(gate({ id: 'approve', role: 'gate' }, 'ctx')).rejects.toThrow(/parked:/)
     await new Promise((r) => setTimeout(r, 10)) // flush any dangling rejection
   } finally {
     process.removeListener('unhandledRejection', onRej)
@@ -290,19 +292,23 @@ test('a timed-out gate leaves no unhandled rejection (the aborted question is se
   expect(rejections).toEqual([])
 })
 
-test('gate timeout halts the run as an infrastructure error, not a config error (no real timers)', async () => {
+test('gate timeout PARKS the run with a resume hint - never as an infrastructure or config error (no real timers)', async () => {
   const { cwd, io, lines } = setup(GATED_TIMEOUT)
   const def = parseLoopfile(GATED_TIMEOUT)
   const gate = makeGate(def.rails, io, false, cwd, {
     gateTimer: async (_ms, message) => { throw new Error(message) },
   })
   const code = await runAction(undefined, { cwd }, { io, gate })
-  expect(code).toBe(2)
+  expect(code).toBe(2) // still non-zero: the run is not done, just parked
   const text = lines.join('\n')
-  expect(text).toContain('halted')
-  expect(text).toContain('infrastructure error')
-  expect(text).toContain('gate "approve" timed out after 5s awaiting human approval')
+  expect(text).toContain('parked - parked awaiting human approval')
+  expect(text).toContain('gate "approve" got no human answer within 5s')
+  // the single action the human needs is stated right there
+  expect(text).toContain('looprail resume')
+  // a human being busy must never read as the tool failing
+  expect(text).not.toContain('infrastructure error')
   expect(text).not.toContain('config error')
+  expect(text).not.toContain('halted -')
 })
 
 test('a plain `looprail run` (no --ui) never registers with the dashboard gate registry and never writes gate-waiting.json', async () => {
@@ -440,8 +446,47 @@ test('makeUiGate times out via the injected gate timer exactly like makeGate, wh
     { gateTimer: async (_ms, message) => { throw new Error(message) } },
   )
   await expect(gate({ id: 'approve', role: 'gate' }, 'ctx'))
-    .rejects.toThrow('infra: gate "approve" timed out after 5s awaiting human approval')
+    .rejects.toThrow('parked: gate "approve" got no human answer within 5s')
   expect(getPendingGate('run-t')).toBeUndefined()
+})
+
+// The notification is the product answer to the live-caught failure this
+// whole parked mechanism exists for: a gate beginning to wait is exactly the
+// moment the human's attention is required, and previously the tool had no
+// way to ask for it beyond a terminal line nobody was looking at.
+test('makeUiGate fires a notification when the gate starts waiting, and another when it parks on timeout', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
+  const runDir = mkdtempSync(join(tmpdir(), 'lr-gate-run-'))
+  const notified: string[] = []
+  const gate = makeUiGate(
+    { maxIterations: 1, maxCostUsd: 1, gateTimeoutSec: 5 }, { out: () => {} }, false, cwd, 'run-n', runDir,
+    [{ id: 'approve', role: 'gate' }],
+    {
+      gateTimer: async (_ms, message) => { throw new Error(message) },
+      notify: (title, message) => { notified.push(`${title}|${message}`) },
+    },
+  )
+  await expect(gate({ id: 'approve', role: 'gate' }, 'ctx')).rejects.toThrow(/parked:/)
+  expect(notified.some((n) => n.includes('approval needed') && n.includes('approve'))).toBe(true)
+  expect(notified.some((n) => n.includes('parked') && n.includes('resume'))).toBe(true)
+})
+
+test('makeUiGate answered from the dashboard notifies once for the wait and never claims a park', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
+  const runDir = mkdtempSync(join(tmpdir(), 'lr-gate-run-'))
+  const notified: string[] = []
+  const gate = makeUiGate(
+    { maxIterations: 1, maxCostUsd: 1 }, { out: () => {} }, false, cwd, 'run-n2', runDir,
+    [{ id: 'approve', role: 'gate' }],
+    { notify: (title, message) => { notified.push(`${title}|${message}`) } },
+  )
+  const answerPromise = gate({ id: 'approve', role: 'gate' }, 'ctx')
+  await Promise.resolve()
+  await Promise.resolve()
+  resolvePendingGate('run-n2', 'approve', { approved: true })
+  await expect(answerPromise).resolves.toEqual({ approved: true })
+  expect(notified.filter((n) => n.includes('approval needed'))).toHaveLength(1)
+  expect(notified.some((n) => n.includes('run parked'))).toBe(false)
 })
 
 test('makeUiGate marks the gate-waiting.json marker while waiting and removes it once settled', async () => {

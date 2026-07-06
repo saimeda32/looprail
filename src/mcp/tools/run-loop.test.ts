@@ -185,7 +185,7 @@ test('approve_gate approved:false rejects the gate - the run iterates/halts per 
   expect((gateEnd?.data as { verdict?: { status?: string } }).verdict?.status).toBe('fail')
 })
 
-test('gate_timeout is honored via an injected timer (no real setTimeout) and halts with an infra-tagged reason, same as the CLI', async () => {
+test('gate_timeout is honored via an injected timer (no real setTimeout) and parks the run, same as the CLI', async () => {
   const cwd = tmpCwd()
   gatedFixture(cwd, { maxIterations: 2, gateTimeoutSec: 5 })
   const timedOut: string[] = []
@@ -199,8 +199,11 @@ test('gate_timeout is honored via an injected timer (no real setTimeout) and hal
 
   const report = await done
   expect(report?.status).toBe('halted')
-  expect(report?.reason).toContain('infrastructure error')
-  expect(report?.reason).toContain('gate "approve" timed out after 5s awaiting human approval')
+  // parked, NOT an infrastructure error - a human not answering in time is
+  // a human being busy, and the run is resumable (router.ts's parked branch)
+  expect(report?.reason).toContain('parked awaiting human approval')
+  expect(report?.reason).toContain('gate "approve" got no human answer within 5s')
+  expect(report?.reason).not.toContain('infrastructure')
   expect(timedOut).toHaveLength(1)
   // the registry never keeps a timed-out gate's entry around
   expect(pendingGates.has(gateKey(parsed.runId, 'approve'))).toBe(false)

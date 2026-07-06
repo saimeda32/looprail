@@ -21,7 +21,24 @@ export interface RouteInput {
 
 export function routeIteration(input: RouteInput): RouterDecision {
   const verdicts = input.outcomes.flatMap((o) => (o.verdict ? [o.verdict] : []))
-  // infrastructural errors (auth expiry) can never be fixed by iterating - 
+  // A gate that never got its human answer within gate_timeout is NOT an
+  // infrastructure failure - the run did nothing wrong, a human was just
+  // busy. Real halt caught live: a run that planned, survived review, built,
+  // and passed its tests was reported as "halted - infrastructure error"
+  // purely because its human wasn't at the screen for 10 minutes. The run
+  // still halts (the process can't wait forever holding resources), but as
+  // PARKED: a deliberately distinct classification so the CLI/dashboard can
+  // present it as "resume to answer the gate" rather than as a failure.
+  // Everything already-passed is in the journal cache, so a resume re-asks
+  // only the gate and continues - parking costs zero repeated work.
+  const parked = verdicts.filter((v) => v.status === 'error' && v.evidence.startsWith('parked:'))
+  if (parked.length > 0) {
+    return {
+      action: 'halt',
+      reason: `parked awaiting human approval: ${parked.map((v) => v.evidence.replace(/^parked:\s*/, '')).join('; ')}`,
+    }
+  }
+  // infrastructural errors (auth expiry) can never be fixed by iterating -
   // halt with the doctor hint carried in the evidence (spec §10)
   const infra = verdicts.filter((v) => v.status === 'error' && v.evidence.startsWith('infra:'))
   if (infra.length > 0) {

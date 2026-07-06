@@ -366,6 +366,58 @@ test('resume writes a fresh pid file before invoking any node, so the resumed ru
   expect(existsSync(join(runDir, 'pid'))).toBe(false) // cleaned up after completion
 })
 
+// The whole point of parking (router.ts's parked branch): a gate timeout
+// costs nothing. The run halts resumable, and on resume the gate simply asks
+// again - the executor's already-done work comes from the journal cache, so
+// the human answering late never pays for the work twice.
+test('a run parked at a gate timeout resumes cleanly: the gate asks again, prior work is cached, and approval verifies the run', async () => {
+  const GATED = `
+name: parked-resume-fixture
+goal: Say DONE.
+agents:
+  worker: { adapter: mock }
+graph:
+  do:      { role: executor, agent: worker }
+  approve: { role: gate, after: do }
+rails:
+  max_iterations: 2
+  max_cost_usd: 5
+  gate_timeout: 5
+`
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-parked-'))
+  writeFileSync(join(cwd, 'looprail.yaml'), GATED)
+  const registry = () => {
+    const r = createRegistry()
+    r.register(new MockAdapter([{ match: /EXECUTOR/, output: 'DONE', costUsd: 1 }]))
+    return r
+  }
+  // First run: the gate times out (injected timer) - run parks.
+  const first = capture()
+  const { makeGate } = await import('./run-cmd.js')
+  const { parseLoopfile } = await import('../index.js')
+  const def = parseLoopfile(GATED)
+  const timingOutGate = makeGate(def.rails, first.io, false, cwd, {
+    gateTimer: async (_ms, message) => { throw new Error(message) },
+  })
+  const code1 = await runAction(undefined, { cwd, json: true }, { io: first.io, registry: registry(), gate: timingOutGate })
+  expect(code1).toBe(2)
+  const parsed1 = JSON.parse(first.lines.at(-1)!) as { runId: string; reason: string }
+  expect(parsed1.reason).toContain('parked awaiting human approval')
+
+  // Resume: the human is present this time and approves - and the executor
+  // must NOT re-run (its result is served from the journal cache).
+  const asked: string[] = []
+  const approvingGate = async (node: { id: string }) => { asked.push(node.id); return { approved: true } }
+  const second = capture()
+  const boom = createRegistry()
+  boom.register({ name: 'mock', invoke: async () => { throw new Error('executor must be served from cache, not re-run') } } as Adapter)
+  const code2 = await resumeAction(parsed1.runId, { cwd, json: true }, { io: second.io, registry: boom, gate: approvingGate })
+  expect(code2).toBe(0)
+  expect(asked).toEqual(['approve'])
+  const parsed2 = JSON.parse(second.lines.at(-1)!) as { status: string }
+  expect(parsed2.status).toBe('verified')
+})
+
 test("resume refreshes the run's own persisted loopfile.json copy too, not just a fresh `run` - so a later dashboard read still shows the graph even after this workspace is deleted", async () => {
   const { cwd, runId } = await haltedRun()
   const runDir = join(runsRoot(cwd), runId)

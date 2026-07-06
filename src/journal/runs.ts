@@ -135,8 +135,17 @@ export function reconstructRunState(events: JournalEvent[]): ReconstructedState 
   }
   // mirrors core/router.ts's composeFeedback exactly, so the reconstructed
   // prompt matches what the original process would have built for this
-  // same next iteration had it not halted
-  const failing = (verdictsByIteration.get(lastIteration) ?? []).filter((v) => v.status !== 'pass')
+  // same next iteration had it not halted.
+  //
+  // A parked: gate verdict (gate_timeout with no human answer - see
+  // router.ts's parked branch) is deliberately EXCLUDED: "no human answered
+  // in time" is not actionable feedback for any agent, and letting it leak
+  // into the reconstructed feedback changes every downstream node's prompt
+  // on resume - which changes its cache hash - which silently re-runs (and
+  // re-bills) work the run already finished before it parked. Parking must
+  // cost zero repeated work; that is its entire point.
+  const failing = (verdictsByIteration.get(lastIteration) ?? [])
+    .filter((v) => v.status !== 'pass' && !v.evidence.startsWith('parked:'))
   const feedback = failing.length > 0
     ? failing.map((v) => `[${v.nodeId}] ${v.evidence}`).join('\n')
     : null

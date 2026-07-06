@@ -100,13 +100,14 @@ export async function executeNode(
     } catch (err) {
       // a gate handler that throws is usually a wiring bug (no handler,
       // handler misconfigured) and gets a config: verdict - but a gate that
-      // times out waiting for a human (makeGate's setTimeout race) already
-      // throws an infra:-tagged error, since a human not answering in time
-      // is an operational condition, not a broken loopfile. Preserve any
-      // existing infra:/config: prefix instead of blindly re-labeling it, or
-      // the router's infra branch (spec §10) never sees it.
+      // times out waiting for a human (makeGate's setTimeout race) throws a
+      // parked:-tagged error, since a human not answering in time is a
+      // human being busy, not a failure of any kind (see router.ts's parked
+      // branch). Preserve any existing parked:/infra:/config: prefix instead
+      // of blindly re-labeling it, or the router's matching branch never
+      // sees it.
       const msg = err instanceof Error ? err.message : String(err)
-      const evidence = /^(infra|config):/.test(msg) ? msg : `config: ${msg}`
+      const evidence = /^(infra|config|parked):/.test(msg) ? msg : `config: ${msg}`
       return {
         ...base,
         output: '',
