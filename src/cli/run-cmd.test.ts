@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { expect, test, vi } from 'vitest'
 import {
-  agentCostBreakdown, agentEstimatedCostBreakdown, makeGate, makeUiGate, readGateWaitingMarker, runAction,
+  agentCostBreakdown, agentEstimatedCostBreakdown, makeDetachedGate, makeGate, makeUiGate, readGateWaitingMarker, runAction,
 } from './run-cmd.js'
 import { JournalWriter, MockAdapter, parseLoopfile } from '../index.js'
 import { runsRoot } from '../journal/runs.js'
@@ -469,6 +469,156 @@ test('makeUiGate fires a notification when the gate starts waiting, and another 
   await expect(gate({ id: 'approve', role: 'gate' }, 'ctx')).rejects.toThrow(/parked:/)
   expect(notified.some((n) => n.includes('approval needed') && n.includes('approve'))).toBe(true)
   expect(notified.some((n) => n.includes('parked') && n.includes('resume'))).toBe(true)
+})
+
+// The cross-process channel (journal/gate-files.ts): a SEPARATE mission-
+// control process answers by writing gate-answer.json into the run dir -
+// the waiting gate polls for it. This is what makes a gate answerable from
+// a long-lived `ui --all` that shares no memory with the run's process.
+test('makeUiGate resolves via a gate-answer.json written by another process', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
+  const runDir = mkdtempSync(join(tmpdir(), 'lr-gate-run-'))
+  const gate = makeUiGate(
+    { maxIterations: 1, maxCostUsd: 1 }, { out: () => {} }, false, cwd, 'run-f', runDir,
+    [{ id: 'approve', role: 'gate' }],
+    { gateAnswerPollMs: 10 },
+  )
+  const answerPromise = gate({ id: 'approve', role: 'gate' }, 'ctx')
+  await new Promise((r) => setTimeout(r, 15))
+  const { writeGateAnswer } = await import('../journal/gate-files.js')
+  writeGateAnswer(runDir, { approved: false, feedback: 'add a held-out tester' })
+  await expect(answerPromise).resolves.toEqual({ approved: false, feedback: 'add a held-out tester' })
+})
+
+test('makeUiGate discards a stale pre-existing answer file instead of letting it approve a gate the human never saw', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
+  const runDir = mkdtempSync(join(tmpdir(), 'lr-gate-run-'))
+  const { writeGateAnswer } = await import('../journal/gate-files.js')
+  writeGateAnswer(runDir, { approved: true }) // debris from an earlier gate
+  const gate = makeUiGate(
+    { maxIterations: 1, maxCostUsd: 1 }, { out: () => {} }, false, cwd, 'run-s', runDir,
+    [{ id: 'approve', role: 'gate' }],
+    { gateAnswerPollMs: 10 },
+  )
+  const answerPromise = gate({ id: 'approve', role: 'gate' }, 'ctx')
+  // give the poller several ticks - the stale answer must NOT resolve it
+  await new Promise((r) => setTimeout(r, 50))
+  writeGateAnswer(runDir, { approved: false, feedback: 'real answer' })
+  await expect(answerPromise).resolves.toEqual({ approved: false, feedback: 'real answer' })
+})
+
+// makeDetachedGate: the gate for `run -d` - no stdin, no same-process
+// dashboard; the answer file is the ONLY channel, with identical waiting-
+// marker/notify/parked-on-timeout semantics to makeUiGate.
+test('makeDetachedGate resolves via the answer file, writing and cleaning the waiting marker around it', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
+  const runDir = mkdtempSync(join(tmpdir(), 'lr-gate-run-'))
+  const gate = makeDetachedGate(
+    { maxIterations: 1, maxCostUsd: 1 }, { out: () => {} }, false, cwd, 'run-d', runDir,
+    [{ id: 'approve', role: 'gate' }],
+    { gateAnswerPollMs: 10 },
+  )
+  const answerPromise = gate({ id: 'approve', role: 'gate' }, 'plan ok?')
+  await new Promise((r) => setTimeout(r, 15))
+  expect(readGateWaitingMarker(runDir)).toEqual({ nodeId: 'approve', isPlanApproval: false, question: 'plan ok?' })
+  const { writeGateAnswer } = await import('../journal/gate-files.js')
+  writeGateAnswer(runDir, { approved: true })
+  await expect(answerPromise).resolves.toEqual({ approved: true })
+  expect(readGateWaitingMarker(runDir)).toBeUndefined()
+})
+
+test('makeDetachedGate parks on timeout exactly like the other gates (injected timer, no real clock)', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
+  const runDir = mkdtempSync(join(tmpdir(), 'lr-gate-run-'))
+  const gate = makeDetachedGate(
+    { maxIterations: 1, maxCostUsd: 1, gateTimeoutSec: 5 }, { out: () => {} }, false, cwd, 'run-dt', runDir,
+    [{ id: 'approve', role: 'gate' }],
+    { gateTimer: async (_ms, message) => { throw new Error(message) }, gateAnswerPollMs: 10 },
+  )
+  await expect(gate({ id: 'approve', role: 'gate' }, 'ctx'))
+    .rejects.toThrow('parked: gate "approve" got no human answer within 5s')
+})
+
+test('makeDetachedGate honors --yes without ever writing a waiting marker', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-gate-'))
+  const runDir = mkdtempSync(join(tmpdir(), 'lr-gate-run-'))
+  const gate = makeDetachedGate(
+    { maxIterations: 1, maxCostUsd: 1 }, { out: () => {} }, true, cwd, 'run-dy', runDir,
+    [{ id: 'approve', role: 'gate' }],
+  )
+  await expect(gate({ id: 'approve', role: 'gate' }, 'ctx')).resolves.toEqual({ approved: true })
+  expect(readGateWaitingMarker(runDir)).toBeUndefined()
+})
+
+// The --detach parent: spawns the same CLI as a detached child and returns
+// immediately - the child owns the run from there.
+test('run --detach spawns a detached child carrying the minted runId and returns 0 immediately', async () => {
+  const { cwd, io, lines } = setup(FIXTURE)
+  const spawned: { cmd: string; args: string[]; options: Record<string, unknown> }[] = []
+  const code = await runAction(undefined, { cwd, detach: true }, {
+    io,
+    spawner: (cmd, args, options) => {
+      spawned.push({ cmd, args, options })
+      return { unref: () => {} }
+    },
+  })
+  expect(code).toBe(0)
+  expect(spawned).toHaveLength(1)
+  expect(spawned[0].cmd).toBe(process.execPath)
+  expect(spawned[0].args).toContain('run')
+  expect(spawned[0].args).toContain('--detached-child')
+  expect(spawned[0].options).toMatchObject({ detached: true, cwd })
+  const runId = spawned[0].args[spawned[0].args.indexOf('--detached-child') + 1]
+  expect(runId).toMatch(/^run-/)
+  const text = lines.join('\n')
+  expect(text).toContain('detached')
+  expect(text).toContain(runId)
+  expect(text).toContain('looprail ui --all')
+  // the run directory already exists so the child's log has a home
+  expect(existsSync(join(runsRoot(cwd), runId))).toBe(true)
+})
+
+test('run --detach still fails fast in the foreground on a lint-broken loopfile - never dies silently in a background log', async () => {
+  const { cwd, io, lines } = setup(FIXTURE.replace('role: executor', 'role: executor, after: missing-node'))
+  const spawned: unknown[] = []
+  const code = await runAction(undefined, { cwd, detach: true }, {
+    io,
+    spawner: (cmd, args, options) => { spawned.push([cmd, args, options]); return { unref: () => {} } },
+  })
+  expect(code).toBe(1)
+  expect(spawned).toHaveLength(0)
+  expect(lines.join('\n')).toContain('lint')
+})
+
+// The detached CHILD end-to-end: runAction with detachedChild uses the
+// handed-down runId, waits on the answer file, and notifies on completion.
+test('a detached child run verifies via a cross-process answer file and fires a completion notification', async () => {
+  const { cwd, io } = setup(GATED)
+  const notified: string[] = []
+  const runId = 'run-detached-e2e'
+  const answering = (async () => {
+    // simulate the human approving from mission control: wait for the
+    // waiting marker, then write the answer file the child is polling for
+    const runDir = join(runsRoot(cwd), runId)
+    const { writeGateAnswer } = await import('../journal/gate-files.js')
+    for (let i = 0; i < 200; i++) {
+      await new Promise((r) => setTimeout(r, 25))
+      if (readGateWaitingMarker(runDir)) {
+        writeGateAnswer(runDir, { approved: true })
+        return
+      }
+    }
+    throw new Error('gate never started waiting')
+  })()
+  const code = await runAction(undefined, { cwd, json: true, detachedChild: runId }, {
+    io,
+    notifier: (title, message) => { notified.push(`${title}|${message}`) },
+  })
+  await answering
+  expect(code).toBe(0)
+  expect(existsSync(join(runsRoot(cwd), runId, 'journal.jsonl'))).toBe(true)
+  expect(notified.some((n) => n.includes('approval needed'))).toBe(true)
+  expect(notified.some((n) => n.includes('verified'))).toBe(true)
 })
 
 test('makeUiGate answered from the dashboard notifies once for the wait and never claims a park', async () => {

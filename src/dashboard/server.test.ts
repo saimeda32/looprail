@@ -441,6 +441,73 @@ test('GET /model reports controllable:false for an orphaned pid file naming a pr
   expect(JSON.parse(res.body).controllable).toBe(false)
 })
 
+// Cross-process gate answering (journal/gate-files.ts): the run lives in a
+// DIFFERENT process than this dashboard (a detached `run -d`, or a `run
+// --ui` viewed from a separate long-lived mission control). Its in-process
+// registry is unreachable, so the pending gate is surfaced from the run
+// directory's waiting marker and answered by writing the answer file its
+// gate handler polls for - honored only while the run's process is alive.
+test('GET /model surfaces a pending gate from the waiting marker when the run lives in another (live) process', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const runDir = dirname(journalPath)
+  const proc = spawnDummyProcess()
+  writeFileSync(join(runDir, 'pid'), String(proc.pid))
+  const { writeGateWaitingMarker } = await import('../journal/gate-files.js')
+  writeGateWaitingMarker(runDir, { nodeId: 'approve', isPlanApproval: true, question: 'plan ok?' })
+  dashboard = await startDashboardServer({ journalPath, getPendingGate: () => undefined })
+  const res = await get(dashboard.url + '/model')
+  expect(JSON.parse(res.body).pendingGate).toEqual({ nodeId: 'approve', isPlanApproval: true })
+})
+
+test('GET /model ignores a waiting marker left behind by a dead process - no phantom approval prompt', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const runDir = dirname(journalPath)
+  writeFileSync(join(runDir, 'pid'), '999999')
+  const { writeGateWaitingMarker } = await import('../journal/gate-files.js')
+  writeGateWaitingMarker(runDir, { nodeId: 'approve', isPlanApproval: false, question: 'q' })
+  dashboard = await startDashboardServer({ journalPath, getPendingGate: () => undefined })
+  const res = await get(dashboard.url + '/model')
+  expect(JSON.parse(res.body).pendingGate).toBeNull()
+})
+
+test('POST /control approve-gate falls back to writing the answer file for a gate waiting in another live process', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const runDir = dirname(journalPath)
+  const proc = spawnDummyProcess()
+  writeFileSync(join(runDir, 'pid'), String(proc.pid))
+  const { consumeGateAnswer, writeGateWaitingMarker } = await import('../journal/gate-files.js')
+  writeGateWaitingMarker(runDir, { nodeId: 'approve', isPlanApproval: false, question: 'q' })
+  dashboard = await startDashboardServer({ journalPath, getPendingGate: () => undefined })
+  const res = await post(dashboard.url + '/control', { action: 'approve-gate' })
+  expect(res.status).toBe(200)
+  expect(consumeGateAnswer(runDir)).toEqual({ approved: true })
+})
+
+test('POST /control reject-gate delivers the feedback text through the answer file too', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const runDir = dirname(journalPath)
+  const proc = spawnDummyProcess()
+  writeFileSync(join(runDir, 'pid'), String(proc.pid))
+  const { consumeGateAnswer, writeGateWaitingMarker } = await import('../journal/gate-files.js')
+  writeGateWaitingMarker(runDir, { nodeId: 'approve', isPlanApproval: false, question: 'q' })
+  dashboard = await startDashboardServer({ journalPath, getPendingGate: () => undefined })
+  const res = await post(dashboard.url + '/control', { action: 'reject-gate', text: 'needs a held-out tester' })
+  expect(res.status).toBe(200)
+  expect(consumeGateAnswer(runDir)).toEqual({ approved: false, feedback: 'needs a held-out tester' })
+})
+
+test('POST /control approve-gate still 409s when the marker belongs to a dead process - never strands an answer file', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  const runDir = dirname(journalPath)
+  writeFileSync(join(runDir, 'pid'), '999999')
+  const { consumeGateAnswer, writeGateWaitingMarker } = await import('../journal/gate-files.js')
+  writeGateWaitingMarker(runDir, { nodeId: 'approve', isPlanApproval: false, question: 'q' })
+  dashboard = await startDashboardServer({ journalPath, getPendingGate: () => undefined })
+  const res = await post(dashboard.url + '/control', { action: 'approve-gate' })
+  expect(res.status).toBe(409)
+  expect(consumeGateAnswer(runDir)).toBeUndefined()
+})
+
 test('POST /control feedback queues a human note readable by drainHumanFeedback, while the run is running', async () => {
   const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
   dashboard = await startDashboardServer({ journalPath })

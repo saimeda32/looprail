@@ -14,6 +14,13 @@ import { spawn } from 'node:child_process'
 export type Notifier = (title: string, message: string) => void
 
 export const desktopNotifier: Notifier = (title, message) => {
+  // VITEST: the test suite drives runAction's real gate wiring hundreds of
+  // times - without this guard, running `npm test` sprays real desktop
+  // notifications at whoever's machine it runs on (caught live: the user
+  // got "approval needed" notifications from the test suite itself).
+  // LOOPRAIL_NO_NOTIFY: a user-facing opt-out for people who don't want
+  // desktop notifications at all.
+  if (process.env.VITEST || process.env.LOOPRAIL_NO_NOTIFY) return
   try {
     let cmd: string
     let args: string[]

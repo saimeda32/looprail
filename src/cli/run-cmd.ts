@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
-import type { Command } from 'commander'
+import { Option, type Command } from 'commander'
 import {
   createDefaultRegistry, expandPanels, findPlanGenerator, gateParkedMessage, JournalWriter, lintLoop, normalizeGateAnswer,
   parseLoopfile, readJournal, runLoop, summarizeJournal,
@@ -42,6 +43,9 @@ export interface GateTimerDeps {
   // (the actual CLI entrypoints), keeping notification a product behavior of
   // running looprail, not a side effect of constructing a gate handler.
   notify?: Notifier
+  // How often the gate polls for a cross-process gate-answer.json (see
+  // journal/gate-files.ts). Default 500ms; tests inject something tiny.
+  gateAnswerPollMs?: number
 }
 
 export function makeGate(
@@ -121,52 +125,50 @@ export function makeGate(
   }
 }
 
-// Written to the run's own directory the instant a gate begins waiting for a
-// human answer, and removed the instant it settles - modeled directly on
-// writeRunPid/removeRunPid's "describe live OS/engine state next to the
-// journal, not inside it" pattern (see those functions' own comments). This
-// exists because a dashboard's view-model (view-model.ts's buildViewModel)
-// is pure and journal-derived: there is no "gate is currently waiting" event
-// in the journal itself (the gate node's node_start already happened; its
-// node_end only lands once the gate settles), so a viewer process (the
-// server started by `looprail ui` running against this same run directory
-// from a separate process) has no other way to know a gate is pending right
-// now. The gate call's own in-process registry entry (dashboard/gate-
-// registry.ts) already lets the SAME process answer it directly; this file
-// is what makes that fact visible to any OTHER process reading this run
-// directory too.
-export interface GateWaitingMarker {
-  nodeId: string
-  isPlanApproval: boolean
-  question: string
-}
+// The gate-waiting marker + cross-process answer-file protocol live in
+// journal/gate-files.ts (the journal layer) so the dashboard can import
+// them without a dashboard->cli cycle; re-exported here because this is
+// where they historically lived and where gate-handler callers look.
+export {
+  readGateWaitingMarker, removeGateWaitingMarker, writeGateWaitingMarker, type GateWaitingMarker,
+} from '../journal/gate-files.js'
+import {
+  consumeGateAnswer, discardStaleGateAnswer, removeGateWaitingMarker, writeGateWaitingMarker,
+} from '../journal/gate-files.js'
 
-function gateWaitingPath(runDir: string): string {
-  return join(runDir, 'gate-waiting.json')
-}
-
-export function writeGateWaitingMarker(runDir: string, marker: GateWaitingMarker): void {
-  try {
-    writeFileSync(gateWaitingPath(runDir), JSON.stringify(marker))
-  } catch {
-    // swallowed - a run must never fail just because it couldn't record this
-  }
-}
-
-export function removeGateWaitingMarker(runDir: string): void {
-  try {
-    unlinkSync(gateWaitingPath(runDir))
-  } catch {
-    // swallowed - already gone, or never written; either way nothing to clean up
-  }
-}
-
-export function readGateWaitingMarker(runDir: string): GateWaitingMarker | undefined {
-  try {
-    return JSON.parse(readFileSync(gateWaitingPath(runDir), 'utf8')) as GateWaitingMarker
-  } catch {
-    return undefined
-  }
+// Polls the run directory for a gate-answer.json written by ANOTHER process
+// (a separate mission-control server answering on the human's behalf - see
+// journal/gate-files.ts). Resolves with the consumed answer; never rejects.
+// The abort signal (shared with the gate's other racers) stops the polling
+// the instant any other channel settles first.
+//
+// keepAlive matters more than it looks: in makeUiGate the interval is
+// unref'd (stdin's readline already holds the process open; a stray poll
+// must not). But in a DETACHED child this poll is the process's ONLY
+// pending work - unref it and Node's event loop drains and the process
+// exits cleanly mid-wait, silently abandoning the run at its gate. Caught
+// live in the first real `run -d` smoke test: the child logged "gate
+// approve" and vanished, no error anywhere, because waiting was all it had
+// left to do.
+function watchGateAnswerFile(
+  runDir: string, signal: AbortSignal, pollMs: number, keepAlive = false,
+): Promise<GateAnswer> {
+  return new Promise((resolve) => {
+    const tick = () => {
+      if (signal.aborted) {
+        clearInterval(id)
+        return
+      }
+      const answer = consumeGateAnswer(runDir)
+      if (answer) {
+        clearInterval(id)
+        resolve(answer)
+      }
+    }
+    const id = setInterval(tick, pollMs)
+    if (!keepAlive) id.unref?.()
+    signal.addEventListener('abort', () => clearInterval(id), { once: true })
+  })
 }
 
 // Builds the GateHandler used ONLY when `looprail run --ui` is active (see
@@ -209,6 +211,9 @@ export function makeUiGate(
     }
 
     const isPlanApproval = !!findPlanGenerator(expandedNodes, node)
+    // an answer file already on disk was aimed at an earlier gate (or is
+    // debris from a killed run) - it must never approve THIS gate unseen
+    discardStaleGateAnswer(runDir)
     writeGateWaitingMarker(runDir, { nodeId: node.id, isPlanApproval, question: context })
     const notify = timerDeps.notify ?? (() => {})
     notify('looprail - approval needed', `gate "${node.id}" is waiting for your answer (run ${runId})`)
@@ -243,9 +248,15 @@ export function makeUiGate(
       registerPendingGate({ resolve, question: context, nodeId: node.id, runId, isPlanApproval })
     })
 
+    // Third channel: an answer file written by a DIFFERENT process - a
+    // long-lived `ui --all` mission control answering on the human's behalf
+    // (its own in-process registry knows nothing about this run's process).
+    // See journal/gate-files.ts for the protocol.
+    const fileAnswered = watchGateAnswerFile(runDir, ac.signal, timerDeps.gateAnswerPollMs ?? 500)
+
     try {
       const timeoutSec = rails.gateTimeoutSec
-      const racers: Promise<GateAnswer>[] = [stdinAnswered, registryAnswered]
+      const racers: Promise<GateAnswer>[] = [stdinAnswered, registryAnswered, fileAnswered]
       // 0 and undefined both mean "wait forever" - same convention as makeGate
       if (timeoutSec !== undefined && timeoutSec > 0) {
         // the parked: tag makes the router HALT as parked-resumable (see
@@ -281,6 +292,67 @@ export function makeUiGate(
       resolvePendingGate(runId, node.id, { approved: false })
       ac.abort()
       rl.close()
+      removeGateWaitingMarker(runDir)
+    }
+  }
+}
+
+// The GateHandler for a DETACHED run (`looprail run -d`): there is no
+// terminal to read y/N from and no same-process dashboard, so the ONLY
+// answer channel is the cross-process answer file (journal/gate-files.ts),
+// written by whatever mission-control server the human answers from. The
+// waiting marker + notification + parked-on-timeout semantics are identical
+// to makeUiGate - a gate must behave the same however the run was started.
+export function makeDetachedGate(
+  rails: Rails, io: CliIo, autoApprove: boolean, cwd: string,
+  runId: string, runDir: string, expandedNodes: NodeDef[],
+  timerDeps: GateTimerDeps = {},
+): GateHandler {
+  return async (node, context) => {
+    if (autoApprove) {
+      io.out(warn(`gate "${node.id}" auto-approved (--yes)`))
+      return { approved: true }
+    }
+    if (hasStoredApproval(cwd, node)) {
+      io.out(warn(`gate "${node.id}" - previously approved, skipping prompt`))
+      return { approved: true }
+    }
+
+    const isPlanApproval = !!findPlanGenerator(expandedNodes, node)
+    discardStaleGateAnswer(runDir)
+    writeGateWaitingMarker(runDir, { nodeId: node.id, isPlanApproval, question: context })
+    const notify = timerDeps.notify ?? (() => {})
+    notify('looprail - approval needed', `gate "${node.id}" is waiting for your answer (run ${runId})`)
+
+    const ac = new AbortController()
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    // keepAlive: this poll is a detached child's ONLY pending work - see
+    // watchGateAnswerFile's comment for the live-caught silent-exit bug
+    const fileAnswered = watchGateAnswerFile(runDir, ac.signal, timerDeps.gateAnswerPollMs ?? 500, true)
+
+    try {
+      const timeoutSec = rails.gateTimeoutSec
+      if (timeoutSec !== undefined && timeoutSec > 0) {
+        const message = gateParkedMessage(node.id, timeoutSec)
+        const timer = timerDeps.gateTimer
+          ? timerDeps.gateTimer(timeoutSec * 1000, message)
+          : new Promise<never>((_, reject) => {
+              timeoutId = setTimeout(() => reject(new Error(message)), timeoutSec * 1000)
+              timeoutId.unref()
+            })
+        timer.catch(() => {
+          ac.abort()
+          notify('looprail - run parked', `gate "${node.id}" got no answer in time - resume run ${runId} to answer it`)
+        })
+        try {
+          return normalizeGateAnswer(await Promise.race([fileAnswered, timer]))
+        } finally {
+          clearTimeout(timeoutId)
+        }
+      }
+      return normalizeGateAnswer(await fileAnswered)
+    } finally {
+      ac.abort()
       removeGateWaitingMarker(runDir)
     }
   }
@@ -467,6 +539,58 @@ export interface RunDeps {
   gate?: GateHandler
   io?: CliIo
   registryPath?: string
+  // Seam for `run --detach`'s child spawn (tests capture the args instead
+  // of forking a real process). Defaults to node:child_process's spawn.
+  spawner?: (cmd: string, args: string[], options: Record<string, unknown>) => { unref(): void }
+  // Seam for the detached child's completion notification (see notify.ts).
+  notifier?: Notifier
+}
+
+// The `run --detach` parent: mints the runId, creates the run directory (so
+// the child's log has somewhere to live before the child even starts),
+// spawns the SAME CLI as a fully detached child (own process group, stdio to
+// a log file next to the journal, unref'd - it survives this terminal, this
+// shell, and this parent exiting), prints where to watch it, and returns
+// immediately. The loopfile was already lint-validated by runAction before
+// this is called, so a broken loopfile still fails fast in the foreground
+// instead of silently dying in a background log.
+//
+// Gates on a detached run are answered from mission control (`looprail ui
+// --all`): the child's makeDetachedGate polls the run directory's answer
+// file (journal/gate-files.ts), which serveControl writes when the human
+// clicks approve/reject on ANY dashboard process reading this run.
+function detachRun(
+  file: string | undefined,
+  opts: { cwd: string; yes?: boolean; json?: boolean },
+  io: CliIo,
+  deps: RunDeps,
+): number {
+  const runId = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+  const runDir = join(runsRoot(opts.cwd), runId)
+  mkdirSync(runDir, { recursive: true })
+  const logPath = join(runDir, 'detached.log')
+  const spawner = deps.spawner ?? ((cmd: string, args: string[], options: Record<string, unknown>) => {
+    const fd = openSync(logPath, 'a')
+    const child = spawn(cmd, args, { ...options, stdio: ['ignore', fd, fd] } as Parameters<typeof spawn>[2])
+    closeSync(fd) // the child holds its own copy of the descriptor
+    return child
+  })
+  const child = spawner(process.execPath, [
+    process.argv[1], 'run',
+    ...(file ? [file] : []),
+    '--detached-child', runId,
+    ...(opts.yes ? ['--yes'] : []),
+  ], { detached: true, cwd: opts.cwd })
+  child.unref()
+  if (opts.json) {
+    io.out(JSON.stringify({ runId, detached: true, log: logPath }))
+  } else {
+    io.out(ok(`detached - run ${runId} continues in the background`))
+    io.out(dim(`  watch/answer gates: looprail ui --all (mission control)`))
+    io.out(dim(`  status:            looprail status ${runId}`))
+    io.out(dim(`  log:               ${logPath}`))
+  }
+  return 0
 }
 
 // Best-effort: a run must never fail because the workspace registry file
@@ -546,7 +670,14 @@ export function installCancelHandler(runDir: string, journalPath: string): () =>
 
 export async function runAction(
   file: string | undefined,
-  opts: { cwd: string; json?: boolean; yes?: boolean; ui?: boolean; port?: number },
+  opts: {
+    cwd: string; json?: boolean; yes?: boolean; ui?: boolean; port?: number
+    detach?: boolean
+    // Internal (hidden --detached-child flag): this process IS the detached
+    // child - use the runId its parent already announced, take gate answers
+    // via the cross-process answer file, notify on completion.
+    detachedChild?: string
+  },
   deps: RunDeps = {},
 ): Promise<number> {
   const io = deps.io ?? defaultIo
@@ -568,7 +699,8 @@ export async function runAction(
     io.out(err('loop failed lint - fix the errors above (details: `looprail lint`)'))
     return 1
   }
-  const runId = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+  if (opts.detach) return detachRun(file, opts, io, deps)
+  const runId = opts.detachedChild ?? `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
   const runDir = join(runsRoot(opts.cwd), runId)
 
   // Create the run directory up front (used to be gated behind --ui; now
@@ -641,19 +773,35 @@ export async function runAction(
   }
 
   try {
-    return await executeRun(loaded.def, {
+    const code = await executeRun(loaded.def, {
       cwd: opts.cwd,
       runId,
       runDir,
       io,
       json: !!opts.json,
       registry: deps.registry ?? createDefaultRegistry({ cwd: opts.cwd }),
-      // Only a `--ui` run's gate is answerable from the dashboard too - a
+      // A detached child's gate is answerable ONLY via the cross-process
+      // answer file; a `--ui` run's gate from stdin or its own dashboard; a
       // plain `run` gets the exact same stdin-only makeGate it always has.
-      gate: deps.gate ?? (opts.ui
-        ? makeUiGate(loaded.def.rails, io, !!opts.yes, opts.cwd, runId, runDir, expanded.nodes, { notify: desktopNotifier })
-        : makeGate(loaded.def.rails, io, !!opts.yes, opts.cwd, { notify: desktopNotifier })),
+      gate: deps.gate ?? (opts.detachedChild
+        ? makeDetachedGate(loaded.def.rails, io, !!opts.yes, opts.cwd, runId, runDir, expanded.nodes, { notify: deps.notifier ?? desktopNotifier })
+        : opts.ui
+          ? makeUiGate(loaded.def.rails, io, !!opts.yes, opts.cwd, runId, runDir, expanded.nodes, { notify: desktopNotifier })
+          : makeGate(loaded.def.rails, io, !!opts.yes, opts.cwd, { notify: desktopNotifier })),
     })
+    // A detached run has no terminal - the notification IS its completion
+    // signal. Parked/halted vs verified is all the human needs at a glance;
+    // the details are one mission-control click away.
+    if (opts.detachedChild) {
+      const notifier = deps.notifier ?? desktopNotifier
+      notifier(
+        `looprail - run ${code === 0 ? 'verified' : 'stopped'}`,
+        code === 0
+          ? `${loaded.def.name}: all verifiers passed (${runId})`
+          : `${loaded.def.name}: parked or halted - check mission control (${runId})`,
+      )
+    }
+    return code
   } finally {
     uninstallCancelHandler()
     removeRunPid(runDir)
@@ -676,19 +824,29 @@ function parsePort(value: string): number {
 }
 
 export function registerRun(program: Command): void {
-  program
+  const cmd = program
     .command('run [file]')
     .description('run a loopfile until verified or a rail halts it (exit 0 verified, 2 halted, 1 error)')
     .option('--json', 'machine-readable summary on stdout')
     .option('--yes', 'auto-approve human gates (CI)')
     .option('--ui', 'start the local dashboard before the run begins')
+    .option('-d, --detach', 'run in the background: returns immediately; watch it and answer its gates from mission control (looprail ui --all)')
     .option('--port <n>', 'bind --ui to a fixed port (default: 4747; falls back to a free port automatically if that one is taken)', parsePort)
-    .action(async (
-      file: string | undefined,
-      opts: { json?: boolean; yes?: boolean; ui?: boolean; port?: number },
-      cmd: Command,
-    ) => {
-      const { cwd } = cmd.optsWithGlobals<{ cwd: string }>()
-      process.exitCode = await runAction(file, { cwd, ...opts })
-    })
+  // Internal plumbing for --detach's child process, never for humans: the
+  // parent mints the runId and hands it down so it can print where to watch
+  // BEFORE the child even starts. Hidden from --help.
+  cmd.addOption(new Option('--detached-child <runId>').hideHelp())
+  cmd.action(async (
+    file: string | undefined,
+    opts: { json?: boolean; yes?: boolean; ui?: boolean; port?: number; detach?: boolean; detachedChild?: string },
+    command: Command,
+  ) => {
+    const { cwd } = command.optsWithGlobals<{ cwd: string }>()
+    if (opts.detach && opts.ui) {
+      defaultIo.out(err('--detach and --ui cannot be combined - a detached run is watched from mission control (`looprail ui --all`), which serves every run'))
+      process.exitCode = 1
+      return
+    }
+    process.exitCode = await runAction(file, { cwd, ...opts })
+  })
 }

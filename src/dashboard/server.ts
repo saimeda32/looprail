@@ -12,6 +12,7 @@ import {
   resolvePendingPermission as defaultResolvePendingPermission,
   type PendingPermission,
 } from './permission-registry.js'
+import { readGateWaitingMarker, writeGateAnswer } from '../journal/gate-files.js'
 import { buildDashboardPayload } from './layout.js'
 import { buildPage } from './page.js'
 import { buildReplay, encodeSseFrame } from './sse.js'
@@ -92,6 +93,17 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
+// The run's own process is alive, per its pid file (orphaned pid files from
+// force-killed runs read as dead - see isProcessAlive above). Used both for
+// controllable state and to decide whether a gate-waiting marker written by
+// ANOTHER process is live (answerable via the answer file) or debris left
+// by a dead run.
+function runProcessAlive(runDir: string): boolean {
+  const pidPath = join(runDir, 'pid')
+  const pid = existsSync(pidPath) ? Number(readFileSync(pidPath, 'utf8').trim()) : undefined
+  return pid !== undefined && isProcessAlive(pid)
+}
+
 function controlState(
   journalPath: string, resumable: boolean,
 ): { controllable: boolean; paused: boolean; pauseUnsafe: boolean; resumable: boolean } {
@@ -127,12 +139,22 @@ export function serveModel(
     const resumable = payload.status === 'halted' && !!opts.onResume
     // Whether a gate is CURRENTLY waiting for a human answer is engine/
     // registry state, not journal-derived (buildViewModel is pure and has
-    // no "gate is waiting" event - see run-cmd.ts's GateWaitingMarker
-    // comment for the full rationale) - so it is looked up separately here,
-    // by this same process's own in-memory registry, and merged into the
-    // /model payload the same way controlState already is.
+    // no "gate is waiting" event - see journal/gate-files.ts for the full
+    // rationale) - so it is looked up separately here and merged into the
+    // /model payload the same way controlState already is. Two sources, in
+    // order: this process's own in-memory registry (the run lives HERE -
+    // `run --ui`), then the run directory's gate-waiting marker, honored
+    // only while the run's process is actually alive (a marker left behind
+    // by a dead process must not render a phantom approval prompt). The
+    // marker is what makes a DETACHED run's gate - or a `run --ui` gate
+    // viewed from a separate long-lived mission control - visible at all.
     const pending = (opts.getPendingGate ?? defaultGetPendingGate)(payload.runId)
-    const pendingGate = pending ? { nodeId: pending.nodeId, isPlanApproval: pending.isPlanApproval } : null
+    const runDir = dirname(opts.journalPath)
+    const marker = pending ? undefined : readGateWaitingMarker(runDir)
+    const markerLive = marker !== undefined && runProcessAlive(runDir)
+    const pendingGate = pending
+      ? { nodeId: pending.nodeId, isPlanApproval: pending.isPlanApproval }
+      : markerLive ? { nodeId: marker.nodeId, isPlanApproval: marker.isPlanApproval } : null
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ ...payload, ...controlState(opts.journalPath, resumable), pendingGate }))
   } catch (err) {
@@ -266,16 +288,31 @@ export async function serveControl(
   if (action === 'approve-gate' || action === 'reject-gate') {
     const getPending = opts.getPendingGate ?? defaultGetPendingGate
     const resolvePending = opts.resolvePendingGate ?? defaultResolvePendingGate
-    const pending = getPending(runId)
-    if (!pending) {
-      sendJson(res, 409, { error: 'no gate is currently waiting for this run' })
-      return
-    }
     const answer: GateAnswer = action === 'approve-gate'
       ? { approved: true }
       : { approved: false, feedback: text as string }
-    resolvePending(runId, pending.nodeId, answer)
-    sendJson(res, 200, { ok: true })
+    const pending = getPending(runId)
+    if (pending) {
+      resolvePending(runId, pending.nodeId, answer)
+      sendJson(res, 200, { ok: true })
+      return
+    }
+    // Cross-process fallback: the run lives in a DIFFERENT process than
+    // this dashboard (a detached `run -d`, or a `run --ui` process viewed
+    // from a separate long-lived mission control) - its in-process registry
+    // is unreachable from here. Its gate handler polls the run directory
+    // for an answer file instead (journal/gate-files.ts), so the answer is
+    // delivered by writing that file. Honored only while the run's process
+    // is actually alive: answering a dead run's leftover marker would strand
+    // an answer file on disk to mis-approve some future gate.
+    const runDir = dirname(opts.journalPath)
+    const marker = readGateWaitingMarker(runDir)
+    if (marker && runProcessAlive(runDir)) {
+      writeGateAnswer(runDir, answer)
+      sendJson(res, 200, { ok: true })
+      return
+    }
+    sendJson(res, 409, { error: 'no gate is currently waiting for this run' })
     return
   }
 
