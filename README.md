@@ -184,6 +184,20 @@ Cursor, or VS Code's Copilot Chat instead of a terminal. See
 [docs/MCP.md](docs/MCP.md) for the exact setup steps for each host, the
 full list of tools it exposes, and how gates and permissions work over MCP.
 
+MCP gives your assistant looprail's *tools*; the bundled **Claude Code
+skill** teaches it *when to reach for them* - so "run this until it's
+actually done" or "batch these overnight" triggers a verified loop instead
+of a long chat. Install it once:
+
+```bash
+cp -r "$(npm root -g)/looprail/skills/looprail" ~/.claude/skills/
+```
+
+(or copy [`skills/looprail/`](skills/looprail/SKILL.md) from a checkout).
+Claude Code picks it up automatically; the skill covers when a loop is
+worth it, when it is NOT, and the loopfile principles that make
+verification real.
+
 ---
 
 ## What looprail does
