@@ -6,6 +6,7 @@ import { afterEach, expect, test } from 'vitest'
 import { runsRoot } from '../journal/runs.js'
 import { workspaceHash, type RunListEntry, type SessionEntry } from '../workspace/discover.js'
 import {
+  DEFAULT_MISSION_CONTROL_PORT, DEFAULT_SINGLE_RUN_PORT,
   matchRunRoute, snapshotChanged, startMissionControlServer, type MissionControlServer, type Poller,
 } from './mission-control-server.js'
 
@@ -39,6 +40,16 @@ function fakeSession(overrides: Partial<SessionEntry> = {}): SessionEntry {
     ...overrides,
   }
 }
+
+// Regression: consolidating run --ui, ui <runId>, and ui --all onto one
+// server type previously collapsed them onto ONE shared default port too
+// (4748) - meaning a long-lived `ui --all` left open on 4748 (a completely
+// normal thing to keep running) made every subsequent `run --ui` lose the
+// stable-default race and fall back to a random port, every single time.
+// Restoring two distinct defaults is what stops that collision.
+test('single-run and mission-control dashboards have distinct stable default ports, so a long-lived ui --all does not steal run --ui\'s stable slot', () => {
+  expect(DEFAULT_SINGLE_RUN_PORT).not.toBe(DEFAULT_MISSION_CONTROL_PORT)
+})
 
 test('matchRunRoute parses index/model/events/resume sub-routes and rejects non-run paths', () => {
   expect(matchRunRoute('/run/abc123/run-1')).toEqual({ hash: 'abc123', runId: 'run-1', sub: 'index' })

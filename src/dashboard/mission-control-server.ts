@@ -74,16 +74,22 @@ export interface MissionControlServerOptions {
   resumeFor?: (workspace: string, runId: string) => ((overrides: ResumeOverrides) => Promise<void>) | undefined
   // Defaults to 0 (OS-assigned free port) - see server.ts's serveModel/
   // serveControl for the full per-route reasoning. The CLI layer requests
-  // DEFAULT_MISSION_CONTROL_PORT by default for a stable, bookmarkable URL
-  // - see startWithStableDefault in ui-cmd.ts.
+  // a stable default (DEFAULT_SINGLE_RUN_PORT or DEFAULT_MISSION_CONTROL_PORT,
+  // depending on the entrypoint) via startWithStableDefault in ui.ts.
   port?: number
 }
 
-// This is now the ONE dashboard port every CLI entrypoint (`run --ui`,
-// `ui <runId>`, `ui --all`) requests by default for a stable, bookmarkable
-// URL - there is no longer a separate single-run default port distinct
-// from this one; server.ts only exports the shared route handlers this
-// module mounts, not a server (or a port) of its own.
+// Consolidation onto one server type (this module, mounting server.ts's
+// shared route handlers) does not mean one shared default port. A `run
+// --ui`/`ui <runId>` dashboard and a long-lived `ui --all` mission control
+// are separate processes that are commonly running at the same time (the
+// latter left open as an always-on dashboard while the former starts and
+// stops per run) - sharing one default port means the second one to start
+// ALWAYS loses the stable slot and falls back to a random port, which is
+// exactly the regression this pair of constants exists to prevent. Restores
+// the original two-port split from the pre-consolidation stable-default
+// feature: 4747 for a single run's own dashboard, 4748 for `ui --all`.
+export const DEFAULT_SINGLE_RUN_PORT = 4747
 export const DEFAULT_MISSION_CONTROL_PORT = 4748
 
 export interface MissionControlServer {

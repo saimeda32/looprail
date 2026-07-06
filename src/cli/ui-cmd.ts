@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path'
 import type { Command } from 'commander'
 import { expandPanels, validateGraph, type LoopDef } from '../index.js'
 import type { ResumeOverrides } from '../dashboard/server.js'
-import { DEFAULT_MISSION_CONTROL_PORT, startMissionControlServer, type MissionControlServer } from '../dashboard/mission-control-server.js'
+import { DEFAULT_MISSION_CONTROL_PORT, DEFAULT_SINGLE_RUN_PORT, startMissionControlServer, type MissionControlServer } from '../dashboard/mission-control-server.js'
 import { workspaceHash } from '../journal/runs.js'
 import { addWorkspace, defaultRegistryPath, listWorkspaces } from '../workspace/registry.js'
 import { loadRunLoopDef } from '../journal/loopfile-persist.js'
@@ -80,7 +80,7 @@ export async function uiAction(
   }
   let dashboard: MissionControlServer
   try {
-    dashboard = await startWithStableDefault(opts.port, DEFAULT_MISSION_CONTROL_PORT,
+    dashboard = await startWithStableDefault(opts.port, DEFAULT_SINGLE_RUN_PORT,
       (port) => startMissionControlServer({ registryPath, resumeFor, port }))
   } catch (e) {
     io.out(err(e instanceof Error ? e.message : String(e)))
@@ -162,7 +162,7 @@ export function registerUi(program: Command): void {
     .option('--file <path>', 'loopfile to load for graph edges and rail maxes (default ./looprail.yaml)')
     .option('--open', 'open the dashboard in the default browser')
     .option('--all', 'mission control: show every run across every registered workspace (ignores runId)')
-    .option('--port <n>', 'bind to a fixed port (default: 4748; falls back to a free port automatically if that one is taken)', parsePort)
+    .option('--port <n>', 'bind to a fixed port (default: 4747, or 4748 with --all; falls back to a free port automatically if that one is taken)', parsePort)
     .action(async (
       runId: string | undefined,
       opts: { file?: string; open?: boolean; all?: boolean; port?: number },

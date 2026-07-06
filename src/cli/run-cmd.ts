@@ -10,7 +10,7 @@ import {
 } from '../index.js'
 import type { ResumeOverrides } from '../dashboard/server.js'
 import {
-  DEFAULT_MISSION_CONTROL_PORT, startMissionControlServer, type MissionControlServer,
+  DEFAULT_SINGLE_RUN_PORT, startMissionControlServer, type MissionControlServer,
 } from '../dashboard/mission-control-server.js'
 import { registerPendingGate, resolvePendingGate, sweepPendingGates } from '../dashboard/gate-registry.js'
 import { runsRoot, workspaceHash } from '../journal/runs.js'
@@ -589,7 +589,7 @@ export async function runAction(
       }
     }
     try {
-      dashboard = await startWithStableDefault(opts.port, DEFAULT_MISSION_CONTROL_PORT, (port) =>
+      dashboard = await startWithStableDefault(opts.port, DEFAULT_SINGLE_RUN_PORT, (port) =>
         startMissionControlServer({ registryPath, resumeFor, port }))
     } catch (e) {
       io.out(err(e instanceof Error ? e.message : String(e)))
@@ -654,7 +654,7 @@ export function registerRun(program: Command): void {
     .option('--json', 'machine-readable summary on stdout')
     .option('--yes', 'auto-approve human gates (CI)')
     .option('--ui', 'start the local dashboard before the run begins')
-    .option('--port <n>', 'bind --ui to a fixed port (default: 4748; falls back to a free port automatically if that one is taken)', parsePort)
+    .option('--port <n>', 'bind --ui to a fixed port (default: 4747; falls back to a free port automatically if that one is taken)', parsePort)
     .action(async (
       file: string | undefined,
       opts: { json?: boolean; yes?: boolean; ui?: boolean; port?: number },
