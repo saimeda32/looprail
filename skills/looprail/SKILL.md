@@ -46,6 +46,33 @@ installed and logged in.
 | See every run across projects | `looprail ui --all` (mission control, port 4748) |
 | Machine-readable result | `looprail run --json` (status/cost/journal path; exit 0 verified, 2 halted, 1 error) |
 
+## Choosing adapters and models per role
+
+Don't guess - `looprail doctor` lists which agent CLIs are actually
+installed and logged in; only wire those. `looprail init` encodes the
+recommended tiers per template role, so scaffolding from it (or `--yes`)
+is already a sound default.
+
+When authoring by hand, pick by role, not by habit:
+
+| Role | Tier | Why |
+| --- | --- | --- |
+| planner, judge | strong (e.g. opus) | plan quality and scoring judgment bound the whole loop's quality |
+| executor | medium (e.g. sonnet) | the loop's iteration + verifiers compensate for a mid-tier worker; pay for strong only on genuinely hard builds |
+| critic | cheap-to-medium (e.g. haiku) | adversarial checking against concrete evidence is cheaper than generation - but use medium+ when the check needs real domain understanding (hallucinated claims, security) |
+| tester | none | it runs a command; no model involved |
+
+Two hard rules the tooling itself enforces or expects:
+
+- Critic/judge on a DIFFERENT model (ideally different provider/adapter)
+  than the worker they grade - `looprail lint` warns when a judge shares
+  the executor's model. Same model grading itself shares its blind spots.
+- Model-string conventions differ per adapter: `claude-code` takes a tier
+  name (`opus`/`sonnet`/`haiku`) or a full dashed id; `copilot-cli` needs
+  its own catalog names with DOTS (`claude-sonnet-5`, `claude-opus-4.8`,
+  `gpt-5.3-codex`); `codex`/`aider` default sensibly when `model:` is
+  omitted. When unsure, omit `model:` and let the adapter's default stand.
+
 ## Writing a loopfile for the user
 
 Start from `looprail init`'s templates or the repo's `examples/` gallery
