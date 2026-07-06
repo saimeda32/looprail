@@ -245,6 +245,17 @@ export function buildPage(): string {
        flex-column shrink against the bar's max-height */
     max-height: 38vh;
   }
+  /* macOS hides overlay scrollbars until a scroll starts, so an overflowing
+     question box gives no visual hint that more content exists below the
+     fold (live-caught: "I can't scroll" when the content was scrollable all
+     along, it just didn't LOOK like it). Always-visible, styled scrollbar. */
+  .gate-bar .gate-question::-webkit-scrollbar { width: 10px; }
+  .gate-bar .gate-question::-webkit-scrollbar-track { background: var(--panel); border-radius: 5px; }
+  .gate-bar .gate-question::-webkit-scrollbar-thumb {
+    background: var(--signal-dim); border-radius: 5px; border: 2px solid var(--panel);
+  }
+  .gate-bar .gate-question::-webkit-scrollbar-thumb:hover { background: var(--signal); }
+  .gate-bar .gate-question { scrollbar-width: thin; scrollbar-color: var(--signal-dim) var(--panel); }
   .gate-bar .gate-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   /* the two decisions sit TOGETHER, approve visually primary - split-apart
      buttons with an input stretched between them read as unrelated controls */
