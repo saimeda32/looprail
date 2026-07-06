@@ -528,3 +528,37 @@ test('a fresh node_start clears any leftover pendingPermission from a previous r
   ])
   expect(m.nodes.find((n) => n.id === 'do')!.pendingPermission).toBeUndefined()
 })
+
+// Human wait vs compute split: a run whose 7 minutes were 5 minutes of a
+// human deciding at a gate is not a slow run - the gates' own
+// node_start->node_end spans are the human's share of wall time (the same
+// span RailsGuard already excludes from max_wall_minutes).
+test('totals.humanWaitMs sums completed gate spans - executor time never counts', () => {
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }, 0),
+    ev('node_start', { nodeId: 'do', role: 'executor', iteration: 1 }, 1000),
+    ev('node_end', { nodeId: 'do', role: 'executor', iteration: 1, costUsd: 0, verdict: null }, 61000),
+    ev('node_start', { nodeId: 'approve', role: 'gate', iteration: 1 }, 61000),
+    ev('node_end', { nodeId: 'approve', role: 'gate', iteration: 1, costUsd: 0, verdict: { node: 'approve', status: 'pass', evidence: 'human approved' } }, 181000),
+  ])
+  expect(m.totals.humanWaitMs).toBe(120000) // the 2min at the gate, not the 1min executor
+  expect(m.totals.gateWaitingSinceTs).toBeUndefined() // nothing still open
+})
+
+test('a still-open gate exposes gateWaitingSinceTs so the client can tick the wait live (no events flow while a gate waits)', () => {
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }, 0),
+    ev('node_start', { nodeId: 'approve', role: 'gate', iteration: 1 }, 5000),
+  ])
+  expect(m.totals.humanWaitMs).toBe(0)
+  expect(m.totals.gateWaitingSinceTs).toBe(5000)
+})
+
+test('a halted run never exposes gateWaitingSinceTs - its open gate already ended one way or another', () => {
+  const m = buildViewModel([
+    ev('run_start', { runId: 'r', name: 'n', goal: 'g' }, 0),
+    ev('node_start', { nodeId: 'approve', role: 'gate', iteration: 1 }, 5000),
+    ev('halt', { reason: 'parked awaiting human approval: gate "approve" got no human answer within 600s - resume the run to answer it' }, 605000),
+  ])
+  expect(m.totals.gateWaitingSinceTs).toBeUndefined()
+})

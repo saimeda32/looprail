@@ -104,6 +104,9 @@ export function buildPage(): string {
   .gauge .label { font: 600 10.5px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-dim); white-space: nowrap; }
   .gauge .reading { font: 12px var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
   .gauge .reading .of { color: var(--ink-faint); }
+  /* human-wait share of wall time - informational, deliberately quieter
+     than the reading it annotates */
+  .gauge .wall-human { color: var(--signal-dim); font-size: 11px; }
   .meter { width: 84px; height: 5px; background: var(--line); border-radius: 2px; overflow: hidden; }
   .meter > span { display: block; height: 100%; background: var(--signal-dim); }
   .meter > span.over { background: var(--fail); }
@@ -371,6 +374,7 @@ export function buildPage(): string {
       <div class="gauge">
         <span class="label">Wall time</span>
         <span id="wall-label" class="reading"></span>
+        <span id="wall-human" class="reading wall-human" title="Time spent waiting on YOUR gate answers - excluded from the max_wall_minutes rail, and not the agents being slow"></span>
         <div class="meter"><span id="wall-fill" style="width:0%"></span></div>
       </div>
     </div>
@@ -576,6 +580,15 @@ export function buildPage(): string {
     var endTs = status === 'running' ? Date.now() : (totals.lastEventTs !== undefined ? totals.lastEventTs : Date.now());
     var minutes = Math.max(0, (endTs - totals.startedTs) / 60000);
     renderMeter('wall-fill', 'wall-label', minutes, totals.maxWallMinutes, 'm');
+    // Human wait vs compute split: a run whose 7 minutes were 5 minutes of a
+    // human deciding at a gate is not a slow run. Completed gate waits come
+    // from the model (humanWaitMs); a currently-open gate ticks live against
+    // this client's clock (gateWaitingSinceTs) because no journal events
+    // flow while a gate waits.
+    var humanMs = (totals.humanWaitMs || 0)
+      + (status === 'running' && totals.gateWaitingSinceTs ? Math.max(0, Date.now() - totals.gateWaitingSinceTs) : 0);
+    var el = document.getElementById('wall-human');
+    el.textContent = humanMs >= 5000 ? '· ' + (humanMs / 60000).toFixed(1) + 'm on you' : '';
   }
   setInterval(function () {
     if (wallGaugeStatus === 'running' && wallGaugeTotals) renderWallGauge(wallGaugeTotals, wallGaugeStatus);

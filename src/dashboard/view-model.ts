@@ -80,6 +80,18 @@ export interface DashboardTotals {
   // stays low - this is the number that answers "how much has actually
   // been tried", not "how many execution-region passes have completed".
   calls: number
+  // Wall time spent waiting on HUMANS, not on agents: the summed
+  // node_start->node_end spans of every gate node. A run whose 7 minutes
+  // were 5 minutes of a human deciding at a gate is not a slow run, and
+  // reading it as one misjudges the tool - RailsGuard already excludes
+  // this wait from max_wall_minutes for exactly the same reason (see
+  // engine deps' onGateWaitStart/End); this surfaces the same split to
+  // the human. Completed gates only; a still-open gate is exposed via
+  // gateWaitingSinceTs so the client can tick it live against its own
+  // clock (no new journal events flow while a gate waits, so the model
+  // alone cannot see that time passing).
+  humanWaitMs: number
+  gateWaitingSinceTs?: number
 }
 
 export interface DashboardModel {
@@ -163,6 +175,8 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
   let calls = 0
   let startedTs: number | undefined
   let lastEventTs: number | undefined
+  let humanWaitMs = 0
+  const openGateStarts = new Map<string, number>()
   const plans: PlanVersion[] = []
 
   for (const e of events) {
@@ -201,6 +215,7 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
         // prompt from an earlier run of it forward - same rationale as
         // resetting streamingOutput/streamingChunks just above.
         n.pendingPermission = undefined
+        if (n.role === 'gate') openGateStarts.set(n.id, e.ts)
         break
       }
       case 'node_progress': {
@@ -237,6 +252,13 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
           output: d.output === undefined ? undefined : String(d.output),
         })
         if (d.role === 'planner') plans.push({ replan: replans, iteration: iter, nodeId, output: String(d.output ?? '') })
+        if (d.role === 'gate') {
+          const started = openGateStarts.get(nodeId)
+          if (started !== undefined) {
+            humanWaitMs += Math.max(0, e.ts - started)
+            openGateStarts.delete(nodeId)
+          }
+        }
         iteration = Math.max(iteration, iter)
         calls += 1
         tokens += nodeTokens
@@ -307,6 +329,12 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
     totals: {
       costUsd, estimatedCostUsd, iteration, replans, tokens, calls,
       startedTs, lastEventTs,
+      humanWaitMs,
+      // only meaningful while the run is live - a halted/verified run's
+      // open gate (if any) already ended one way or another
+      ...(status === 'running' && openGateStarts.size > 0
+        ? { gateWaitingSinceTs: Math.min(...openGateStarts.values()) }
+        : {}),
       maxCostUsd: def?.rails.maxCostUsd,
       maxIterations: def?.rails.maxIterations,
       maxWallMinutes: def?.rails.maxWallMinutes,

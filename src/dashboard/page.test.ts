@@ -593,11 +593,12 @@ function loadRenderWallGauge(): (totals: unknown, status: string) => void {
     return renderWallGauge;
   `)
   function makeFakeElement() {
-    return { style: {} as Record<string, string>, className: '', innerHTML: '' }
+    return { style: {} as Record<string, string>, className: '', innerHTML: '', textContent: '' }
   }
   const store: Record<string, ReturnType<typeof makeFakeElement>> = {
     'wall-fill': makeFakeElement(),
     'wall-label': makeFakeElement(),
+    'wall-human': makeFakeElement(),
   }
   const fakeDocument = { getElementById: (id: string) => store[id] }
   const renderWallGauge = factory(fakeDocument) as (totals: unknown, status: string) => void
@@ -622,6 +623,21 @@ test('renderWallGauge shows elapsed minutes since startedTs, capped/over-flagged
 
   renderWallGauge({ startedTs, lastEventTs: startedTs + 5 * 60_000, maxWallMinutes: undefined }, 'halted')
   expect(renderWallGauge.store['wall-label'].innerHTML).toBe('5m<span class="of"> no max set</span>')
+})
+
+// The human-wait annotation: gate wait is the human's share of wall time,
+// not the agents being slow (RailsGuard already excludes it from the
+// max_wall_minutes rail for the same reason).
+test('renderWallGauge annotates the human-wait share, and stays silent when it is negligible', () => {
+  const renderWallGauge = loadRenderWallGauge() as ((totals: unknown, status: string) => void) & {
+    store: Record<string, { textContent: string }>
+  }
+  const startedTs = 1_000_000
+  renderWallGauge({ startedTs, lastEventTs: startedTs + 7 * 60_000, maxWallMinutes: 30, humanWaitMs: 5 * 60_000 }, 'halted')
+  expect(renderWallGauge.store['wall-human'].textContent).toBe('· 5.0m on you')
+
+  renderWallGauge({ startedTs, lastEventTs: startedTs + 7 * 60_000, maxWallMinutes: 30, humanWaitMs: 1000 }, 'halted')
+  expect(renderWallGauge.store['wall-human'].textContent).toBe('')
 })
 
 // Real bug reproduced live: a pure geometric midpoint bend let two entirely
