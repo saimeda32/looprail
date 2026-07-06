@@ -65,7 +65,7 @@ export function buildPage(): string {
   .section-head { font-family: var(--sans); font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-dim); margin: 36px 0 12px; }
   .section-head:first-of-type { margin-top: 0; }
 
-  .run-panel { border: 1px solid var(--line); border-radius: 3px; background: var(--panel); overflow: hidden; }
+  .run-panel { border: 1px solid var(--line); border-radius: 3px; background: var(--panel); overflow: hidden; box-shadow: 0 2px 16px rgba(0,0,0,0.25); }
   .run-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line); flex-wrap: wrap; gap: 12px; }
   .run-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
   .run-title .name { font-size: 14px; font-weight: 600; }
@@ -108,7 +108,7 @@ export function buildPage(): string {
      than the reading it annotates */
   .gauge .wall-human { color: var(--signal-dim); font-size: 11px; }
   .meter { width: 84px; height: 5px; background: var(--line); border-radius: 2px; overflow: hidden; }
-  .meter > span { display: block; height: 100%; background: var(--signal-dim); }
+  .meter > span { display: block; height: 100%; background: var(--signal-dim); transition: width 0.5s ease; }
   .meter > span.over { background: var(--fail); }
 
   .run-body { display: grid; grid-template-columns: 1fr 360px; }
@@ -181,6 +181,8 @@ export function buildPage(): string {
   .agent-table { border: 1px solid var(--line); border-radius: 3px; overflow: hidden; overflow-x: auto; }
   .agent-row { display: grid; grid-template-columns: 1fr 90px 110px 110px 60px 90px 90px; align-items: center; padding: 9px 16px; border-bottom: 1px solid var(--line); font-size: 12.5px; background: var(--panel); gap: 8px; }
   .agent-row:last-child { border-bottom: none; }
+  .agent-row:not(.head):not(.total) { transition: background 0.15s ease; }
+  .agent-row:not(.head):not(.total):hover { background: var(--panel-raised); }
   .agent-row.head { font: 600 10.5px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); background: var(--panel-raised); }
   .agent-row.total { font-weight: 600; background: var(--panel-raised); }
   .agent-row .num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -193,7 +195,9 @@ export function buildPage(): string {
   .control-btn {
     font: 11px var(--mono); padding: 5px 10px; border-radius: 3px; border: 1px solid var(--line);
     background: var(--panel-raised); color: var(--ink-dim); cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
   }
+  .control-btn:active { transform: translateY(1px); }
   .control-btn:hover { color: var(--ink); border-color: var(--line-bright); }
   .control-btn.danger:hover { color: var(--fail); border-color: rgba(196,87,74,0.4); }
   .control-btn:disabled { opacity: 0.5; cursor: default; }
@@ -237,6 +241,11 @@ export function buildPage(): string {
     box-shadow: 0 -8px 24px rgba(0,0,0,0.45);
     padding: 10px 24px 12px; display: flex; flex-direction: column; gap: 8px;
     max-height: 55vh;
+    animation: gate-rise 0.24s ease-out;
+  }
+  @keyframes gate-rise {
+    from { transform: translateY(16px); opacity: 0; }
+    to   { transform: translateY(0); opacity: 1; }
   }
   .gate-bar .gate-label { color: var(--signal); font: 600 12px var(--sans); letter-spacing: 0.02em; }
   .gate-bar .gate-question {
@@ -304,7 +313,8 @@ export function buildPage(): string {
   #empty-state { padding: 60px 20px; text-align: center; color: var(--ink-dim); }
 
   @media (prefers-reduced-motion: reduce) {
-    .trace.edge-live, .status-running::before, .tab.active .tab-dot, .cursor, .node-dot.node-running, .wordmark .dot { animation: none !important; }
+    .trace.edge-live, .status-running::before, .tab.active .tab-dot, .cursor, .node-dot.node-running, .wordmark .dot, .gate-bar { animation: none !important; }
+    .meter > span, .control-btn, .agent-row { transition: none !important; }
   }
 </style>
 </head>

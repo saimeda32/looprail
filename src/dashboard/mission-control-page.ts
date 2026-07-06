@@ -87,9 +87,13 @@ export function buildMissionControlPage(): string {
   }
   .run-card {
     display: block; padding: 14px 16px; border-radius: 3px; background: var(--panel);
-    border: 1px solid var(--line); text-decoration: none; color: inherit; transition: border-color 0.15s ease;
+    border: 1px solid var(--line); text-decoration: none; color: inherit;
+    transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
   }
-  .run-card:hover, .run-card:focus-visible { border-color: var(--line-bright); }
+  .run-card:hover, .run-card:focus-visible {
+    border-color: var(--line-bright); transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  }
   .run-card .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px; gap: 8px; }
   .run-card .name { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .run-card .goal {
@@ -144,6 +148,8 @@ export function buildMissionControlPage(): string {
   .session-card .meta { font: 11px var(--mono); color: var(--ink-faint); }
   @media (prefers-reduced-motion: reduce) {
     .status-running::before { animation: none !important; }
+    .run-card { transition: none !important; }
+    .run-card:hover, .run-card:focus-visible { transform: none; }
   }
 </style>
 </head>
