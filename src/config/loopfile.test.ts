@@ -163,11 +163,18 @@ test('parseGraphFragment throws when graph is missing entirely', () => {
   expect(() => parseGraphFragment('agents: {}')).toThrow(/^invalid graph fragment:\ngraph is required/)
 })
 
-test('parseGraphFragment rejects an unsupported tester expect, same as parseLoopfile', () => {
-  expect(() => parseGraphFragment(`
+// Superseded behavior, deliberately: fragments used to reject an unsupported
+// expect exactly like parseLoopfile. Now a planner-generated fragment REPAIRS
+// it (see repairProseExpect) because a planner's structural slip must never
+// cost a paid replan - while a hand-written loopfile's identical typo still
+// fails loudly at its author (parseLoopfile untouched, covered by the
+// 'rejects unsupported expect values' test above).
+test('parseGraphFragment repairs an unsupported expect on a run-bearing node instead of rejecting like parseLoopfile does', () => {
+  const fragment = parseGraphFragment(`
 graph:
   bad: { role: tester, run: echo hi, expect: "exit 1" }
-`)).toThrow(/unsupported expect/)
+`)
+  expect(fragment.nodes[0].expect).toBe('exit 0')
 })
 
 test('parseGraphFragment strips a leading sentence and a markdown code fence before parsing', () => {
@@ -280,4 +287,72 @@ graph:
   build: { role: executor, agent: worker }
 `)
   expect(fragment.nodes.map((n) => n.id)).toEqual(['build'])
+})
+
+// Real halt caught live (same benchmarking session as the nodes:/edges:
+// shape repair above): a planner's very first attempt wrote prose expect
+// fields ("file server.js exists and `node -c server.js` passes...") on its
+// executor nodes. `expect` only supports the literal "exit 0", so the whole
+// otherwise-sound plan was rejected and a paid replan spent on a purely
+// structural problem. Same treatment as the shape repair: fix it
+// mechanically, never spend an LLM round on it. Hand-written loopfiles keep
+// the loud error (parseLoopfile is untouched) - an author's typo should
+// fail fast; only planner-generated fragments get auto-repaired.
+test('parseGraphFragment repairs a prose expect on a node WITH a run command down to "exit 0" - the command exit code is the real check', () => {
+  const fragment = parseGraphFragment(`
+graph:
+  tests:
+    role: tester
+    run: npm test
+    expect: all endpoint tests pass and the process exits cleanly
+`)
+  expect(fragment.nodes[0].expect).toBe('exit 0')
+  expect(fragment.nodes[0].run).toBe('npm test')
+})
+
+test('parseGraphFragment folds a prose expect on a node WITHOUT a run command into the prompt as success criteria, keeping the intent visible to the agent', () => {
+  const fragment = parseGraphFragment(`
+graph:
+  implement_server:
+    role: executor
+    agent: worker
+    prompt: Create server.js implementing the API.
+    expect: server.js exists and node --check server.js passes with no syntax errors
+`)
+  const node = fragment.nodes[0]
+  expect(node.expect).toBeUndefined()
+  expect(node.prompt).toContain('Create server.js implementing the API.')
+  expect(node.prompt).toContain('Success criteria')
+  expect(node.prompt).toContain('node --check server.js passes')
+})
+
+test('parseGraphFragment normalizes a merely whitespace-padded "exit 0" instead of treating it as prose', () => {
+  const fragment = parseGraphFragment(`
+graph:
+  tests: { role: tester, run: npm test, expect: " exit 0 " }
+`)
+  expect(fragment.nodes[0].expect).toBe('exit 0')
+})
+
+test('parseGraphFragment composes both repairs: a nodes: array shape whose items also carry prose expects (the exact combined shape a real planner produced)', () => {
+  const fragment = parseGraphFragment(`
+graph:
+  nodes:
+    - id: implement_server
+      role: executor
+      agent: worker
+      prompt: Create server.js.
+      expect: server.js exists and passes a syntax check
+    - id: run_tests
+      role: tester
+      after: [implement_server]
+      run: node test.js
+      expect: every test passes
+`)
+  const server = fragment.nodes.find((n) => n.id === 'implement_server')!
+  const tests = fragment.nodes.find((n) => n.id === 'run_tests')!
+  expect(server.expect).toBeUndefined()
+  expect(server.prompt).toContain('Success criteria')
+  expect(tests.expect).toBe('exit 0')
+  expect(tests.after).toEqual(['implement_server'])
 })

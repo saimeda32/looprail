@@ -187,6 +187,45 @@ function normalizeNodesEdgesShape(graph: Record<string, unknown>): Record<string
   return byId
 }
 
+// Real halt caught live (same benchmarking session as normalizeNodesEdgesShape
+// above): a planner's first attempt wrote prose expect fields ("file server.js
+// exists and `node -c server.js` passes...") on its executor nodes. expect
+// only supports the literal "exit 0" (see parseGraphNodes), so the whole
+// otherwise-sound plan was rejected and a paid replan spent on a purely
+// structural problem. The repair is mechanical, not a judgment call:
+//  - a node WITH a run command keeps its real check (the command's own exit
+//    code) - the prose expect collapses to "exit 0";
+//  - a node WITHOUT a run command has nothing executable to check, so the
+//    prose is folded into the prompt as success criteria - the intent stays
+//    visible to the agent instead of being silently discarded.
+// Applied only to planner-generated fragments (this file's fragment path) -
+// parseLoopfile is untouched, so a hand-written loopfile's typo still fails
+// loudly at the author, exactly as before.
+function repairProseExpect(graph: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [id, raw] of Object.entries(graph)) {
+    if (!raw || typeof raw !== 'object' || typeof (raw as Record<string, unknown>).expect !== 'string') {
+      out[id] = raw
+      continue
+    }
+    const node = { ...(raw as Record<string, unknown>) }
+    const expect = (node.expect as string).trim()
+    if (expect === 'exit 0') {
+      node.expect = 'exit 0' // normalize away stray whitespace padding
+    } else if (typeof node.run === 'string' && node.run.trim() !== '') {
+      node.expect = 'exit 0'
+    } else {
+      delete node.expect
+      const criteria = `Success criteria (verify before finishing): ${expect}`
+      node.prompt = typeof node.prompt === 'string' && node.prompt.trim() !== ''
+        ? `${node.prompt}\n\n${criteria}`
+        : criteria
+    }
+    out[id] = node
+  }
+  return out
+}
+
 function parseGraphFragmentStrict(text: string): GraphFragment {
   let raw: Record<string, unknown>
   try {
@@ -201,7 +240,7 @@ function parseGraphFragmentStrict(text: string): GraphFragment {
   if (typeof raw.graph !== 'object' || Array.isArray(raw.graph)) {
     throw new Error('invalid graph fragment:\ngraph must be a map of node id to node definition')
   }
-  const normalizedGraph = normalizeNodesEdgesShape(raw.graph as Record<string, unknown>)
+  const normalizedGraph = repairProseExpect(normalizeNodesEdgesShape(raw.graph as Record<string, unknown>))
   const nodes = parseGraphNodes(normalizedGraph as Record<string, Record<string, unknown>>)
   const agents = raw.agents as Record<string, AgentDef> | undefined
   const rails = parseRailsPartial(raw.rails as Record<string, number> | undefined)
