@@ -73,6 +73,23 @@ approval right in the browser before anything downstream of it runs:
 
 ![looprail dashboard: a gate awaiting approval, then executing, then verified](docs/assets/demo.gif)
 
+That recording uses looprail's `mock`/`shell` adapters so it's fast and
+reproducible - here's what a real one looks like. A genuinely buggy
+`wordFrequency` function (didn't lowercase, didn't strip punctuation, split
+naively on single spaces) with a real failing test, handed to real Claude
+Code (`adapter: claude-code`) through a three-node loop - fix, a mechanical
+`node test.js` check, and an independent critic reviewing the diff for a
+weakened test or a hardcoded special case:
+
+![looprail dashboard showing a real Claude Code fix, verified, with real cost and token counts](docs/assets/real-demo-verified.png)
+
+Verified in one iteration, $0.40 total, 18.6k tokens - and the critic's own
+report is honestly hedged (55% confidence on "exits 0," because its own
+sandboxed session couldn't run the command itself and it said so, relying
+on the tester node's real result instead of just asserting it). That
+critic's caution is worth calling out on purpose: a critic that always
+sounds certain is worth less than one that tells you when it isn't.
+
 `init` picks a template for you (`fix-tests`, `research-report`, `refactor`,
 `content-pipeline`, `review-diff`, or `build-app`) and fills in whichever
 agent CLIs it found. For each role in the template it asks which tier to run
