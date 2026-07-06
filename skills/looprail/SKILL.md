@@ -53,6 +53,15 @@ installed and logged in; only wire those. `looprail init` encodes the
 recommended tiers per template role, so scaffolding from it (or `--yes`)
 is already a sound default.
 
+Which PROVIDER to spend is the user's call, not yours: multiple installed
+CLIs means multiple subscriptions/quotas, and you cannot know which one
+the user prefers to burn. If the repo already has a looprail.yaml, its
+agents block IS the user's standing answer - reuse it. If not, and doctor
+shows more than one adapter, ask the user once ("claude-code and
+copilot-cli are both available - which should be the worker? I'll use the
+other as the independent reviewer") before scaffolding. Only when exactly
+one adapter is available is there nothing to ask.
+
 When authoring by hand, pick by role, not by habit:
 
 | Role | Tier | Why |
