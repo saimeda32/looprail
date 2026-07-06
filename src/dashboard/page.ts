@@ -240,8 +240,19 @@ export function buildPage(): string {
     white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.55 var(--mono); color: var(--ink);
     background: var(--panel); border: 1px solid var(--line); border-radius: 3px;
     padding: 10px 12px; overflow-y: auto; min-height: 0; flex: 0 1 auto;
+    /* its own hard cap, not only the bar's flex constraint - the scrollbar
+       must engage reliably regardless of how the browser resolves the
+       flex-column shrink against the bar's max-height */
+    max-height: 38vh;
   }
   .gate-bar .gate-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  /* the two decisions sit TOGETHER, approve visually primary - split-apart
+     buttons with an input stretched between them read as unrelated controls */
+  .gate-bar .gate-approve {
+    background: var(--signal); color: #14120f; border-color: var(--signal);
+    font-weight: 700;
+  }
+  .gate-bar .gate-approve:hover { filter: brightness(1.1); color: #14120f; }
   .gate-bar .gate-actions input[type="text"] {
     flex: 1; min-width: 200px; font: 12px var(--mono); background: var(--panel);
     border: 1px solid var(--line); border-radius: 3px; color: var(--ink); padding: 6px 9px;
@@ -421,9 +432,9 @@ export function buildPage(): string {
   <span class="gate-label" id="gate-label"></span>
   <div class="gate-question" id="gate-question"></div>
   <div class="gate-actions">
-    <button class="control-btn" id="btn-gate-approve" type="button">Approve</button>
-    <input type="text" id="gate-reject-input" placeholder="Reject with feedback…" maxlength="2000" />
-    <button class="control-btn danger" id="btn-gate-reject" type="button">Reject</button>
+    <button class="control-btn gate-approve" id="btn-gate-approve" type="button">&#10003; Approve</button>
+    <button class="control-btn danger" id="btn-gate-reject" type="button">&#10007; Reject</button>
+    <input type="text" id="gate-reject-input" placeholder="Why? Required to reject - your reason is sent back to the agents as feedback" maxlength="2000" />
     <span id="gate-status"></span>
   </div>
 </div>
@@ -1116,8 +1127,14 @@ export function buildPage(): string {
     document.getElementById('gate-label').textContent = (model.pendingGate.isPlanApproval
       ? 'Plan awaiting your approval'
       : 'Gate awaiting your approval') + ' - ' + model.pendingGate.nodeId;
-    // textContent, never innerHTML - the question embeds arbitrary agent output
-    document.getElementById('gate-question').textContent = model.pendingGate.question || '';
+    // textContent, never innerHTML - the question embeds arbitrary agent
+    // output. Written ONLY when it actually changed: render() runs on every
+    // poll tick, and rewriting identical textContent replaces the child
+    // node, which silently resets the reader's scroll position to the top
+    // every second (live-caught: "I can't scroll inside the approval box").
+    var questionEl = document.getElementById('gate-question');
+    var questionText = model.pendingGate.question || '';
+    if (questionEl.textContent !== questionText) questionEl.textContent = questionText;
   }
 
   function sendGateDecision(action, text) {

