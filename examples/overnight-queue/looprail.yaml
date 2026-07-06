@@ -1,0 +1,24 @@
+name: overnight-task
+goal: |
+  Placeholder goal - each queue.yaml item overrides this line with its own
+  goal, so this file defines the SHAPE of every overnight task (worker,
+  tester, anti-gaming critic) exactly once and the queue supplies the work.
+
+agents:
+  worker:  { adapter: claude-code, model: sonnet, permissions: safe }
+  checker: { adapter: codex, permissions: safe }  # independent reviewer - a different model catches what the worker's own model misses
+
+graph:
+  do:    { role: executor, agent: worker }
+  tests: { role: tester, after: do, run: npm test, expect: exit 0 }  # swap for your stack's real test command
+  crit:  { role: critic, agent: checker, of: do, after: tests,
+           prompt: Refute the work - fail if any test was deleted, skipped, or weakened, if the change does less than the goal asked, or if it broke behavior the goal never mentioned. }
+
+rails:
+  max_iterations: 6
+  max_cost_usd: 10
+  max_wall_minutes: 45
+  stall_after: 3
+  replan_limit: 1
+
+verdict: { policy: all-pass }

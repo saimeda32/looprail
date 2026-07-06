@@ -1,0 +1,28 @@
+name: release-check
+goal: |
+  Audit this repository for release readiness: changelog updated for every
+  user-facing change since the last tag, version bumped consistently across
+  every file that carries it, no TODO/FIXME left in code paths touched since
+  the last tag, docs matching current behavior. Produce a go/no-go report.
+
+agents:
+  worker:  { adapter: claude-code, model: sonnet, permissions: safe }
+  checker: { adapter: codex, permissions: safe }
+
+graph:
+  audit:  { role: executor, agent: worker }
+  crit:   { role: critic, agent: checker, of: audit, after: audit,
+            prompt: Fail if any release-readiness claim is not backed by a concrete file/line reference, or if the audit skipped any of the four checks the goal names. }
+  # The whole point of putting this item in an overnight queue: nobody is
+  # awake to approve a release at 3am. gate_timeout parks the run (fully
+  # resumable, zero repeated work) and the queue moves on - in the morning
+  # this item shows up as "parked", one click from the answer.
+  ship:   { role: gate, after: crit }
+
+rails:
+  max_iterations: 4
+  max_cost_usd: 5
+  max_wall_minutes: 30
+  gate_timeout: 120
+
+verdict: { policy: all-pass }

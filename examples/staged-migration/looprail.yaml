@@ -1,0 +1,50 @@
+name: staged-migration
+goal: |
+  Migrate this codebase from <OLD> to <NEW> (edit this line - e.g. "from
+  moment.js to date-fns", "from callbacks to async/await in src/db/",
+  "from the v1 payments API to v2"). Behavior must be preserved exactly:
+  every existing test still passes, no public API changes beyond the
+  migration itself, and no call site is left half-migrated.
+
+agents:
+  worker:   { adapter: claude-code, model: sonnet, permissions: safe }
+  planner:  { adapter: claude-code, model: opus, permissions: safe }
+  checker:  { adapter: codex, permissions: safe }  # independent reviewer - a different model catches what the worker's own model misses
+
+graph:
+  # Stage 1 - inventory BEFORE planning: a migration plan written without
+  # knowing every real call site is a guess. The inventory is cheap,
+  # mechanical, and makes the plan's coverage checkable.
+  inventory: { role: executor, agent: worker,
+               prompt: Find and list EVERY call site, import, and config reference the migration in the goal must touch - exact file and line for each, grouped by the kind of change needed. Also list anything that LOOKS related but must NOT be touched, with a one-line reason. Change no code in this step. }
+
+  # Stage 2 - plan against the inventory, reviewed before any human sees it.
+  plan:      { role: planner, agent: planner, after: inventory,
+               prompt: Write a staged migration plan against the inventory above - concrete stages, each independently testable, with explicit rollback notes per stage. Every inventory item must appear in exactly one stage. }
+  plan-crit: { role: critic, agent: checker, of: plan, after: plan,
+               prompt: Fail if any inventory item is missing from the plan, any stage is not independently testable, or rollback for any stage is hand-waved. }
+
+  # Stage 3 - a human approves the PLAN, not the diff: the cheapest moment
+  # to say no is before any code changes, and rejection feedback here
+  # drives a replan instead of a rewrite.
+  approve:   { role: gate, after: plan-crit }
+
+  # Stage 4 - execute, then verify twice: the test suite proves behavior,
+  # and a completeness critic proves the migration didn't quietly stop
+  # halfway (the classic failure the tests alone can't see - old and new
+  # styles coexisting is usually still green).
+  migrate:   { role: executor, agent: worker, after: approve,
+               prompt: Execute the approved plan stage by stage. Migrate every call site in the inventory - a half-migrated codebase (old and new styles coexisting) is a failure even if tests pass. }
+  tests:     { role: tester, after: migrate, run: npm test, expect: exit 0 }  # swap for your stack's real test command
+  crit-done: { role: critic, agent: checker, of: migrate, after: tests,
+               prompt: Re-check every inventory item against the migrated code - fail if ANY call site still uses the old form, if anything on the do-not-touch list changed, or if the migration introduced behavior differences the tests don't cover. }
+
+rails:
+  max_iterations: 8
+  max_cost_usd: 30
+  max_wall_minutes: 90
+  stall_after: 3
+  replan_limit: 2
+  gate_timeout: 600
+
+verdict: { policy: all-pass }

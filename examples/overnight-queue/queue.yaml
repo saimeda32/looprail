@@ -1,0 +1,20 @@
+# Run before you leave: `looprail queue examples/overnight-queue/queue.yaml`
+# (from a directory whose looprail.yaml is this example's - see the README).
+# Items run sequentially, each to verified or parked; a parked item never
+# blocks the rest. In the morning, the triage table says what finished,
+# what's waiting on you, and what halted - with the exact resume command.
+queue:
+  # goal-only items reuse looprail.yaml's graph shape (worker + tester +
+  # anti-gaming critic), each with its own goal - one loop design, many jobs.
+  - goal: |
+      Resolve every TODO and FIXME comment under src/: implement it, or
+      remove it with a one-line justification in the commit. Tests must
+      still pass and no TODO may simply be deleted without its issue
+      being addressed.
+  - goal: |
+      Add input validation to every public API endpoint that lacks it,
+      with a test per endpoint proving invalid input is rejected without
+      crashing. Do not change any endpoint's valid-input behavior.
+  # a file item runs a different loopfile as-is - this one ends at a human
+  # gate, so overnight it PARKS instead of hanging, and waits for you.
+  - file: release-check.yaml

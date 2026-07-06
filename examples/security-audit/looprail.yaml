@@ -1,0 +1,53 @@
+name: security-audit
+goal: |
+  Audit this repository for security weaknesses and produce a findings
+  report: every finding names the exact file and line, explains the
+  concrete attack it enables, rates severity, and proposes the minimal
+  fix. Cover at least: injection surfaces (shell/SQL/template/path),
+  secrets and credential handling, dependency risks, and unsafe
+  deserialization or dynamic execution. No speculative findings - every
+  claim must be reproducible from the code as written.
+
+agents:
+  # auditor and lenses on DIFFERENT models on purpose: one model's blind
+  # spots (patterns it was trained to consider "normal") are exactly what a
+  # second model's different priors catch. Severity judging gets a third
+  # perspective again.
+  auditor:      { adapter: claude-code, model: sonnet, permissions: safe }
+  lens-inject:  { adapter: codex, permissions: safe }
+  lens-secrets: { adapter: codex, permissions: safe }
+  lens-deps:    { adapter: claude-code, model: haiku, permissions: safe }
+  severity:     { adapter: claude-code, model: opus, permissions: safe }
+
+graph:
+  audit: { role: executor, agent: auditor }
+
+  # Three critics, three DIFFERENT lenses - not one critic asked thrice, and
+  # not a panel (panel members share one prompt; these deliberately don't).
+  # Each attacks the report from its own angle, concurrently.
+  crit-injection: { role: critic, agent: lens-inject, of: audit, after: audit,
+                    prompt: Attack the report's injection coverage - find any shell, SQL, template, or path-traversal surface in the code the report missed, and refute any injection finding that is not actually exploitable as written. }
+  crit-secrets:   { role: critic, agent: lens-secrets, of: audit, after: audit,
+                    prompt: Attack the report's secrets coverage - find any credential, token, or key handling path the report missed (env files, logs, error messages, VCS history hints), and refute any secrets finding that is not real. }
+  crit-deps:      { role: critic, agent: lens-deps, of: audit, after: audit,
+                    prompt: Attack the report's dependency coverage - lockfile drift, install scripts, known-vulnerable version ranges, typo-squat-adjacent names. Refute anything the report claims about dependencies that the manifests do not support. }
+
+  # An independent judge scores the whole report only AFTER the three
+  # lenses have had their shot - a report that survived all three but is
+  # still vague, unactionable, or severity-inflated fails here.
+  score: { role: judge, agent: severity, of: audit, after: [crit-injection, crit-secrets, crit-deps], threshold: 0.75,
+           rubric: Every finding has an exact location, a concrete attack narrative, a defensible severity, and a minimal fix. Coverage spans all four required categories. Findings are reproducible from the code as written - no speculation. }
+
+  # The human decides what a finding is worth - severity triage and "do we
+  # fix this now" are judgment calls the loop must never make alone.
+  triage: { role: gate, after: score }
+
+rails:
+  max_iterations: 6
+  max_cost_usd: 20
+  max_wall_minutes: 60
+  stall_after: 3
+  replan_limit: 1
+  gate_timeout: 600
+
+verdict: { policy: all-pass }

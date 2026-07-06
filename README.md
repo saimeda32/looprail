@@ -101,7 +101,15 @@ hand. Pass `--yes` to accept every recommended default with zero prompts, or
 Prefer to start from a real file instead of a wizard? Every template also
 exists as a standalone example under [`examples/`](examples/) - each one
 has its own README explaining what it demonstrates and what to change,
-ready to `cp` into your project.
+ready to `cp` into your project. Beyond the template mirrors, the gallery
+includes full workflows: an [overnight queue](examples/overnight-queue)
+(batch goals unattended, triage in the morning), a
+[security audit](examples/security-audit) (three adversarial critic lenses
+on different models + an independent judge), a
+[staged migration](examples/staged-migration) (inventory -> plan ->
+human-approved before any code changes -> migrate -> double verification),
+a [judge panel](examples/judge-panel) (three models compete, two judges
+score), and [multi-gate approval](examples/multi-gate-approval).
 
 ### Writing a Loopfile
 
