@@ -216,8 +216,39 @@ export function buildPage(): string {
     border: 1px solid var(--line); border-radius: 3px; color: var(--ink); padding: 6px 9px;
   }
   .resume-row textarea:focus { outline: 1px solid var(--signal-dim); border-color: var(--line-bright); }
+  /* still used by the mid-node permission row (id="permission-row") */
   .gate-row { border-left: 2px solid var(--signal); }
   .gate-row .gate-label { color: var(--signal); font: 600 11px var(--sans); letter-spacing: 0.02em; }
+
+  /* The approval bar is FIXED to the bottom of the viewport, not a row
+     buried in the run panel: a waiting gate is the one moment the page
+     needs a human action, and that action must be visible and clickable
+     no matter where the user has scrolled (live-caught complaint: the
+     approve button was off-screen and the question text nowhere near it).
+     The question renders in full - scrollable, pre-wrapped, never
+     ellipsis-truncated - so the human reads what they're approving right
+     next to the button that approves it. */
+  .gate-bar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+    background: var(--panel-raised, var(--panel)); border-top: 2px solid var(--signal);
+    box-shadow: 0 -8px 24px rgba(0,0,0,0.45);
+    padding: 10px 24px 12px; display: flex; flex-direction: column; gap: 8px;
+    max-height: 55vh;
+  }
+  .gate-bar .gate-label { color: var(--signal); font: 600 12px var(--sans); letter-spacing: 0.02em; }
+  .gate-bar .gate-question {
+    white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.55 var(--mono); color: var(--ink);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 3px;
+    padding: 10px 12px; overflow-y: auto; min-height: 0; flex: 0 1 auto;
+  }
+  .gate-bar .gate-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .gate-bar .gate-actions input[type="text"] {
+    flex: 1; min-width: 200px; font: 12px var(--mono); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 3px; color: var(--ink); padding: 6px 9px;
+  }
+  .gate-bar .gate-actions input[type="text"]:focus { outline: 1px solid var(--signal-dim); border-color: var(--line-bright); }
+  /* room so the fixed bar never covers the page's own bottom content */
+  body.gate-open .wrap { padding-bottom: 58vh; }
   #feedback-status, #resume-status, #gate-status { font-size: 11px; color: var(--ink-faint); }
   #feedback-status.ok, #resume-status.ok, #gate-status.ok { color: var(--pass); }
   #feedback-status.err, #resume-status.err, #gate-status.err { color: var(--fail); }
@@ -278,13 +309,6 @@ export function buildPage(): string {
       <span id="reason"></span>
     </div>
     <div class="run-goal" id="run-goal"></div>
-    <div class="gate-row" id="gate-row" style="display:none">
-      <span class="gate-label" id="gate-label"></span>
-      <button class="control-btn" id="btn-gate-approve" type="button">Approve</button>
-      <input type="text" id="gate-reject-input" placeholder="Reject with feedback…" maxlength="2000" />
-      <button class="control-btn danger" id="btn-gate-reject" type="button">Reject</button>
-      <span id="gate-status"></span>
-    </div>
     <div class="feedback-row" id="feedback-row" style="display:none">
       <input type="text" id="feedback-input" placeholder="Add a note for the next attempt…" maxlength="2000" />
       <button class="control-btn" id="btn-feedback" type="button">Send</button>
@@ -393,6 +417,16 @@ export function buildPage(): string {
     <a href="https://github.com/saimeda32/looprail/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
   </nav>
 </footer>
+<div class="gate-bar" id="gate-bar" style="display:none">
+  <span class="gate-label" id="gate-label"></span>
+  <div class="gate-question" id="gate-question"></div>
+  <div class="gate-actions">
+    <button class="control-btn" id="btn-gate-approve" type="button">Approve</button>
+    <input type="text" id="gate-reject-input" placeholder="Reject with feedback…" maxlength="2000" />
+    <button class="control-btn danger" id="btn-gate-reject" type="button">Reject</button>
+    <span id="gate-status"></span>
+  </div>
+</div>
 <script>
 (function () {
   var STATUS_CLASS = {
@@ -1063,22 +1097,27 @@ export function buildPage(): string {
   });
 
   // Shown only while a gate is actually waiting on this run (model.pendingGate,
-  // sourced from the dashboard's in-process gate registry - see
-  // src/dashboard/gate-registry.ts) - a permanently-visible approve/reject
-  // control would be misleading since most of a run's life has no gate open.
-  // The plan-approval case relies entirely on the existing "Plan evolution"
-  // section to show the pending plan content - this row only ever renders
-  // the approve/reject controls, never a second copy of the plan itself.
+  // from this process's gate registry or the run directory's gate-waiting
+  // marker - see src/dashboard/server.ts) - a permanently-visible
+  // approve/reject control would be misleading since most of a run's life
+  // has no gate open. Rendered as a FIXED bottom bar with the full question
+  // text inline: the human must be able to read what they're approving and
+  // click approve without scrolling anywhere (live-caught complaint: the
+  // old in-panel row left the button off-screen and the content elsewhere).
   function renderGateRow(model) {
-    var row = document.getElementById('gate-row');
+    var bar = document.getElementById('gate-bar');
     if (model.status !== 'running' || !model.pendingGate) {
-      row.style.display = 'none';
+      bar.style.display = 'none';
+      document.body.classList.remove('gate-open');
       return;
     }
-    row.style.display = 'flex';
-    document.getElementById('gate-label').textContent = model.pendingGate.isPlanApproval
-      ? 'Plan awaiting approval'
-      : 'Gate awaiting approval';
+    bar.style.display = 'flex';
+    document.body.classList.add('gate-open');
+    document.getElementById('gate-label').textContent = (model.pendingGate.isPlanApproval
+      ? 'Plan awaiting your approval'
+      : 'Gate awaiting your approval') + ' - ' + model.pendingGate.nodeId;
+    // textContent, never innerHTML - the question embeds arbitrary agent output
+    document.getElementById('gate-question').textContent = model.pendingGate.question || '';
   }
 
   function sendGateDecision(action, text) {

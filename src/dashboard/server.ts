@@ -152,9 +152,12 @@ export function serveModel(
     const runDir = dirname(opts.journalPath)
     const marker = pending ? undefined : readGateWaitingMarker(runDir)
     const markerLive = marker !== undefined && runProcessAlive(runDir)
+    // question included so the approval UI can show WHAT is being approved
+    // right next to the approve button - previously the human had to hunt
+    // for the content elsewhere on the page before deciding.
     const pendingGate = pending
-      ? { nodeId: pending.nodeId, isPlanApproval: pending.isPlanApproval }
-      : markerLive ? { nodeId: marker.nodeId, isPlanApproval: marker.isPlanApproval } : null
+      ? { nodeId: pending.nodeId, isPlanApproval: pending.isPlanApproval, question: pending.question }
+      : markerLive ? { nodeId: marker.nodeId, isPlanApproval: marker.isPlanApproval, question: marker.question } : null
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ ...payload, ...controlState(opts.journalPath, resumable), pendingGate }))
   } catch (err) {

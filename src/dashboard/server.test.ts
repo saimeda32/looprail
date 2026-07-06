@@ -456,7 +456,7 @@ test('GET /model surfaces a pending gate from the waiting marker when the run li
   writeGateWaitingMarker(runDir, { nodeId: 'approve', isPlanApproval: true, question: 'plan ok?' })
   dashboard = await startDashboardServer({ journalPath, getPendingGate: () => undefined })
   const res = await get(dashboard.url + '/model')
-  expect(JSON.parse(res.body).pendingGate).toEqual({ nodeId: 'approve', isPlanApproval: true })
+  expect(JSON.parse(res.body).pendingGate).toEqual({ nodeId: 'approve', isPlanApproval: true, question: 'plan ok?' })
 })
 
 test('GET /model ignores a waiting marker left behind by a dead process - no phantom approval prompt', async () => {
@@ -653,7 +653,7 @@ test('GET /model exposes pendingGate:null when no gate is waiting, and the pendi
 
   store.gates.set('r:plan', { resolve: () => {}, question: 'approve the plan?', nodeId: 'plan', runId: 'r', isPlanApproval: true })
   const after = await get(dashboard.url + '/model')
-  expect(JSON.parse(after.body).pendingGate).toEqual({ nodeId: 'plan', isPlanApproval: true })
+  expect(JSON.parse(after.body).pendingGate).toEqual({ nodeId: 'plan', isPlanApproval: true, question: 'approve the plan?' })
 })
 
 test('POST /resume 501s cleanly when this dashboard has no onResume wired up', async () => {

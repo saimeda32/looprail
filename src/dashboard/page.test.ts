@@ -446,19 +446,31 @@ test('refresh() never has more than one fetch(\'model\') in flight, even when ca
   expect(getPeakConcurrentFetches()).toBeLessThanOrEqual(1)
 })
 
-// Terraform-Cloud-style gate approval: a form/button row shown ONLY while
-// a gate is actually pending on this run (model.pendingGate, sourced from
-// the dashboard's in-process gate registry), never a permanently-visible
-// control - mirrors feedback-row/resume-row's conditional-display shape.
-test('the page defines a gate-row for live gate approval, hidden by default, with approve/reject controls', () => {
+// Gate approval is a FIXED bottom bar shown ONLY while a gate is actually
+// pending (model.pendingGate) - never permanently visible, and never buried
+// in the run panel where scrolling hides it. Live-caught complaint drove
+// this: the approve button was off-screen and the question text nowhere
+// near it. The bar carries the full question inline plus the controls.
+test('the page defines a fixed gate-bar for live gate approval, hidden by default, with the question and approve/reject controls', () => {
   const html = buildPage()
-  expect(html).toContain('id="gate-row"')
-  const rowMatch = html.match(/<div class="gate-row" id="gate-row"([^>]*)>/)
-  expect(rowMatch).not.toBeNull()
-  expect(rowMatch![1]).toContain('display:none')
+  expect(html).toContain('id="gate-bar"')
+  const barMatch = html.match(/<div class="gate-bar" id="gate-bar"([^>]*)>/)
+  expect(barMatch).not.toBeNull()
+  expect(barMatch![1]).toContain('display:none')
+  expect(html).toContain('id="gate-question"')
   expect(html).toContain('id="btn-gate-approve"')
   expect(html).toContain('id="btn-gate-reject"')
   expect(html).toContain('id="gate-reject-input"')
+  // fixed to the viewport so it is visible regardless of scroll position
+  const css = html.match(/\.gate-bar \{([^}]*)\}/)
+  expect(css).not.toBeNull()
+  expect(css![1]).toMatch(/position:\s*fixed/)
+  // the question is scrollable and wrapped, never ellipsis-truncated
+  const qcss = html.match(/\.gate-bar \.gate-question \{([^}]*)\}/)
+  expect(qcss).not.toBeNull()
+  expect(qcss![1]).toMatch(/overflow-y:\s*auto/)
+  expect(qcss![1]).toMatch(/pre-wrap/)
+  expect(qcss![1]).not.toMatch(/ellipsis/)
 })
 
 // The gate label previously used the same dim, low-contrast color as
@@ -468,7 +480,7 @@ test('the page defines a gate-row for live gate approval, hidden by default, wit
 // attention" states already use (--signal), not blend in as regular text.
 test('the gate label uses the signal accent color, not dim body text, so it stands out as needing attention', () => {
   const html = buildPage()
-  const rule = html.match(/\.gate-row \.gate-label\s*\{([^}]*)\}/)
+  const rule = html.match(/\.gate-bar \.gate-label\s*\{([^}]*)\}/)
   expect(rule).not.toBeNull()
   expect(rule![1]).toMatch(/color:\s*var\(--signal\)/)
   expect(rule![1]).not.toMatch(/var\(--ink-dim\)/)
@@ -504,7 +516,7 @@ test('render(model) calls renderGateRow on every re-render', () => {
 function loadRenderGateRow(): (model: unknown) => void {
   const html = buildPage()
   const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
-  const renderGateRowSrc = script.match(/function renderGateRow\(model\) \{[\s\S]*?\n {2}\}\n/)![0]
+  const renderGateRowSrc = script.match(/function renderGateRow\(model\) \{[\s\S]*?\n {2}\}/)![0]
   const factory = new Function('document', `
     ${renderGateRowSrc}
     return renderGateRow;
@@ -513,40 +525,48 @@ function loadRenderGateRow(): (model: unknown) => void {
     return { style: {} as Record<string, string>, textContent: '' }
   }
   const store: Record<string, ReturnType<typeof makeFakeElement>> = {
-    'gate-row': makeFakeElement(),
+    'gate-bar': makeFakeElement(),
     'gate-label': makeFakeElement(),
+    'gate-question': makeFakeElement(),
   }
-  const fakeDocument = { getElementById: (id: string) => store[id] }
+  const classes = new Set<string>()
+  const fakeDocument = {
+    getElementById: (id: string) => store[id],
+    body: { classList: { add: (cl: string) => classes.add(cl), remove: (cl: string) => classes.delete(cl) } },
+  }
   const renderGateRow = factory(fakeDocument) as (model: unknown) => void
-  return Object.assign(renderGateRow, { store })
+  return Object.assign(renderGateRow, { store, classes })
 }
 
-test('renderGateRow shows the row only when running with a pendingGate, and labels plan-approval distinctly', () => {
+test('renderGateRow shows the bar only when running with a pendingGate, labels plan-approval distinctly, and renders the question in full', () => {
   const renderGateRow = loadRenderGateRow() as ((model: unknown) => void) & {
     store: Record<string, { style: Record<string, string>; textContent: string }>
+    classes: Set<string>
   }
   renderGateRow({ status: 'running', pendingGate: null })
-  expect(renderGateRow.store['gate-row'].style.display).toBe('none')
+  expect(renderGateRow.store['gate-bar'].style.display).toBe('none')
+  expect(renderGateRow.classes.has('gate-open')).toBe(false)
 
-  renderGateRow({ status: 'halted', pendingGate: { nodeId: 'n1', isPlanApproval: false } })
-  expect(renderGateRow.store['gate-row'].style.display).toBe('none')
+  renderGateRow({ status: 'halted', pendingGate: { nodeId: 'n1', isPlanApproval: false, question: 'q' } })
+  expect(renderGateRow.store['gate-bar'].style.display).toBe('none')
 
-  renderGateRow({ status: 'running', pendingGate: { nodeId: 'n1', isPlanApproval: false } })
-  expect(renderGateRow.store['gate-row'].style.display).toBe('flex')
-  expect(renderGateRow.store['gate-label'].textContent).toBe('Gate awaiting approval')
+  renderGateRow({ status: 'running', pendingGate: { nodeId: 'n1', isPlanApproval: false, question: 'the full gate question text' } })
+  expect(renderGateRow.store['gate-bar'].style.display).toBe('flex')
+  expect(renderGateRow.classes.has('gate-open')).toBe(true)
+  expect(renderGateRow.store['gate-label'].textContent).toBe('Gate awaiting your approval - n1')
+  expect(renderGateRow.store['gate-question'].textContent).toBe('the full gate question text')
 
-  renderGateRow({ status: 'running', pendingGate: { nodeId: 'n2', isPlanApproval: true } })
-  expect(renderGateRow.store['gate-row'].style.display).toBe('flex')
-  expect(renderGateRow.store['gate-label'].textContent).toBe('Plan awaiting approval')
+  renderGateRow({ status: 'running', pendingGate: { nodeId: 'n2', isPlanApproval: true, question: 'plan body' } })
+  expect(renderGateRow.store['gate-label'].textContent).toBe('Plan awaiting your approval - n2')
+  expect(renderGateRow.store['gate-question'].textContent).toBe('plan body')
 })
 
-// When isPlanApproval is true, the row must not duplicate plan rendering -
-// the existing "Plan evolution" section already shows the pending plan
-// content, so gate-row's own markup must contain no plan-rendering logic.
-test('the plan-approval gate row relies on the existing Plan evolution section, not a duplicate plan renderer', () => {
+// The bar shows the question text itself (that IS what the human approves);
+// it must still not duplicate the Plan evolution section's own markup.
+test('the gate bar renders no duplicate plan-version markup - the question text itself is what the human approves', () => {
   const html = buildPage()
-  const gateRowBlock = html.match(/<div class="gate-row"[\s\S]*?<\/div>/)![0]
-  expect(gateRowBlock).not.toContain('plan-version')
+  const gateBarBlock = html.match(/<div class="gate-bar" id="gate-bar"[\s\S]*?<\/div>\n<\/div>/)![0]
+  expect(gateBarBlock).not.toContain('plan-version')
   expect(html).toContain('Plan evolution')
 })
 
