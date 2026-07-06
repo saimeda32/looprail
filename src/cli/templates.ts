@@ -23,7 +23,11 @@ export interface Template {
   // adapters and models are both keyed by agent key (e.g. 'worker',
   // 'checker', 'fact-editor'). templates.ts does zero tier decision-making
   // here - it only interpolates whatever adapter+model string it is given.
-  yaml: (adapters: Record<string, string>, models: Record<string, string | undefined>) => string
+  // testCommand is the repo's detected real test command (see init-cmd.ts /
+  // detect-test-command.ts) - templates with a tester node interpolate it;
+  // absent, they fall back to `npm test` with a swap-it comment, exactly as
+  // before detection existed.
+  yaml: (adapters: Record<string, string>, models: Record<string, string | undefined>, testCommand?: string) => string
 }
 
 const REVIEWER_COMMENT = '# independent reviewer - a different model catches what the worker\'s own model misses'
@@ -57,9 +61,9 @@ export const TEMPLATES: Record<string, Template> = {
       { key: 'worker', label: 'worker (fixes the failing tests)', recommendedTier: 'medium', kind: 'worker' },
       { key: 'checker', label: 'checker (anti-gaming critic)', recommendedTier: 'cheap', kind: 'reviewer' },
     ],
-    yaml: (adapters, models) => `name: fix-tests
+    yaml: (adapters, models, testCommand) => `name: fix-tests
 goal: |
-  Make the test suite pass. Done means: npm test exits 0 and a critic
+  Make the test suite pass. Done means: ${testCommand ?? 'npm test'} exits 0 and a critic
   confirms no test was deleted, skipped, or weakened to force a pass.
 
 agents:
@@ -68,7 +72,7 @@ agents:
 
 graph:
   fix:   { role: executor, agent: worker }
-  tests: { role: tester, after: fix, run: npm test, expect: exit 0 }
+  tests: { role: tester, after: fix, run: ${testCommand ?? 'npm test'}, expect: exit 0 }${testCommand ? '' : '  # swap "npm test" for your stack\'s real test command if different'}
   crit:  { role: critic, agent: checker, of: fix, after: fix,
            prompt: Fail if any test was deleted, skipped, or weakened to force a pass. }
 
@@ -130,7 +134,7 @@ verdict: { policy: all-pass }
       { key: 'correctness', label: 'correctness critic', recommendedTier: 'cheap', kind: 'reviewer' },
       { key: 'quality', label: 'quality critic', recommendedTier: 'cheap', kind: 'reviewer' },
     ],
-    yaml: (adapters, models) => `name: refactor
+    yaml: (adapters, models, testCommand) => `name: refactor
 goal: |
   Refactor the largest or most complex file under src/ without changing
   behavior - use your own judgment to pick one if a specific file isn't
@@ -147,7 +151,7 @@ agents:
 
 graph:
   refactor:     { role: executor, agent: worker }
-  tests:        { role: tester, after: refactor, run: npm test, expect: exit 0 }
+  tests:        { role: tester, after: refactor, run: ${testCommand ?? 'npm test'}, expect: exit 0 }${testCommand ? '' : '  # swap "npm test" for your stack\'s real test command if different'}
   crit-correct: { role: critic, agent: correctness, of: refactor, after: refactor,
                   prompt: Fail on any behavior change, API break, or dropped edge case. }
   crit-quality: { role: critic, agent: quality, of: refactor, after: refactor,
@@ -249,7 +253,7 @@ verdict: { policy: all-pass }
       { key: 'worker', label: 'worker (builds the app and its tests)', recommendedTier: 'medium', kind: 'worker' },
       { key: 'checker', label: 'checker (spec critic)', recommendedTier: 'medium', kind: 'reviewer' },
     ],
-    yaml: (adapters, models) => `name: build-app
+    yaml: (adapters, models, testCommand) => `name: build-app
 goal: |
   Build SPEC (edit this line: describe the app, website, or feature you
   want, including your language/framework if you have one). Done means:
@@ -267,7 +271,7 @@ graph:
   plan:  { role: planner, agent: worker }
   build: { role: executor, agent: worker, after: plan,
            prompt: Build the app described in the goal above and write its own tests - there is no pre-existing test suite to run. }
-  tests: { role: tester, after: build, run: npm test, expect: exit 0 }  # swap "npm test" for your stack's real test command if different, e.g. pytest, go test ./..., or cargo test
+  tests: { role: tester, after: build, run: ${testCommand ?? 'npm test'}, expect: exit 0 }${testCommand ? '' : "  # swap \"npm test\" for your stack's real test command if different, e.g. pytest, go test ./..., or cargo test"}
   crit:  { role: critic, agent: checker, of: build, after: tests,
            prompt: Fail if the result doesn't actually satisfy the spec above, even if its own tests pass - this catches the case where the agent wrote weak tests for weak work. }
 

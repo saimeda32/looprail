@@ -3,7 +3,8 @@ import { resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import type { Command } from 'commander'
 import { detectAgents, type DetectedAgent } from '../index.js'
-import { defaultIo, err, ok, warn, type CliIo } from './ui.js'
+import { detectTestCommand, type DetectedTestCommand } from './detect-test-command.js'
+import { defaultIo, dim, err, ok, warn, type CliIo } from './ui.js'
 import { TEMPLATES, tierToModel, type AgentRole, type Tier } from './templates.js'
 
 // order tiers are offered in when a role's recommended tier isn't first - 
@@ -56,6 +57,7 @@ export interface InitOpts {
 
 export interface InitDeps {
   detect?: () => Promise<DetectedAgent[]>
+  detectTests?: (cwd: string) => DetectedTestCommand | undefined
   ask?: (question: string, choices: string[]) => Promise<string>
   io?: CliIo
 }
@@ -128,6 +130,17 @@ export async function initAction(opts: InitOpts, deps: InitDeps = {}): Promise<n
 
   const { adapters, models } = await resolveAgents(template.agentRoles, worker, reviewer, opts, deps)
 
+  // Wire the scaffolded tester to THIS repo's real test command instead of
+  // a hardcoded `npm test` the user has to notice and hand-edit - a tester
+  // running the wrong command either fails instantly or, worse, "verifies"
+  // work it never tested. Detection is conservative (well-known ecosystem
+  // markers only - see detect-test-command.ts); no match keeps the old
+  // `npm test` default with its swap-it comment.
+  const detectedTests = (deps.detectTests ?? detectTestCommand)(opts.cwd)
+  if (detectedTests) {
+    io.out(dim(`detected test command: ${detectedTests.command} (${detectedTests.source})`))
+  }
+
   // re-check immediately before the write: closes the TOCTOU window opened
   // by the async prompts/detection above (another process could have
   // created the file in the meantime). The early guard above still covers
@@ -137,7 +150,7 @@ export async function initAction(opts: InitOpts, deps: InitDeps = {}): Promise<n
     return 1
   }
 
-  writeFileSync(target, template.yaml(adapters, models))
+  writeFileSync(target, template.yaml(adapters, models, detectedTests?.command))
   io.out(ok(`wrote ${target} (template: ${templateName}, worker: ${worker}, reviewer: ${reviewer})`))
   io.out('next: looprail run')
   return 0

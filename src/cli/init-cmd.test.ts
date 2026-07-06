@@ -27,6 +27,50 @@ test('non-interactive flags scaffold without asking', async () => {
   expect(yaml).toContain('adapter: claude-code')
 })
 
+// The scaffolded tester runs THIS repo's real suite, not a hardcoded
+// `npm test` the user has to notice and hand-edit - a tester wired to the
+// wrong command either fails instantly or silently "verifies" untested work.
+test('init wires the tester to the detected real test command and says where it came from', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-init-'))
+  const { io, lines } = capture()
+  const code = await initAction(
+    { cwd, template: 'fix-tests', agent: 'claude-code' },
+    {
+      detect: detected(['claude-code']),
+      detectTests: () => ({ command: 'go test ./...', source: 'go.mod' }),
+      io,
+    })
+  expect(code).toBe(0)
+  const yaml = readFileSync(join(cwd, 'looprail.yaml'), 'utf8')
+  expect(yaml).toContain('run: go test ./...')
+  expect(yaml).not.toContain('npm test')
+  expect(yaml).not.toContain('swap "npm test"')
+  expect(lines.join('\n')).toContain('detected test command: go test ./... (go.mod)')
+})
+
+test('init falls back to npm test with the swap-it comment when nothing is detected', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-init-'))
+  const { io } = capture()
+  const code = await initAction(
+    { cwd, template: 'fix-tests', agent: 'claude-code' },
+    { detect: detected(['claude-code']), detectTests: () => undefined, io })
+  expect(code).toBe(0)
+  const yaml = readFileSync(join(cwd, 'looprail.yaml'), 'utf8')
+  expect(yaml).toContain('run: npm test')
+  expect(yaml).toContain('swap "npm test"')
+})
+
+test('init detects a real package.json test script from the actual cwd (no injected detector)', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-init-'))
+  writeFileSync(join(cwd, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }))
+  const { io, lines } = capture()
+  const code = await initAction(
+    { cwd, template: 'fix-tests', agent: 'claude-code' },
+    { detect: detected(['claude-code']), io })
+  expect(code).toBe(0)
+  expect(lines.join('\n')).toContain('package.json scripts.test')
+})
+
 test('--yes takes the first available agent and the first template', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'lr-init-'))
   const { io } = capture()
