@@ -60,6 +60,21 @@ test('a generates:graph planner is told its reply must be only parseable YAML, u
   expect(ctx.toLowerCase()).toContain('graph key')
 })
 
+// Real halt caught live: a model kept replying with a generic graph-library
+// shape ({nodes: [...], edges: [...]}) instead of looprail's own map-keyed-
+// by-id shape, exhausting its replan budget and halting without ever
+// reaching review. A prose-only positive description wasn't a strong
+// enough signal to override that prior - this proves the instruction now
+// shows a concrete correct example AND explicitly rules out the specific
+// wrong shape that actually happened, not just describes the right one.
+test('a generates:graph planner sees a concrete example of the real shape and an explicit callout ruling out the nodes/edges graph-library shape', () => {
+  const node: NodeDef = { id: 'plan', role: 'planner', agent: 'a', generates: 'graph' }
+  const ctx = composeContext(def, node, { plan: null, iteration: 0, feedback: null }, new Map())
+  expect(ctx).toContain('graph:\n  build: { role: executor, agent: worker }')
+  expect(ctx.toLowerCase()).toContain('not a generic graph-library shape')
+  expect(ctx.toLowerCase()).toContain('do not reply with a top-level `nodes:` list')
+})
+
 test('a plain planner (no generates:graph) never gets the YAML-only instruction', () => {
   const node: NodeDef = { id: 'plan', role: 'planner', agent: 'a' }
   const ctx = composeContext(def, node, { plan: null, iteration: 0, feedback: null }, new Map())

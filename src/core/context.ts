@@ -52,11 +52,28 @@ const ROLE_INSTRUCTIONS: Record<Role, string> = {
 // unconditional, mechanical requirements of the *feature itself* - they
 // belong here as default tool behavior, not as something an example's
 // prompt happens to remember to ask for.
+// Real halt caught live: a model with a strong prior toward the common
+// generic-graph-library shape ({nodes: [...], edges: [...]}, as networkx/
+// d3/vis.js/most "graph" APIs represent one) kept producing exactly that
+// instead of looprail's own shape, exhausting its replan budget and halting
+// without ever reaching review's actual judgment. A prose-only positive
+// description ("a top-level graph key") was not a strong enough signal to
+// override that prior - a concrete example of the REAL shape, plus an
+// explicit callout of the SPECIFIC wrong shape being ruled out, is.
 const GENERATES_GRAPH_FORMAT_INSTRUCTIONS =
   'Your entire reply must be ONLY a parseable YAML document with a top-level ' +
   'graph key (and agents/rails keys if you need to add any) - no prose, no ' +
   'markdown headers, no explanation before or after it. It will be parsed as ' +
-  'YAML directly; anything else will be rejected automatically.'
+  'YAML directly; anything else will be rejected automatically.\n\n' +
+  'graph is a MAP keyed by node id, each value an object with real NodeDef ' +
+  'fields (role, agent, prompt/run/expect, after, etc.) - for example:\n' +
+  'graph:\n' +
+  '  build: { role: executor, agent: worker }\n' +
+  '  test:  { role: tester, after: build, run: "npm test", expect: "exit 0" }\n\n' +
+  'It is NOT a generic graph-library shape - do not reply with a top-level ' +
+  '`nodes:` list and a separate `edges:` list (the common networkx/d3-style ' +
+  'representation). There is no `nodes:` or `edges:` key anywhere in this ' +
+  'format; every node is its own key directly under graph.'
 
 // An LLM completion can only ever emit one complete reply, never a true
 // partial diff - so a prior version of this instruction only asked for

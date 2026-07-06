@@ -76,18 +76,35 @@ export function serveIndexPage(res: ServerResponse): void {
 // whether controls apply at all (pid), whether the paused marker is
 // currently present, and whether pausing is even safe to offer - not the
 // raw pid value itself.
+// A pid FILE existing is not the same as the process it names still being
+// alive - real bug caught live: a run killed with SIGKILL (bypassing its
+// own SIGTERM handler, which is what normally removes the pid file on a
+// graceful stop) leaves an orphaned pid file behind forever, and the
+// dashboard kept reporting that dead run as controllable indefinitely.
+// process.kill(pid, 0) sends no real signal - it only probes whether the
+// pid is a live process this user can signal, throwing ESRCH if it is not.
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function controlState(
   journalPath: string, resumable: boolean,
 ): { controllable: boolean; paused: boolean; pauseUnsafe: boolean; resumable: boolean } {
   const runDir = dirname(journalPath)
   const pidPath = join(runDir, 'pid')
-  const controllable = existsSync(pidPath)
+  const pid = existsSync(pidPath) ? Number(readFileSync(pidPath, 'utf8').trim()) : undefined
+  const controllable = pid !== undefined && isProcessAlive(pid)
   // See serveControl's own comment on the same check: pausing the process
   // that is serving this exact dashboard (looprail run --ui) freezes the
   // server answering this very request, with no way to resume from inside
   // it. The client uses this to grey out Pause specifically, not the whole
   // control set - Cancel stays safe and available either way.
-  const pauseUnsafe = controllable && Number(readFileSync(pidPath, 'utf8').trim()) === process.pid
+  const pauseUnsafe = controllable && pid === process.pid
   return { controllable, paused: existsSync(join(runDir, 'paused')), pauseUnsafe, resumable }
 }
 

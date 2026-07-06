@@ -427,6 +427,20 @@ test('GET /model reports controllable:false when no pid file exists, true once o
   expect(JSON.parse(after.body).controllable).toBe(true)
 })
 
+// Real bug caught live: a run killed with SIGKILL (bypassing the SIGTERM
+// handler that normally removes the pid file on a graceful stop) leaves an
+// orphaned pid file behind - the dashboard kept reporting that dead run as
+// controllable forever, since it only checked the FILE's existence, never
+// whether the process it names is actually still alive.
+test('GET /model reports controllable:false for an orphaned pid file naming a process that no longer exists', async () => {
+  const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
+  dashboard = await startDashboardServer({ journalPath })
+  // A pid essentially guaranteed not to be a real running process.
+  writeFileSync(join(dirname(journalPath), 'pid'), '999999')
+  const res = await get(dashboard.url + '/model')
+  expect(JSON.parse(res.body).controllable).toBe(false)
+})
+
 test('POST /control feedback queues a human note readable by drainHumanFeedback, while the run is running', async () => {
   const journalPath = journalWith(['{"ts":1,"type":"run_start","data":{"runId":"r","name":"n","goal":"g"}}'])
   dashboard = await startDashboardServer({ journalPath })
