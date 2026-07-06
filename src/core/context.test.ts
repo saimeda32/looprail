@@ -75,6 +75,19 @@ test('a generates:graph planner sees a concrete example of the real shape and an
   expect(ctx.toLowerCase()).toContain('do not reply with a top-level `nodes:` list')
 })
 
+// Real halt caught live, a second time: a planner used `agent: worker` on
+// every attempt but never once declared a `worker` agent, burning both
+// replans and halting on the same structural error 3 times. Root cause was
+// this instruction's OWN example using agent: worker with no matching
+// agents: entry - the model had nothing but an incomplete template to copy.
+test('the graph example declares every agent it references, and the instructions call out that an undeclared agent name is invalid', () => {
+  const node: NodeDef = { id: 'plan', role: 'planner', agent: 'a', generates: 'graph' }
+  const ctx = composeContext(def, node, { plan: null, iteration: 0, feedback: null }, new Map())
+  expect(ctx).toContain('agents:\n  worker: { adapter: copilot-cli, model: claude-sonnet-5 }')
+  expect(ctx.toLowerCase()).toContain('never reference a name without also declaring it')
+  expect(ctx).toContain('is invalid and will be rejected')
+})
+
 test('a plain planner (no generates:graph) never gets the YAML-only instruction', () => {
   const node: NodeDef = { id: 'plan', role: 'planner', agent: 'a' }
   const ctx = composeContext(def, node, { plan: null, iteration: 0, feedback: null }, new Map())

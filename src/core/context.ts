@@ -60,6 +60,16 @@ const ROLE_INSTRUCTIONS: Record<Role, string> = {
 // description ("a top-level graph key") was not a strong enough signal to
 // override that prior - a concrete example of the REAL shape, plus an
 // explicit callout of the SPECIFIC wrong shape being ruled out, is.
+// Real halt caught live, a second time: a planner referenced `agent: worker`
+// on every one of its 3 attempts (initial plan, a compact edit, and a full
+// replan) but never once declared a `worker` agent - burning both replans on
+// a critic PASS and a genuine content fail, then halting on the exact same
+// structural error all 3 times. Root cause was this instruction's OWN
+// example: it used `agent: worker` without ever showing an `agents:` block
+// that declares it, so the model had nothing but an incomplete template to
+// copy from. Fixed by making the example self-contained (it now declares
+// every agent it references) and by calling out the failure mode explicitly,
+// the same technique that worked for the nodes/edges shape above.
 const GENERATES_GRAPH_FORMAT_INSTRUCTIONS =
   'Your entire reply must be ONLY a parseable YAML document with a top-level ' +
   'graph key (and agents/rails keys if you need to add any) - no prose, no ' +
@@ -67,9 +77,17 @@ const GENERATES_GRAPH_FORMAT_INSTRUCTIONS =
   'YAML directly; anything else will be rejected automatically.\n\n' +
   'graph is a MAP keyed by node id, each value an object with real NodeDef ' +
   'fields (role, agent, prompt/run/expect, after, etc.) - for example:\n' +
+  'agents:\n' +
+  '  worker: { adapter: copilot-cli, model: claude-sonnet-5 }\n' +
   'graph:\n' +
   '  build: { role: executor, agent: worker }\n' +
   '  test:  { role: tester, after: build, run: "npm test", expect: "exit 0" }\n\n' +
+  'Every `agent:` value must resolve to a real agent - either one already ' +
+  'declared to you elsewhere in this conversation, or one you declare ' +
+  'yourself in this reply\'s own top-level `agents:` map (as `worker` is ' +
+  'above). An agent name that appears in `agent:` but is never declared ' +
+  'anywhere is invalid and will be rejected - never reference a name without ' +
+  'also declaring it in the same reply.\n\n' +
   'It is NOT a generic graph-library shape - do not reply with a top-level ' +
   '`nodes:` list and a separate `edges:` list (the common networkx/d3-style ' +
   'representation). There is no `nodes:` or `edges:` key anywhere in this ' +
