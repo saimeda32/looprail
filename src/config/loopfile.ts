@@ -146,6 +146,47 @@ function extractYamlCandidate(text: string): string {
   return candidate.trim()
 }
 
+// Real halt caught live: a generates:'graph' planner (claude-sonnet-5, via
+// copilot-cli) replied with `graph: { nodes: [ {id, role, ...}, ... ],
+// edges: [...] }` - the common networkx/d3/vis.js graph-library
+// convention - instead of looprail's own `graph: { <id>: {role, ...} }`
+// map. Every node in the array already carried the correct NodeDef fields
+// (role, agent, prompt, after, expect) plus its own `id`; the ONLY thing
+// wrong was the wrapping shape. That makes this purely mechanical to
+// repair - no judgment call, no invented content - so it is fixed here,
+// the same way a fenced/prose-wrapped reply already is by
+// extractYamlCandidate, rather than costing a full expensive replan (a
+// fresh planner+critic round) for what is really a one-line reshape.
+// `edges` entries are folded into the target node's `after` list, trying
+// the two common field-name conventions ({from,to} and {source,target})
+// plus a bare 2-tuple array.
+function normalizeNodesEdgesShape(graph: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(graph.nodes)) return graph
+  const byId: Record<string, Record<string, unknown>> = {}
+  for (const raw of graph.nodes) {
+    if (!raw || typeof raw !== 'object' || typeof (raw as Record<string, unknown>).id !== 'string') continue
+    const { id, ...rest } = raw as Record<string, unknown> & { id: string }
+    byId[id] = rest
+  }
+  if (Array.isArray(graph.edges)) {
+    for (const edge of graph.edges) {
+      let from: unknown, to: unknown
+      if (Array.isArray(edge)) [from, to] = edge
+      else if (edge && typeof edge === 'object') {
+        const e = edge as Record<string, unknown>
+        from = e.from ?? e.source
+        to = e.to ?? e.target
+      }
+      if (typeof from !== 'string' || typeof to !== 'string' || !byId[to]) continue
+      const existing = byId[to].after
+      const after = Array.isArray(existing) ? existing as string[] : existing === undefined ? [] : [existing as string]
+      if (!after.includes(from)) after.push(from)
+      byId[to].after = after
+    }
+  }
+  return byId
+}
+
 function parseGraphFragmentStrict(text: string): GraphFragment {
   let raw: Record<string, unknown>
   try {
@@ -160,7 +201,8 @@ function parseGraphFragmentStrict(text: string): GraphFragment {
   if (typeof raw.graph !== 'object' || Array.isArray(raw.graph)) {
     throw new Error('invalid graph fragment:\ngraph must be a map of node id to node definition')
   }
-  const nodes = parseGraphNodes(raw.graph as Record<string, Record<string, unknown>>)
+  const normalizedGraph = normalizeNodesEdgesShape(raw.graph as Record<string, unknown>)
+  const nodes = parseGraphNodes(normalizedGraph as Record<string, Record<string, unknown>>)
   const agents = raw.agents as Record<string, AgentDef> | undefined
   const rails = parseRailsPartial(raw.rails as Record<string, number> | undefined)
   return {

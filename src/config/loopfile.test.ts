@@ -185,3 +185,99 @@ test('parseGraphFragment still throws its clear error when stripping a fence wou
   expect(() => parseGraphFragment('just some prose with no yaml at all'))
     .toThrow(/^invalid graph fragment:/)
 })
+
+// Real halt caught live: a generates:'graph' planner (claude-sonnet-5, via
+// copilot-cli) replied with the common networkx/d3/vis.js graph-library
+// shape (a top-level `nodes:` array, each item carrying its own `id`)
+// instead of looprail's own map-keyed-by-id shape. It exhausted its replan
+// budget and halted, even though the reviewer critic had already passed the
+// plan's conceptual soundness - the structural parse and the critic's
+// judgment are separate checks. Every field on each array item was already a
+// valid NodeDef field; only the wrapping shape was wrong, so this is fixed
+// deterministically, without ever costing a replan, the same way a
+// fenced/prose-wrapped reply is recovered by extractYamlCandidate above.
+test('parseGraphFragment mechanically repairs a nodes: array shape into the real id-keyed map, with no replan', () => {
+  const fragment = parseGraphFragment(`
+graph:
+  nodes:
+    - id: build
+      role: executor
+      agent: worker
+      prompt: Do the thing.
+    - id: tests
+      role: tester
+      agent: worker
+      after: [build]
+      run: npm test
+      expect: exit 0
+`)
+  expect(fragment.nodes.map((n) => n.id)).toEqual(['build', 'tests'])
+  expect(fragment.nodes[0]).toMatchObject({ role: 'executor', agent: 'worker', prompt: 'Do the thing.' })
+  expect(fragment.nodes[1]).toMatchObject({ role: 'tester', after: ['build'], run: 'npm test' })
+})
+
+test('parseGraphFragment folds a separate edges: array (the {from, to} convention) into after on the target node', () => {
+  const fragment = parseGraphFragment(`
+graph:
+  nodes:
+    - id: build
+      role: executor
+      agent: worker
+    - id: tests
+      role: tester
+      agent: worker
+      run: npm test
+      expect: exit 0
+  edges:
+    - { from: build, to: tests }
+`)
+  expect(fragment.nodes.find((n) => n.id === 'tests')).toMatchObject({ after: ['build'] })
+})
+
+test('parseGraphFragment folds an edges: array using the {source, target} convention too', () => {
+  const fragment = parseGraphFragment(`
+graph:
+  nodes:
+    - id: build
+      role: executor
+      agent: worker
+    - id: tests
+      role: tester
+      agent: worker
+      run: npm test
+      expect: exit 0
+  edges:
+    - { source: build, target: tests }
+`)
+  expect(fragment.nodes.find((n) => n.id === 'tests')).toMatchObject({ after: ['build'] })
+})
+
+test('parseGraphFragment folds edges into an existing after list without dropping what was already there', () => {
+  const fragment = parseGraphFragment(`
+graph:
+  nodes:
+    - id: build
+      role: executor
+      agent: worker
+    - id: lint
+      role: executor
+      agent: worker
+    - id: tests
+      role: tester
+      agent: worker
+      after: [build]
+      run: npm test
+      expect: exit 0
+  edges:
+    - { from: lint, to: tests }
+`)
+  expect(fragment.nodes.find((n) => n.id === 'tests')).toMatchObject({ after: ['build', 'lint'] })
+})
+
+test('parseGraphFragment leaves a well-formed id-keyed graph untouched (the nodes: array repair only triggers on the malformed shape)', () => {
+  const fragment = parseGraphFragment(`
+graph:
+  build: { role: executor, agent: worker }
+`)
+  expect(fragment.nodes.map((n) => n.id)).toEqual(['build'])
+})
