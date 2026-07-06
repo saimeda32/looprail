@@ -467,6 +467,9 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
       iterations: report.iterations, replans: report.replans,
       costUsd: Number(report.costUsd.toFixed(4)),
       estimatedCostUsd: Number(report.estimatedCostUsd.toFixed(4)),
+      // absolute path so CI can upload the run's evidence trail as an
+      // artifact without re-deriving the workspace hash
+      journal: join(ctx.runDir, 'journal.jsonl'),
       report: report.report,
     }))
     return report.status === 'verified' ? 0 : 2

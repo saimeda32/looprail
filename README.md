@@ -151,6 +151,8 @@ dollars, whichever comes first.
 | `looprail run [file]` | Run the loop with live progress and a cost report |
 | `looprail bench [file]` | A/B two or more named loop configs against the same task and report measured deltas (`benchmarks/`) |
 | `looprail run --ui` | Same, and open a live dashboard for this run |
+| `looprail run -d` | Detached: the run survives your terminal; watch it and answer its gates from mission control |
+| `looprail queue [file]` | Run a list of goals unattended, sequentially; wake up to a triage table (verified / parked / halted) |
 | `looprail ui [runId]` | Open the dashboard for a run (defaults to the latest) |
 | `looprail ui --all` | Open mission control: every run, across every registered project |
 | `looprail doctor` | Show which agent CLIs are installed and logged in |
@@ -491,6 +493,42 @@ There is a small TypeScript SDK behind the CLI if you want to build loops in
 code instead of YAML. The YAML compiles to the same objects the SDK builds, so
 anything the CLI can run, the SDK can too. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the internals.
+
+### Using looprail in CI
+
+The repo ships a composite GitHub Action: the job passes only when the
+loop's verifiers pass - a real test run and independent critics, not the
+model's own claim of being done. The run journal is the evidence trail;
+upload it as an artifact.
+
+```yaml
+name: verified-agent-work
+on: workflow_dispatch
+
+jobs:
+  loop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install -g @anthropic-ai/claude-code   # whichever agent CLI your loopfile uses
+      - uses: saimeda32/looprail@main
+        id: loop
+        with:
+          loopfile: looprail.yaml     # gates auto-approve in CI (no human at the keyboard)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - uses: actions/upload-artifact@v4
+        if: always()                  # the journal matters MOST when the run failed
+        with:
+          name: looprail-journal
+          path: ${{ steps.loop.outputs.journal }}
+```
+
+Outputs: `status` (verified/halted/error), `run-id`, `cost-usd`, and
+`journal` (absolute path to the run's journal.jsonl). Exit semantics match
+the CLI: the step fails unless the run verified.
+
+---
 
 ## How looprail compares
 

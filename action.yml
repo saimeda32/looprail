@@ -1,0 +1,75 @@
+name: 'looprail'
+description: >-
+  Run your coding agent in a verified loop until the work is actually done -
+  the job passes only when looprail's verifiers (real test runs, independent
+  critics) pass, not when the model stops talking.
+branding:
+  icon: 'repeat'
+  color: 'yellow'
+
+inputs:
+  loopfile:
+    description: 'Path to the loopfile to run, relative to working-directory'
+    required: false
+    default: 'looprail.yaml'
+  working-directory:
+    description: 'Directory to run the loop in (the code the agents work on)'
+    required: false
+    default: '.'
+  version:
+    description: 'looprail version to install from npm'
+    required: false
+    default: 'latest'
+  auto-approve:
+    description: >-
+      Auto-approve human gates (--yes). CI has no human at a keyboard, so this
+      defaults to true; set to false only if your loopfile has no gate nodes
+      or you want a gate to park the run (job exits non-zero either way).
+    required: false
+    default: 'true'
+
+outputs:
+  status:
+    description: 'verified | halted | error'
+    value: ${{ steps.run.outputs.status }}
+  run-id:
+    description: 'The run id (looprail status <run-id> for details)'
+    value: ${{ steps.run.outputs.run-id }}
+  cost-usd:
+    description: 'Total adapter-reported cost of the run in USD'
+    value: ${{ steps.run.outputs.cost-usd }}
+  journal:
+    description: 'Absolute path to the run journal (upload it as the evidence artifact)'
+    value: ${{ steps.run.outputs.journal }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install looprail
+      shell: bash
+      run: npm install -g looprail@${{ inputs.version }}
+
+    - name: Run the loop
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set +e
+        ARGS=(run "${{ inputs.loopfile }}" --json)
+        if [ "${{ inputs.auto-approve }}" = "true" ]; then
+          ARGS+=(--yes)
+        fi
+        OUTPUT="$(looprail "${ARGS[@]}")"
+        CODE=$?
+        # the last stdout line is the machine-readable summary; everything
+        # before it (lint warnings) is echoed for the job log either way
+        echo "$OUTPUT"
+        LINE="$(echo "$OUTPUT" | tail -n 1)"
+        {
+          echo "status=$(echo "$LINE" | jq -r '.status // "error"')"
+          echo "run-id=$(echo "$LINE" | jq -r '.runId // ""')"
+          echo "cost-usd=$(echo "$LINE" | jq -r '.costUsd // 0')"
+          echo "journal=$(echo "$LINE" | jq -r '.journal // ""')"
+        } >> "$GITHUB_OUTPUT"
+        # exit 0 verified, 2 halted, 1 error - the job fails unless verified
+        exit $CODE
