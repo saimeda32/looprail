@@ -42,7 +42,8 @@ do what no single lab's CLI ever will. ([benchmarks](docs/BENCHMARKS.md))
 
 ```bash
 npm install -g looprail
-looprail init          # detect your agents, scaffold a looprail.yaml
+looprail demo          # see a full verified loop in ~5s - no API key, nothing touched
+looprail init          # then scaffold a looprail.yaml against your own agents
 looprail run           # run the loop, watch it work, stop when verified
 ```
 
@@ -165,6 +166,7 @@ dollars, whichever comes first.
 
 | Command | What it does |
 | --- | --- |
+| `looprail demo` | Run a full verified loop on the built-in mock adapter - no API key, nothing installed |
 | `looprail init` | Detect installed agents and scaffold a `looprail.yaml` |
 | `looprail run [file]` | Run the loop with live progress and a cost report |
 | `looprail bench [file]` | A/B two or more named loop configs against the same task and report measured deltas (`benchmarks/`) |

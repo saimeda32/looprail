@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { Command } from 'commander'
 import { registerBench } from './bench-cmd.js'
+import { registerDemo } from './demo-cmd.js'
 import { registerDoctor } from './doctor-cmd.js'
 import { registerExplain } from './explain-cmd.js'
 import { registerInit } from './init-cmd.js'
@@ -27,6 +28,7 @@ export function buildProgram(): Command {
     .version(pkg.version)
     .option('--cwd <dir>', 'working directory', process.cwd())
   // command modules register themselves here (Tasks 7-11)
+  registerDemo(program)
   registerDoctor(program)
   registerInit(program)
   registerLint(program)
