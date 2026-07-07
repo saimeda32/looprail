@@ -44,7 +44,7 @@ async function resolveAgents(
 // known looprail adapter ids - mirrors createDefaultRegistry's registrations
 // (src/adapters/default-registry.ts). Kept here rather than imported so init
 // can validate --agent/--reviewer without pulling in the CLI adapter deps.
-export const KNOWN_ADAPTERS = ['claude-code', 'codex', 'aider', 'copilot-cli', 'shell', 'mock']
+export const KNOWN_ADAPTERS = ['claude-code', 'codex', 'aider', 'copilot-cli', 'gemini', 'shell', 'mock']
 
 export interface InitOpts {
   cwd: string

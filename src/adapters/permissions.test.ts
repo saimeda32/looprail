@@ -25,6 +25,12 @@ describe('resolvePermissionArgs - explicit presets', () => {
     expect(resolvePermissionArgs('standard', 'aider')).toEqual([])
     expect(resolvePermissionArgs('full', 'aider')).toEqual([])
   })
+
+  test('gemini: safe auto-approves edits only; standard and full are deliberately the same yolo result - gemini has nothing looser', () => {
+    expect(resolvePermissionArgs('safe', 'gemini')).toEqual(['--approval-mode', 'auto_edit'])
+    expect(resolvePermissionArgs('standard', 'gemini')).toEqual(['--approval-mode', 'yolo'])
+    expect(resolvePermissionArgs('full', 'gemini')).toEqual(['--approval-mode', 'yolo'])
+  })
 })
 
 describe('resolvePermissionArgs - absent config (backward compatibility)', () => {
@@ -36,6 +42,10 @@ describe('resolvePermissionArgs - absent config (backward compatibility)', () =>
     expect(resolvePermissionArgs(undefined, 'claude-code')).toEqual(resolvePermissionArgs('safe', 'claude-code'))
     expect(resolvePermissionArgs(undefined, 'codex')).toEqual(resolvePermissionArgs('safe', 'codex'))
     expect(resolvePermissionArgs(undefined, 'aider')).toEqual(resolvePermissionArgs('safe', 'aider'))
+  })
+
+  test('gemini with no config resolves to safe - no pre-feature behavior existed to preserve, so conservative wins', () => {
+    expect(resolvePermissionArgs(undefined, 'gemini')).toEqual(resolvePermissionArgs('safe', 'gemini'))
   })
 })
 

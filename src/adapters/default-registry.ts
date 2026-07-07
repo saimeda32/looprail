@@ -6,13 +6,14 @@ import { createClaudeCodeAdapter } from './claude-code.js'
 import { createCodexAdapter } from './codex.js'
 import { createAiderAdapter } from './aider.js'
 import { createCopilotAdapter } from './copilot.js'
+import { createGeminiAdapter } from './gemini.js'
 import { createShellAdapter } from './shell.js'
 
 export interface DefaultRegistryOptions {
   exec?: ExecFn
   cwd?: string
-  // Overridable pricing table loader, threaded into the three adapters that
-  // derive estimatedCostUsd (copilot, codex, aider). Left unset in normal
+  // Overridable pricing table loader, threaded into the adapters that
+  // derive estimatedCostUsd (copilot, codex, aider, gemini). Left unset in normal
   // use, which defaults each adapter to the real runtime fetch/cache module;
   // tests can override this to avoid network access end to end.
   loadPricingTable?: () => Promise<PricingTable> | PricingTable
@@ -44,6 +45,7 @@ export function createDefaultRegistry(opts: DefaultRegistryOptions = {}): Adapte
   reg.register(createCodexAdapter(opts))
   reg.register(createAiderAdapter(opts))
   reg.register(createCopilotAdapter(opts))
+  reg.register(createGeminiAdapter(opts))
   reg.register(createShellAdapter(opts))
   return reg
 }

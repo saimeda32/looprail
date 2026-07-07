@@ -37,6 +37,20 @@ const PRESET_FLAGS: Record<string, Record<PermissionPreset, string[]>> = {
     standard: [],
     full: [],
   },
+  // gemini's --approval-mode choices (default | auto_edit | yolo | plan) are
+  // verified against the real v0.49.0 `gemini --help`, run live via npx.
+  // safe -> auto_edit mirrors claude-code's acceptEdits: edits auto-approve,
+  // anything riskier stays gated by the CLI's own policy. standard and full
+  // are deliberately the same yolo result - gemini has nothing looser than
+  // yolo (its only other lever, --sandbox, is deliberately NOT toggled here:
+  // it requires a container runtime the host can't be assumed to have, so
+  // flipping it on would break machines without docker/podman rather than
+  // loosen anything).
+  gemini: {
+    safe: ['--approval-mode', 'auto_edit'],
+    standard: ['--approval-mode', 'yolo'],
+    full: ['--approval-mode', 'yolo'],
+  },
 }
 
 // Absent config must reproduce each adapter's real behavior from before this
@@ -49,6 +63,10 @@ const DEFAULT_PRESET: Record<string, PermissionPreset> = {
   codex: 'safe',
   'copilot-cli': 'full',
   aider: 'safe',
+  // No pre-feature behavior to reproduce for the adapters added after the
+  // permissions feature (gemini) - safe is simply the conservative choice
+  // every non-copilot adapter already defaults to.
+  gemini: 'safe',
 }
 
 export function resolvePermissionArgs(

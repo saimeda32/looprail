@@ -3,7 +3,7 @@ import { createCliMockAdapter, createDefaultRegistry } from './default-registry.
 
 test('registers mock and all real adapters under their loopfile names', () => {
   const reg = createDefaultRegistry()
-  for (const name of ['mock', 'claude-code', 'codex', 'aider', 'copilot-cli', 'shell']) {
+  for (const name of ['mock', 'claude-code', 'codex', 'aider', 'copilot-cli', 'gemini', 'shell']) {
     expect(reg.get(name).name).toBe(name)
   }
 })
