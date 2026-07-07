@@ -515,7 +515,13 @@ export function buildPage(): string {
     interrupted: 'node-interrupted', parked: 'node-parked',
   };
   var selected = null;
-  var selectedTab = null; // nodeId of the tab the user is viewing; null = default to the first running node
+  var selectedTab = null; // nodeId of the tab the user is viewing; null = auto-follow
+  // Whether the user explicitly clicked a tab to PIN it. Without this, the
+  // live panel stuck to the FIRST running node and never advanced as the
+  // graph progressed - "streaming text doesn't change as we move through
+  // the graph" (live-caught). Unpinned, the panel auto-follows the
+  // most-recently-started running node so it tracks the graph's frontier.
+  var tabPinned = false;
 
   var dagZoom = 1;
   var DAG_ZOOM_MIN = 0.4, DAG_ZOOM_MAX = 2.5, DAG_ZOOM_STEP = 0.15;
@@ -891,10 +897,19 @@ export function buildPage(): string {
   function renderLiveOutput(model) {
     var section = document.getElementById('live-output-section');
     var running = model.nodes.filter(function (n) { return n.status === 'running'; });
-    if (running.length === 0) { section.style.display = 'none'; selectedTab = null; return; }
+    if (running.length === 0) { section.style.display = 'none'; selectedTab = null; tabPinned = false; return; }
     section.style.display = 'block';
-    if (!selectedTab || !findNode(running, selectedTab)) {
-      selectedTab = running[0].id; // default: first running node in model order - see design decision 4
+    // The most-recently-STARTED running node is the graph's frontier - the
+    // one whose text the viewer almost always wants. running[] is in model
+    // order (declaration order), so the last running entry is the newest.
+    var frontier = running[running.length - 1].id;
+    if (!findNode(running, selectedTab)) {
+      // the tab we were showing is no longer running (it finished, or was
+      // never valid) - drop any pin and jump to the frontier
+      tabPinned = false;
+      selectedTab = frontier;
+    } else if (!tabPinned) {
+      selectedTab = frontier; // auto-follow while unpinned
     }
     var tabs = document.getElementById('live-tabs');
     tabs.innerHTML = '';
@@ -903,7 +918,7 @@ export function buildPage(): string {
       tab.appendChild(htmlEl('span', 'tab-dot'));
       tab.appendChild(htmlEl('span', null, n.role + (n.agent ? ' \\u00b7 ' + n.agent : '') + (n.model ? ' \\u00b7 ' + n.model : '')));
       tab.title = n.id;
-      tab.addEventListener('click', function () { selectedTab = n.id; renderLiveOutput(model); });
+      tab.addEventListener('click', function () { selectedTab = n.id; tabPinned = true; renderLiveOutput(model); });
       tabs.appendChild(tab);
     });
     var current = findNode(running, selectedTab);

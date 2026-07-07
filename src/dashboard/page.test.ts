@@ -134,9 +134,14 @@ test('the inline client renders live output tabs from the running nodes on every
   expect(html).toContain('renderLiveOutput(model)') // called from render(model), not just defined
 })
 
-test('the default tab is the first running node, and clicking a tab is wired via addEventListener', () => {
+test('the live panel auto-follows the frontier (newest running node) and pins on click', () => {
   const html = buildPage()
-  expect(html).toContain('selectedTab = running[0].id')
+  // unpinned: follows the most-recently-started running node, so the
+  // stream tracks the graph's frontier as it advances (live-caught: the
+  // panel used to stick to the first node and never move)
+  expect(html).toContain('var frontier = running[running.length - 1].id')
+  expect(html).toContain('if (!tabPinned)')
+  expect(html).toContain('tabPinned = true')
   expect(html).toContain('addEventListener')
 })
 
