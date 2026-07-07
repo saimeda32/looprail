@@ -187,6 +187,35 @@ test('tester passes on exit 0 and fails with output evidence otherwise', async (
   expect(fail.verdict!.evidence).toContain('boom')
 })
 
+// A broken test COMMAND (missing script, module-resolution failure) is not
+// a failing app - real halt caught live: a loop iterated forever against a
+// `Cannot find module` from its own package.json test script. That is a
+// config: halt (loud), never feedback for a critic to chase.
+test('a tester whose command cannot RUN (module-resolution) is a config error, not a fail', async () => {
+  const deps: EngineDeps = { registry: createRegistry() }
+  const out = await executeNode(
+    def, { id: 't', role: 'tester', run: 'echo "Error: Cannot find module \'/x/test\'" >&2; exit 1' }, state, none, deps)
+  expect(out.verdict!.status).toBe('error')
+  expect(out.verdict!.evidence).toMatch(/^config:/)
+  expect(out.verdict!.evidence).toContain('failed to run')
+})
+
+test('a tester whose command is missing entirely (npm Missing script) is a config error, not a fail', async () => {
+  const deps: EngineDeps = { registry: createRegistry() }
+  const out = await executeNode(
+    def, { id: 't', role: 'tester', run: 'echo "npm error Missing script: \\"test\\"" >&2; exit 1' }, state, none, deps)
+  expect(out.verdict!.status).toBe('error')
+  expect(out.verdict!.evidence).toMatch(/^config:/)
+})
+
+test('a GENUINE assertion failure (tests ran, some failed) stays a fail, not a config error', async () => {
+  const deps: EngineDeps = { registry: createRegistry() }
+  const out = await executeNode(
+    def, { id: 't', role: 'tester', run: 'echo "1 passing, 2 failing: expected 4 to equal 5" >&2; exit 1' }, state, none, deps)
+  expect(out.verdict!.status).toBe('fail')
+  expect(out.verdict!.evidence).toContain('failing')
+})
+
 test('gate consults the handler; missing handler is an error verdict', async () => {
   const registry = createRegistry()
   const ok = await executeNode(

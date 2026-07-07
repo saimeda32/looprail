@@ -30,6 +30,28 @@ export interface EngineDeps {
 
 const VERIFYING = new Set(['critic', 'judge'])
 
+// Infrastructure-shaped tester failures: the command could not RUN, as
+// opposed to the tests running and some asserting false. Conservative on
+// purpose - only signatures that unambiguously mean "broken invocation"
+// (a real assertion failure whose diff happens to contain one of these
+// words as ordinary text must not be misclassified). Matched against the
+// tester's combined stdout+stderr.
+const TESTER_INFRA_SIGNATURES = [
+  /\bcommand not found\b/i,
+  /\bis not recognized as (?:an internal|the name)/i, // Windows shell
+  /\bCannot find module\b/,
+  /\bMODULE_NOT_FOUND\b/,
+  /\bERR_MODULE_NOT_FOUND\b/,
+  /\bNo test specified\b/i,
+  /\bMissing script\b/i,                              // npm: no such script
+  /\bENOENT\b/,
+  /\bno such file or directory\b/i,
+]
+
+export function isTesterInfraFailure(output: string): boolean {
+  return TESTER_INFRA_SIGNATURES.some((re) => re.test(output))
+}
+
 export async function executeNode(
   def: LoopDef,
   node: NodeDef,
@@ -53,14 +75,38 @@ export async function executeNode(
         all: true,
       })
       const passed = res.exitCode === 0
+      const all = res.all ?? ''
+      // A non-zero exit does not always mean "the work is wrong" - it can
+      // mean "the test COMMAND itself is broken" (a missing script, a
+      // command-not-found, a module-resolution failure). Real halt caught
+      // live during benchmarking: a package.json `test: "node --test test/"`
+      // failed with "Cannot find module .../test" on every iteration - the
+      // engine read that as a failing app, fed it to the critic, and the
+      // loop ground on the phantom until it hit the wall (~$11.50 wasted).
+      // The app was correct; only the invocation was broken. An
+      // infrastructure-shaped failure is a config: halt (loud, router.ts
+      // stops on it) - never feedback for a critic to iterate against.
+      // A genuine assertion failure (tests ran, some failed) stays a fail.
+      if (!passed && isTesterInfraFailure(all)) {
+        return {
+          ...base,
+          output: all,
+          durationMs: Date.now() - started,
+          verdict: {
+            node: node.id,
+            status: 'error',
+            evidence: `config: tester command "${node.run}" failed to run (not a test failure) - ${all.slice(-300).trim() || `exit ${res.exitCode}`}`,
+          },
+        }
+      }
       return {
         ...base,
-        output: res.all ?? '',
+        output: all,
         durationMs: Date.now() - started,
         verdict: {
           node: node.id,
           status: passed ? 'pass' : 'fail',
-          evidence: passed ? `exit 0` : (res.all ?? '').slice(-500) || `exit ${res.exitCode}`,
+          evidence: passed ? `exit 0` : all.slice(-500) || `exit ${res.exitCode}`,
         },
       }
     } catch (err) {
