@@ -359,6 +359,21 @@ test('renderReport renders nothing for files-touched when filesTouched is empty 
 // no visual container at all, unlike #detail-panel (Selected node) which
 // has a proper boxed treatment - background/border/radius/padding. Match
 // that same treatment on all three.
+// The inspector lives BESIDE the DAG in the live pane (audit SR-3/SR-5) -
+// clicking a node must never require scrolling to a section elsewhere, and
+// the pane must not sit empty on finished runs.
+test('the node inspector renders inside the live pane next to the DAG, not as a bottom section', () => {
+  const html = buildPage()
+  const paneMatch = html.match(/<div class="live-pane">([\s\S]*?)<\/div>\n {4}<\/div>/)
+  expect(paneMatch).not.toBeNull()
+  expect(paneMatch![0]).toContain('id="inspector-section"')
+  expect(paneMatch![0]).toContain('id="detail-panel"')
+  // the old page-bottom section is gone
+  expect(html).not.toContain('<div class="section-head">Selected node</div>')
+  // close affordance restores the empty-state hint
+  expect(html).toContain('id="inspector-close"')
+})
+
 test('#report-panel and #plans have the same boxed-container treatment as #detail-panel', () => {
   const html = buildPage()
   const detailRule = html.match(/#detail-panel\s*\{([^}]*)\}/)

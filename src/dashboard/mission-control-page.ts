@@ -263,7 +263,7 @@ export function buildMissionControlPage(): string {
     }
     if (run.goal) a.appendChild(el('div', 'goal', run.goal));
     a.appendChild(el('div', 'workspace', run.workspaceName));
-    a.appendChild(el('div', 'agents', run.agents.length ? run.agents.join(', ') : 'no agents recorded'));
+    if (run.agents.length) a.appendChild(el('div', 'agents', run.agents.join(', ')));
     var stats = el('div', 'stats');
     var iter = el('span', 'num');
     iter.innerHTML = 'iter <b>' + run.iteration + '</b>';

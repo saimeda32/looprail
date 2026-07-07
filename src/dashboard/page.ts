@@ -303,6 +303,15 @@ export function buildPage(): string {
   #feedback-status.err, #resume-status.err, #gate-status.err { color: var(--fail); }
 
   #detail-panel { white-space: pre-wrap; font: 12px/1.55 var(--mono); background: var(--panel); border: 1px solid var(--line); border-radius: 3px; color: var(--ink); padding: 14px 16px; max-height: 260px; overflow: auto; }
+  /* The inspector lives BESIDE the DAG (docs/UX-AUDIT-2026-07.md SR-3/SR-5):
+     clicking a node shows its detail right where the click happened, in the
+     pane that previously sat empty on finished runs - never in a section
+     three screens below. */
+  #inspector-section { padding: 12px 14px; border-left: 1px solid var(--line); }
+  #inspector-section .inspector-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  #inspector-section .inspector-title { font: 600 10.5px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); }
+  #inspector-section #detail-panel { max-height: 46vh; border: none; padding: 0; background: transparent; }
+  #live-output-section + #inspector-section, #inspector-section + #live-output-section { border-top: 1px solid var(--line); }
   /* Same boxed-container treatment as #detail-panel (Selected node) - the
      report previously sat as bare text with no visual container at all. */
   #report-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 14px 16px; }
@@ -437,6 +446,13 @@ export function buildPage(): string {
         </div>
       </div>
       <div class="live-pane">
+        <section id="inspector-section">
+          <div class="inspector-head">
+            <span class="inspector-title" id="inspector-title">Node inspector</span>
+            <button class="control-btn" id="inspector-close" type="button" style="display:none" title="Back to overview">&times;</button>
+          </div>
+          <div id="detail-panel">click a node in the graph to inspect its output and verdict history</div>
+        </section>
         <section id="live-output-section" style="display:none">
           <div id="live-tabs" class="tab-strip"></div>
           <div id="live-output-body"></div>
@@ -462,9 +478,6 @@ export function buildPage(): string {
 
   <div class="section-head">Spend by agent</div>
   <div class="agent-table" id="agent-table"></div>
-
-  <div class="section-head">Selected node</div>
-  <div id="detail-panel">click a node in the graph to see its latest output and verdict history</div>
 
   <div class="section-head" id="plans-head" style="display:none">Plan evolution</div>
   <div id="plans"></div>
@@ -632,7 +645,16 @@ export function buildPage(): string {
 
   function renderDetail(node) {
     var panel = document.getElementById('detail-panel');
-    if (!node) { panel.textContent = 'click a node in the graph to see its latest output and verdict history'; return; }
+    var title = document.getElementById('inspector-title');
+    var close = document.getElementById('inspector-close');
+    if (!node) {
+      panel.textContent = 'click a node in the graph to inspect its output and verdict history';
+      title.textContent = 'Node inspector';
+      close.style.display = 'none';
+      return;
+    }
+    title.textContent = node.id + ' \u00b7 ' + node.role;
+    close.style.display = '';
     var lines = [node.id + ' (' + node.role + ') - ' + node.status];
     node.iterations.slice().reverse().forEach(function (rec) {
       lines.push('');
@@ -673,8 +695,16 @@ export function buildPage(): string {
     claims.innerHTML = '';
     report.claims.forEach(function (c) {
       var row = htmlEl('div', 'claim-row');
-      var confClass = c.confidence >= 70 ? 'conf-high' : c.confidence >= 40 ? 'conf-mid' : 'conf-low';
-      row.appendChild(htmlEl('span', 'claim-confidence ' + confClass, c.confidence + '%'));
+      // A mechanical row (a gate, a parked wait) is not a confidence claim -
+      // a red "0%" on "human approved"/"parked" misapplies percent semantics
+      // to events that have no confidence at all (audit SR-7).
+      var mechanical = /\\(gate\\)/.test(c.claim) || /^parked:/.test(c.reason || '');
+      if (mechanical) {
+        row.appendChild(htmlEl('span', 'claim-confidence', '\u00b7'));
+      } else {
+        var confClass = c.confidence >= 70 ? 'conf-high' : c.confidence >= 40 ? 'conf-mid' : 'conf-low';
+        row.appendChild(htmlEl('span', 'claim-confidence ' + confClass, c.confidence + '%'));
+      }
       var body = htmlEl('span', null);
       body.appendChild(htmlEl('span', 'claim-text', c.claim));
       body.appendChild(document.createTextNode(' - '));
@@ -1159,6 +1189,10 @@ export function buildPage(): string {
     });
   }
 
+  document.getElementById('inspector-close').addEventListener('click', function () {
+    selected = null;
+    renderDetail(null);
+  });
   document.getElementById('btn-pause').addEventListener('click', function () {
     sendControl(this.textContent === 'Resume' ? 'resume' : 'pause');
   });
