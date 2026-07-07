@@ -2,6 +2,10 @@ import type { FinalReport, JournalEvent, LoopDef, Role, Verdict } from '../core/
 
 export type NodeStatus =
   | 'pending' | 'running' | 'pass' | 'fail' | 'stall' | 'error' | 'done' | 'skipped' | 'interrupted'
+  // a gate that timed out awaiting a human - deliberately its own status,
+  // never 'error'/'fail': rendering a busy human as a red failed node was
+  // a live-caught misread (see docs/UX-AUDIT-2026-07.md, SR-1)
+  | 'parked'
 
 export interface NodeIterationRecord {
   iteration: number
@@ -98,7 +102,7 @@ export interface DashboardModel {
   runId: string
   name: string
   goal: string
-  status: 'running' | 'verified' | 'halted' | 'canceled'
+  status: 'running' | 'verified' | 'halted' | 'canceled' | 'parked'
   reason?: string
   report?: FinalReport
   nodes: DashboardNode[]
@@ -236,7 +240,10 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
         const cost = Number(d.costUsd ?? 0)
         const nodeEstimatedCost = d.estimatedCostUsd === undefined ? undefined : Number(d.estimatedCostUsd)
         const nodeTokens = Number(d.tokens ?? 0)
-        const nodeStatus: NodeStatus = verdict ? verdict.status : 'done'
+        const nodeStatus: NodeStatus = verdict
+          ? (d.role === 'gate' && verdict.status === 'error' && String(verdict.evidence ?? '').startsWith('parked:')
+              ? 'parked' : verdict.status)
+          : 'done'
         n.status = nodeStatus
         n.costUsd += cost
         n.estimatedCostUsd += nodeEstimatedCost ?? 0
@@ -302,7 +309,8 @@ export function buildViewModel(events: JournalEvent[], def?: LoopDef): Dashboard
         // failure the way a rail breach is - conflating the two under one
         // "halted" status misreports "I chose to stop this" as "this broke".
         status = e.type === 'verified' ? 'verified'
-          : d.reason === 'canceled by user request' ? 'canceled' : 'halted'
+          : d.reason === 'canceled by user request' ? 'canceled'
+          : String(d.reason ?? '').startsWith('parked') ? 'parked' : 'halted'
         reason = String(d.reason)
         report = d.report as FinalReport | undefined
         costUsd = Math.max(costUsd, Number(d.costUsd ?? costUsd))

@@ -1,10 +1,25 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { homedir as osHomedir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { expandPanels, parseLoopfile, validateGraph, type JournalEvent, type LoopDef } from '../index.js'
+import { readGateWaitingMarker } from '../journal/gate-files.js'
 import { readJournal } from '../journal/journal.js'
 import { runsRoot, workspaceHash } from '../journal/runs.js'
 import { buildViewModel } from '../dashboard/view-model.js'
+
+// Same pid-liveness probe the dashboard's controlState uses (see
+// src/dashboard/server.ts): a gate-waiting marker only begs for attention
+// while the process that wrote it is actually alive.
+function runProcessAlive(runDir: string): boolean {
+  try {
+    const pid = Number(readFileSync(join(runDir, 'pid'), 'utf8').trim())
+    if (!Number.isInteger(pid)) return false
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
 
 // Deliberately duplicated in miniature from loadExpandedLoopDef
 // (src/cli/ui-cmd.ts) rather than imported - see design decision 5. Both
@@ -48,7 +63,16 @@ export interface RunListEntry {
   runId: string
   name: string
   goal: string
-  status: 'running' | 'verified' | 'halted' | 'canceled'
+  // 'parked' (gate timeout awaiting a human - resumable pause, NOT a
+  // failure) flows through from the view-model; 'stale' is derived HERE:
+  // a journal that says running whose process is dead (killed without a
+  // terminal event) - the card previously showed it as running forever,
+  // red wall-time climbing (docs/UX-AUDIT-2026-07.md, MC-3).
+  status: 'running' | 'verified' | 'halted' | 'canceled' | 'parked' | 'stale'
+  // A LIVE run blocked on a human answer right now (gate-waiting marker
+  // present and the run's process actually alive - a marker left by a
+  // dead process must not beg for attention).
+  awaitingGate: boolean
   // Only ever set for 'halted'/'canceled' (buildViewModel only populates its
   // own reason on those two statuses) - lets mission control's run tiles
   // show WHY a run stopped without opening it, reusing the exact string the
@@ -91,8 +115,13 @@ export function buildRunListEntry(
     runId,
     name: model.name,
     goal: model.goal,
-    status: model.status,
+    status: model.status === 'running' && !runProcessAlive(dirname(journalPath))
+      ? 'stale'
+      : model.status,
     reason: model.reason,
+    awaitingGate: model.status === 'running'
+      && readGateWaitingMarker(dirname(journalPath)) !== undefined
+      && runProcessAlive(dirname(journalPath)),
     agents: agentsInUse(def, events),
     iteration: model.totals.iteration,
     costUsd: model.totals.costUsd,

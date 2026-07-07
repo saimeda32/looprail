@@ -681,7 +681,7 @@ function loadSendResume() {
   const html = buildPage()
   const script = html.match(/<script>([\s\S]*)<\/script>/)![1]!
   const numOrUndefinedSrc = script.match(/function numOrUndefined\(id\) \{[\s\S]*?\n {2}\}\n/)![0]
-  const sendResumeSrc = script.match(/function sendResume\(\) \{[\s\S]*?\n {2}\}\n/)![0]
+  const sendResumeSrc = script.match(/function sendResume\(plain\) \{[\s\S]*?\n {2}\}\n/)![0]
   const factory = new Function('document', 'fetch', `
     ${numOrUndefinedSrc}
     ${sendResumeSrc}
@@ -705,7 +705,7 @@ function loadSendResume() {
     lastBody = JSON.parse(init.body)
     return Promise.resolve({ ok: true })
   }
-  const sendResume = factory(fakeDocument, fakeFetch) as () => void
+  const sendResume = factory(fakeDocument, fakeFetch) as (plain?: boolean) => void
   return { sendResume, store, getLastBody: () => lastBody as Record<string, unknown> | null }
 }
 

@@ -136,7 +136,9 @@ export function serveModel(
     const payload = buildDashboardPayload(readEvents(opts.journalPath), opts.def)
     // Canceling is a deliberate "stop this" action, not a rail-breach halt -
     // it's not resumable. Someone who wants to continue starts a fresh run.
-    const resumable = payload.status === 'halted' && !!opts.onResume
+    // Parked (gate timeout) is the MOST resumable state there is - resuming
+    // is its entire design (the gate asks again, prior work cached).
+    const resumable = (payload.status === 'halted' || payload.status === 'parked') && !!opts.onResume
     // Whether a gate is CURRENTLY waiting for a human answer is engine/
     // registry state, not journal-derived (buildViewModel is pure and has
     // no "gate is waiting" event - see journal/gate-files.ts for the full

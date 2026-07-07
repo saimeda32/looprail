@@ -157,9 +157,50 @@ rails:
     JSON.stringify(ev('node_start', { nodeId: 'do', role: 'executor', iteration: 1 })),
     JSON.stringify(ev('node_end', { nodeId: 'do', role: 'executor', iteration: 1, costUsd: 0.1, verdict: null, output: 'x' })),
   ].join('\n') + '\n')
+  // a live pid file: without one, a "running" journal correctly reads as
+  // stale (its process is gone) - see the dedicated tests below
+  writeFileSync(join(runDir, 'pid'), String(process.pid))
   const entries = discoverRuns([workspace])
   expect(entries).toHaveLength(1)
   expect(entries[0]).toMatchObject({ runId: 'run-1', status: 'running', agents: ['worker'] })
+})
+
+// Status truthfulness (docs/UX-AUDIT-2026-07.md MC-2/MC-3): the three
+// states that most need a human were invisible or mislabeled on the cards.
+test('a running journal whose process is dead reads as stale, never as running-forever', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'lr-discover-'))
+  const runDir = join(runsRoot(workspace), 'run-stale')
+  mkdirSync(runDir, { recursive: true })
+  writeFileSync(join(runDir, 'journal.jsonl'),
+    JSON.stringify(ev('run_start', { runId: 'run-stale', name: 'n', goal: 'g' })) + '\n')
+  writeFileSync(join(runDir, 'pid'), '999999') // orphaned pid - no such process
+  expect(discoverRuns([workspace])[0]).toMatchObject({ status: 'stale', awaitingGate: false })
+})
+
+test('a parked halt flows through as its own status, not halted', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'lr-discover-'))
+  const runDir = join(runsRoot(workspace), 'run-parked')
+  mkdirSync(runDir, { recursive: true })
+  writeFileSync(join(runDir, 'journal.jsonl'), [
+    JSON.stringify(ev('run_start', { runId: 'run-parked', name: 'n', goal: 'g' })),
+    JSON.stringify(ev('halt', { reason: 'parked awaiting human approval: gate "approve" got no human answer within 600s - resume the run to answer it' })),
+  ].join('\n') + '\n')
+  expect(discoverRuns([workspace])[0]).toMatchObject({ status: 'parked' })
+})
+
+test('a live run with a gate-waiting marker is flagged awaitingGate; a dead process with the same marker is not', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'lr-discover-'))
+  const runDir = join(runsRoot(workspace), 'run-gated')
+  mkdirSync(runDir, { recursive: true })
+  writeFileSync(join(runDir, 'journal.jsonl'),
+    JSON.stringify(ev('run_start', { runId: 'run-gated', name: 'n', goal: 'g' })) + '\n')
+  writeFileSync(join(runDir, 'gate-waiting.json'),
+    JSON.stringify({ nodeId: 'approve', isPlanApproval: false, question: 'q' }))
+  writeFileSync(join(runDir, 'pid'), String(process.pid)) // alive: this test's own process
+  expect(discoverRuns([workspace])[0]).toMatchObject({ status: 'running', awaitingGate: true })
+
+  writeFileSync(join(runDir, 'pid'), '999999') // dead process, marker is debris
+  expect(discoverRuns([workspace])[0]).toMatchObject({ status: 'stale', awaitingGate: false })
 })
 
 test('discoverRuns merges runs from multiple workspaces, sorted most-recently-active first', () => {

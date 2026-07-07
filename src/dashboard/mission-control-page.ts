@@ -118,6 +118,24 @@ export function buildMissionControlPage(): string {
   .status-verified { color: var(--pass); background: rgba(127,166,107,0.12); border-color: rgba(127,166,107,0.3); }
   .status-halted { color: var(--warn); background: rgba(184,134,61,0.12); border-color: rgba(184,134,61,0.3); }
   .status-canceled { color: var(--ink-dim); background: rgba(140,131,117,0.12); border-color: rgba(140,131,117,0.3); }
+  /* parked: waiting on a human, nothing failed - signal family, steady (no
+     pulse: it isn't burning compute). stale: journal says running but the
+     process is dead - dim + struck, honestly neither running nor finished. */
+  .status-parked { color: var(--signal); background: rgba(232,196,104,0.12); border-color: rgba(232,196,104,0.32); }
+  .status-stale { color: var(--ink-faint); background: rgba(140,131,117,0.08); border-color: rgba(140,131,117,0.2); text-decoration: line-through; }
+  .status-gate { color: var(--signal); background: rgba(232,196,104,0.18); border-color: rgba(232,196,104,0.45); }
+  .status-gate::before { animation: pulse-dot 1.6s ease-in-out infinite; }
+  .run-card .reason.reason-parked { color: var(--signal); }
+  .needs-head {
+    font: 600 11px var(--sans); letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--signal); margin: 4px 0 8px; display: flex; align-items: center; gap: 8px;
+  }
+  .needs-head::after { content: ''; flex: 1; height: 1px; background: rgba(232,196,104,0.25); }
+  #needs-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px;
+    margin-bottom: 18px;
+  }
+  #needs-grid .run-card { border-color: rgba(232,196,104,0.4); }
   @keyframes pulse-dot { 50% { opacity: 0.35; } }
   .run-card .agents { font-size: 11.5px; color: var(--ink-dim); margin-bottom: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .run-card .stats { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
@@ -172,6 +190,8 @@ export function buildMissionControlPage(): string {
   </div>
   <main>
     <div id="empty-state" style="display:none"></div>
+    <div class="needs-head" id="needs-head" style="display:none">Needs you</div>
+    <div id="needs-grid"></div>
     <div id="grid"></div>
     <section id="sessions-section" style="display:none">
       <h2 id="sessions-heading">Recent Claude Code activity</h2>
@@ -189,7 +209,7 @@ export function buildMissionControlPage(): string {
 </footer>
 <script>
 (function () {
-  var STATUS_CLASS = { running: 'status-running', verified: 'status-verified', halted: 'status-halted', canceled: 'status-canceled' };
+  var STATUS_CLASS = { running: 'status-running', verified: 'status-verified', halted: 'status-halted', canceled: 'status-canceled', parked: 'status-parked', stale: 'status-stale' };
 
   function el(tag, className, text) {
     var e = document.createElement(tag);
@@ -232,10 +252,14 @@ export function buildMissionControlPage(): string {
     a.href = '/run/' + run.workspaceHash + '/' + run.runId + '/';
     var top = el('div', 'top');
     top.appendChild(el('span', 'name', run.name || run.runId));
-    top.appendChild(el('span', 'status-pill ' + (STATUS_CLASS[run.status] || 'status-running'), run.status));
+    top.appendChild(run.awaitingGate
+      ? el('span', 'status-pill status-gate', 'needs you \u00b7 gate')
+      : el('span', 'status-pill ' + (STATUS_CLASS[run.status] || 'status-running'), run.status));
     a.appendChild(top);
-    if (run.reason && (run.status === 'halted' || run.status === 'canceled')) {
-      a.appendChild(el('div', 'reason reason-' + run.status, run.reason));
+    if (run.reason && (run.status === 'halted' || run.status === 'canceled' || run.status === 'parked')) {
+      var reasonEl = el('div', 'reason reason-' + run.status, run.reason);
+      reasonEl.title = run.reason; // MC-4: the clamp hides the tail; hover reveals it
+      a.appendChild(reasonEl);
     }
     if (run.goal) a.appendChild(el('div', 'goal', run.goal));
     a.appendChild(el('div', 'workspace', run.workspaceName));
@@ -378,7 +402,18 @@ export function buildMissionControlPage(): string {
       return;
     }
     empty.style.display = 'none';
-    visible.forEach(function (r) { grid.appendChild(runCard(r)); });
+    // Triage-first: the runs that need a HUMAN - a live gate waiting, or a
+    // parked run one click from resuming - render pinned above everything
+    // else. History must never drown the present (audit MC-1).
+    var needs = visible.filter(function (r) { return r.awaitingGate || r.status === 'parked'; });
+    var rest = visible.filter(function (r) { return !(r.awaitingGate || r.status === 'parked'); });
+    var needsHead = document.getElementById('needs-head');
+    var needsGrid = document.getElementById('needs-grid');
+    needsGrid.innerHTML = '';
+    needsHead.style.display = needs.length ? 'flex' : 'none';
+    needsHead.textContent = needs.length ? 'Needs you (' + needs.length + ')' : '';
+    needs.forEach(function (r) { needsGrid.appendChild(runCard(r)); });
+    rest.forEach(function (r) { grid.appendChild(runCard(r)); });
   }
 
   function minutesAgo(ts) {

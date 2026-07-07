@@ -82,6 +82,7 @@ export function buildPage(): string {
     font-size: 13px; line-height: 1.5; border-bottom: 1px solid var(--line);
   }
   .reason-banner .reason-label { font: 600 10.5px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; flex: 0 0 auto; }
+  .reason-banner.reason-parked { color: var(--signal); background: rgba(232,196,104,0.08); border-color: rgba(232,196,104,0.3); }
   .reason-banner.reason-halted { color: var(--warn); background: rgba(184,134,61,0.10); }
   .reason-banner.reason-canceled { color: var(--ink-dim); background: rgba(140,131,117,0.10); }
   .run-goal { padding: 12px 18px; border-bottom: 1px solid var(--line); font-size: 12.5px; line-height: 1.5; color: var(--ink-dim); white-space: pre-wrap; max-height: 200px; overflow: auto; }
@@ -97,6 +98,7 @@ export function buildPage(): string {
   .status-running::before { animation: pulse-dot 1.6s ease-in-out infinite; }
   .status-verified { color: var(--pass); background: rgba(127,166,107,0.12); border-color: rgba(127,166,107,0.3); }
   .status-halted { color: var(--warn); background: rgba(184,134,61,0.12); border-color: rgba(184,134,61,0.3); }
+  .status-parked { color: var(--signal); background: rgba(232,196,104,0.12); border-color: rgba(232,196,104,0.32); }
   .status-canceled { color: var(--ink-dim); background: rgba(140,131,117,0.12); border-color: rgba(140,131,117,0.3); }
 
   .gauges { display: flex; align-items: center; gap: 26px; padding: 11px 18px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
@@ -145,6 +147,7 @@ export function buildPage(): string {
   .node-plate.node-stall { stroke: var(--warn); }
   .node-plate.node-skipped { stroke: var(--line); stroke-dasharray: 4 3; }
   .node-plate.node-interrupted { stroke: var(--ink-faint); stroke-dasharray: 4 3; }
+  .node-plate.node-parked { stroke: var(--signal); stroke-dasharray: 4 3; }
   .node-label { fill: var(--ink); font: 12px var(--mono); pointer-events: none; }
   .node-sub { fill: var(--ink-faint); font: 8.5px var(--sans); letter-spacing: 0.05em; text-transform: uppercase; pointer-events: none; }
   .node-dot { pointer-events: none; }
@@ -153,6 +156,7 @@ export function buildPage(): string {
   .node-dot.node-fail, .node-dot.node-error { fill: var(--fail); }
   .node-dot.node-stall { fill: var(--warn); }
   .node-dot.node-pending, .node-dot.node-skipped, .node-dot.node-interrupted { fill: var(--line-bright); }
+  .node-dot.node-parked { fill: var(--signal); }
   .trace { stroke: var(--line-bright); stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
   .arrow-head { fill: var(--line-bright); }
   .trace.edge-live { stroke: var(--signal-dim); stroke-dasharray: 4 5; animation: flow 1.1s linear infinite; marker-end: url(#arrow-live); }
@@ -218,6 +222,17 @@ export function buildPage(): string {
     border: 1px solid var(--line); border-radius: 3px; color: var(--ink); padding: 5px 7px;
   }
   .resume-row .resume-goal-label { flex: 1 1 100%; align-items: stretch; }
+  .resume-row { flex-direction: column; align-items: stretch; }
+  .resume-primary-line { display: flex; align-items: center; gap: 10px; }
+  .resume-primary {
+    background: var(--signal); color: #14120f; border-color: var(--signal);
+    font-weight: 700; padding: 7px 14px;
+  }
+  .resume-primary:hover { filter: brightness(1.1); color: #14120f; }
+  .resume-hint { font-size: 11.5px; color: var(--ink-dim); }
+  .resume-advanced summary { cursor: pointer; font: 11px var(--sans); color: var(--ink-faint); }
+  .resume-advanced summary:hover { color: var(--ink-dim); }
+  .resume-advanced .resume-fields { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
   .resume-row textarea {
     flex: 1; min-width: 200px; font: 12px var(--mono); background: var(--panel); resize: vertical;
     border: 1px solid var(--line); border-radius: 3px; color: var(--ink); padding: 6px 9px;
@@ -350,13 +365,22 @@ export function buildPage(): string {
       <span id="feedback-status"></span>
     </div>
     <div class="resume-row" id="resume-row" style="display:none">
-      <label>Iterations <input type="number" id="resume-iterations" min="1" step="1" /></label>
-      <label>Cost budget $ <input type="number" id="resume-cost" min="0" step="0.01" /></label>
-      <label>Wall minutes <input type="number" id="resume-wall-minutes" min="1" step="1" /></label>
-      <label>Replan limit <input type="number" id="resume-replan-limit" min="1" step="1" /></label>
-      <label class="resume-goal-label">Goal <textarea id="resume-goal" rows="2"></textarea></label>
-      <button class="control-btn" id="btn-resume" type="button">Resume with these limits</button>
-      <span id="resume-status"></span>
+      <div class="resume-primary-line">
+        <button class="control-btn resume-primary" id="btn-resume-now" type="button">&#9654; Resume run</button>
+        <span class="resume-hint" id="resume-hint"></span>
+        <span id="resume-status"></span>
+      </div>
+      <details class="resume-advanced">
+        <summary>Advanced: adjust budgets or goal before resuming</summary>
+        <div class="resume-fields">
+          <label>Iterations <input type="number" id="resume-iterations" min="1" step="1" /></label>
+          <label>Cost budget $ <input type="number" id="resume-cost" min="0" step="0.01" /></label>
+          <label>Wall minutes <input type="number" id="resume-wall-minutes" min="1" step="1" /></label>
+          <label>Replan limit <input type="number" id="resume-replan-limit" min="1" step="1" /></label>
+          <label class="resume-goal-label">Goal <textarea id="resume-goal" rows="2"></textarea></label>
+          <button class="control-btn" id="btn-resume" type="button">Resume with these limits</button>
+        </div>
+      </details>
     </div>
     <div class="gauges">
       <div class="gauge">
@@ -468,7 +492,7 @@ export function buildPage(): string {
   var STATUS_CLASS = {
     pending: 'node-pending', running: 'node-running', pass: 'node-pass', done: 'node-done',
     fail: 'node-fail', error: 'node-error', stall: 'node-stall', skipped: 'node-skipped',
-    interrupted: 'node-interrupted',
+    interrupted: 'node-interrupted', parked: 'node-parked',
   };
   var selected = null;
   var selectedTab = null; // nodeId of the tab the user is viewing; null = default to the first running node
@@ -563,7 +587,9 @@ export function buildPage(): string {
       : unit === 'm' ? function (v) { return v.toFixed(0) + 'm'; }
       : function (v) { return String(v); };
     if (max === undefined || max === null) {
-      fill.style.width = '100%';
+      // an EMPTY bar, not a full one: a full meter reads as "budget
+      // exhausted", the opposite of "no budget applies" (audit SR-4)
+      fill.style.width = '0%';
       fill.className = '';
       label.innerHTML = fmt(value) + '<span class="of"> no ' + (unit === '$' ? 'budget' : 'max') + ' set</span>';
       return;
@@ -965,10 +991,10 @@ export function buildPage(): string {
     // routine metadata on a running/verified run.
     var reasonBanner = document.getElementById('reason-banner');
     var reasonLabel = document.getElementById('reason-label');
-    if (model.reason && (model.status === 'halted' || model.status === 'canceled')) {
+    if (model.reason && (model.status === 'halted' || model.status === 'canceled' || model.status === 'parked')) {
       reasonBanner.style.display = 'flex';
       reasonBanner.className = 'reason-banner reason-' + model.status;
-      reasonLabel.textContent = model.status === 'canceled' ? 'Canceled' : 'Halted';
+      reasonLabel.textContent = model.status === 'canceled' ? 'Canceled' : model.status === 'parked' ? 'Parked' : 'Halted';
       document.getElementById('reason').textContent = model.reason;
     } else {
       reasonBanner.style.display = 'none';
@@ -1268,12 +1294,15 @@ export function buildPage(): string {
 
   function renderResumeRow(model) {
     var row = document.getElementById('resume-row');
-    if (model.status !== 'halted' || !model.resumable) {
+    if ((model.status !== 'halted' && model.status !== 'parked') || !model.resumable) {
       row.style.display = 'none';
       resumeFormInitialized = false; // a later, different halted run starts fresh
       return;
     }
     row.style.display = 'flex';
+    document.getElementById('resume-hint').textContent = model.status === 'parked'
+      ? 'the gate will ask again - everything already done is cached, nothing re-runs'
+      : 'continues this same run with its remaining budget';
     if (!resumeFormInitialized) {
       document.getElementById('resume-iterations').value =
         model.totals.maxIterations != null ? model.totals.maxIterations : '';
@@ -1307,16 +1336,19 @@ export function buildPage(): string {
     return v === '' ? undefined : Number(v);
   }
 
-  function sendResume() {
+  // plain=true is the one-click primary resume: NO overrides at all - the
+  // run continues exactly as configured (for parked runs, the gate simply
+  // asks again). The Advanced form's own button still sends its fields.
+  function sendResume(plain) {
     var statusEl = document.getElementById('resume-status');
-    var btn = document.getElementById('btn-resume');
-    var iterations = numOrUndefined('resume-iterations');
-    var cost = numOrUndefined('resume-cost');
-    var wallMinutes = numOrUndefined('resume-wall-minutes');
-    var replanLimit = numOrUndefined('resume-replan-limit');
+    var btn = document.getElementById(plain ? 'btn-resume-now' : 'btn-resume');
+    var iterations = plain ? undefined : numOrUndefined('resume-iterations');
+    var cost = plain ? undefined : numOrUndefined('resume-cost');
+    var wallMinutes = plain ? undefined : numOrUndefined('resume-wall-minutes');
+    var replanLimit = plain ? undefined : numOrUndefined('resume-replan-limit');
     // Trimmed; undefined when blank so the server keeps the loopfile's own goal
     // (the goal override never mutates the source file - see ResumeOverrides.goal).
-    var goal = document.getElementById('resume-goal').value.trim() || undefined;
+    var goal = plain ? undefined : (document.getElementById('resume-goal').value.trim() || undefined);
     statusEl.className = '';
     statusEl.textContent = '';
     btn.disabled = true;
@@ -1341,7 +1373,8 @@ export function buildPage(): string {
     });
   }
 
-  document.getElementById('btn-resume').addEventListener('click', sendResume);
+  document.getElementById('btn-resume').addEventListener('click', function () { sendResume(false); });
+  document.getElementById('btn-resume-now').addEventListener('click', function () { sendResume(true); });
 
   document.getElementById('dag-zoom-in').addEventListener('click', function () { setDagZoom(dagZoom + DAG_ZOOM_STEP); });
   document.getElementById('dag-zoom-out').addEventListener('click', function () { setDagZoom(dagZoom - DAG_ZOOM_STEP); });
