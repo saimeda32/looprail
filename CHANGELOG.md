@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.2
 
 - **`looprail run --dry-run`** - print the execution plan (dependency-ordered
   node groups, each step's resolved adapter/model, and the budget ceiling)
