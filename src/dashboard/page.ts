@@ -148,6 +148,13 @@ export function buildPage(): string {
   .node-plate.node-skipped { stroke: var(--line); stroke-dasharray: 4 3; }
   .node-plate.node-interrupted { stroke: var(--ink-faint); stroke-dasharray: 4 3; }
   .node-plate.node-parked { stroke: var(--signal); stroke-dasharray: 4 3; }
+  .node-ring { fill: none; stroke: var(--signal); stroke-width: 1.5; opacity: 0.9; }
+  .node-stats { font: 9px var(--mono); fill: var(--ink-faint); font-variant-numeric: tabular-nums; }
+  .pip-pass { fill: var(--pass); }
+  .pip-fail, .pip-error { fill: var(--fail); }
+  .pip-parked { fill: var(--signal); }
+  .pip-other { fill: var(--line-bright); }
+  .trace.edge-of { stroke-dasharray: 5 4; opacity: 0.75; }
   .node-label { fill: var(--ink); font: 12px var(--mono); pointer-events: none; }
   .node-sub { fill: var(--ink-faint); font: 8.5px var(--sans); letter-spacing: 0.05em; text-transform: uppercase; pointer-events: none; }
   .node-dot { pointer-events: none; }
@@ -438,7 +445,7 @@ export function buildPage(): string {
             <marker id="arrow-live" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
               <path class="arrow-head-live" d="M0,0 L7,3 L0,6 Z" />
             </marker>
-            <clipPath id="node-clip"><rect x="-2" y="-2" width="152" height="48" /></clipPath>
+            <clipPath id="node-clip"><rect x="-5" y="-5" width="158" height="70" /></clipPath>
           </defs>
           <g id="edges"></g>
           <g id="nodes"></g>
@@ -1061,16 +1068,19 @@ export function buildPage(): string {
     edgesG.innerHTML = '';
     nodesG.innerHTML = '';
 
-    var BOX_W = 148, BOX_H = 44;
+    var BOX_W = 148, BOX_H = 58;
     model.edges.forEach(function (pair) {
       var a = layoutById[pair[0]], b = layoutById[pair[1]];
       if (!a || !b) return;
       var targetNode = byId[pair[1]];
       var isLive = targetNode && targetNode.status === 'running';
+      var kind = pair[2] === 'of' ? ' edge-of' : '';
       var x1 = a.x + BOX_W, y1 = a.y + BOX_H / 2, x2 = b.x, y2 = b.y + BOX_H / 2;
       var midX = x1 + (x2 - x1) * edgeBendFraction(pair[0], pair[1]);
       var d = 'M ' + x1 + ' ' + y1 + ' L ' + midX + ' ' + y1 + ' L ' + midX + ' ' + y2 + ' L ' + x2 + ' ' + y2;
-      el('path', { class: 'trace' + (isLive ? ' edge-live' : ''), d: d }, edgesG);
+      var path = el('path', { class: 'trace' + (isLive ? ' edge-live' : '') + kind, d: d }, edgesG);
+      var edgeTitle = el('title', {}, path);
+      edgeTitle.textContent = pair[2] === 'of' ? pair[1] + ' reviews ' + pair[0] : pair[1] + ' runs after ' + pair[0];
     });
 
     model.layout.forEach(function (l) {
@@ -1078,14 +1088,45 @@ export function buildPage(): string {
       if (!node) return;
       var statusClass = STATUS_CLASS[node.status] || 'node-pending';
       var g = el('g', { transform: 'translate(' + l.x + ',' + l.y + ')', 'clip-path': 'url(#node-clip)' }, nodesG);
-      var rect = el('rect', { class: 'node-plate ' + statusClass, width: BOX_W, height: BOX_H, rx: 3 }, g);
-      el('circle', { class: 'node-dot ' + statusClass, cx: 10, cy: BOX_H / 2, r: 3 }, g);
+      // selection: a signal ring OUTSIDE the plate, synced with the
+      // inspector - the plate's own stroke keeps encoding STATUS, so a
+      // selected failed node stays visibly failed
+      if (selected === node.id) {
+        el('rect', { class: 'node-ring', x: -3.5, y: -3.5, width: BOX_W + 7, height: BOX_H + 7, rx: 5 }, g);
+      }
+      el('rect', { class: 'node-plate ' + statusClass, width: BOX_W, height: BOX_H, rx: 3 }, g);
+      el('circle', { class: 'node-dot ' + statusClass, cx: 10, cy: 14, r: 3 }, g);
       var maxTextWidth = BOX_W - 20 - 8;
       fitSvgText(el('text', { class: 'node-label', x: 20, y: 18 }, g), node.id, maxTextWidth);
-      var subtext = node.role + (node.agent ? ' \\u00b7 ' + node.agent : '') + (node.model ? ' \\u00b7 ' + node.model : '');
-      fitSvgText(el('text', { class: 'node-sub', x: 20, y: 33 }, g), subtext, maxTextWidth);
-      g.addEventListener('click', function () { selected = node.id; renderDetail(node); });
-      if (selected === node.id) rect.setAttribute('stroke-width', '2.5');
+      var subtext = node.role + (node.agent ? ' \u00b7 ' + node.agent : '') + (node.model ? ' \u00b7 ' + node.model : '');
+      fitSvgText(el('text', { class: 'node-sub', x: 20, y: 31 }, g), subtext, maxTextWidth);
+      // Telemetry ON the plate - the graph should answer cost/time/tokens
+      // at a glance, not make every answer a click into the inspector.
+      // Running nodes derive elapsed from their own stream timestamps (the
+      // model is pure; SSE re-renders keep it fresh enough).
+      var statsBits = [];
+      var nodeCost = node.costUsd > 0 ? node.costUsd : node.estimatedCostUsd;
+      if (nodeCost > 0) statsBits.push((node.costUsd > 0 ? '$' : '~$') + nodeCost.toFixed(2));
+      if (node.status === 'running' && node.streamingChunks && node.streamingChunks.length > 0) {
+        statsBits.push(Math.max(1, Math.round((node.streamingChunks[node.streamingChunks.length - 1].ts - node.streamingChunks[0].ts) / 1000)) + 's\u2026');
+      } else {
+        var lastRec = node.iterations.length ? node.iterations[node.iterations.length - 1] : null;
+        if (lastRec && lastRec.durationMs) statsBits.push(Math.round(lastRec.durationMs / 1000) + 's');
+      }
+      if (node.tokens > 0) statsBits.push(formatTokens(node.tokens));
+      el('text', { class: 'node-stats', x: 20, y: 47 }, g).textContent = statsBits.join(' \u00b7 ');
+      // attempt pips, oldest->newest, last 6 - a green node that failed
+      // twice on the way shows its history without a click
+      var recs = node.iterations.slice(-6);
+      recs.forEach(function (rec, i) {
+        var pipClass = rec.status === 'pass' || rec.status === 'done' ? 'pip-pass'
+          : rec.status === 'fail' || rec.status === 'error' || rec.status === 'stall' ? 'pip-fail'
+          : rec.status === 'parked' ? 'pip-parked' : 'pip-other';
+        var pip = el('circle', { class: pipClass, cx: BOX_W - 10 - (recs.length - 1 - i) * 8, cy: 47, r: 2.5 }, g);
+        var pipTitle = el('title', {}, pip);
+        pipTitle.textContent = 'iter ' + rec.iteration + ': ' + rec.status + (rec.evidence ? ' - ' + rec.evidence.slice(0, 120) : '');
+      });
+      g.addEventListener('click', function () { selected = node.id; renderDetail(node); refresh(); });
     });
 
     var svg = document.getElementById('dag');

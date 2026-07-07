@@ -908,7 +908,7 @@ test("a run persists its own bootstrap LoopDef copy at run start, surviving the 
   // and the dashboard's view model can still derive real graph edges from
   // it, exactly as if the workspace were still there
   const model = buildViewModel([], persisted)
-  expect(model.edges).toEqual([['do', 'crit']])
+  expect(model.edges).toEqual([['do', 'crit', 'after']])
 })
 
 test("a successful graph splice updates the run's own persisted loopfile.json copy with the extended graph - a LATER read (even after the workspace is deleted) shows the spliced nodes' edges", async () => {
@@ -953,8 +953,8 @@ rails:
   const { readJournal } = await import('../journal/journal.js')
   const events = readJournal(join(runDir, 'journal.jsonl'))
   const model = buildViewModel(events, persisted)
-  expect(model.edges).toContainEqual(['build', 'check'])
-  expect(model.edges).toContainEqual(['plan', 'approve'])
+  expect(model.edges).toContainEqual(['build', 'check', 'of'])
+  expect(model.edges).toContainEqual(['plan', 'approve', 'after'])
 })
 
 test("REGRESSION (splice staleness): a `run --ui` dashboard's own /model reflects a mid-run graph splice IMMEDIATELY, without restarting the dashboard server", async () => {
@@ -1076,14 +1076,14 @@ rails:
   expect(code).toBe(0)
 
   // graph A: only the static bootstrap graph existed at this point
-  expect(modelBeforeSplice?.edges).toEqual([['plan', 'approve']])
+  expect(modelBeforeSplice?.edges).toEqual([['plan', 'approve', 'after']])
 
   // graph B: the SAME dashboard server (never restarted) now shows the
   // spliced nodes' edges too, fetched while the run (and its dashboard)
   // were still the very same live process the whole time.
   const modelAfterSplice = await modelAfterSplicePromise
-  expect(modelAfterSplice?.edges).toContainEqual(['build', 'check'])
-  expect(modelAfterSplice?.edges).toContainEqual(['plan', 'approve'])
+  expect(modelAfterSplice?.edges).toContainEqual(['build', 'check', 'of'])
+  expect(modelAfterSplice?.edges).toContainEqual(['plan', 'approve', 'after'])
 })
 
 test("a spliced node's actually-resolved agent/adapter/model is visible directly on its node_end journal event, with no LoopDef needed at all", async () => {

@@ -148,8 +148,10 @@ test('a loaded LoopDef seeds pending nodes, edges (after + of), and rail maxes',
   const m = buildViewModel([ev('run_start', { runId: 'r', name: 'n', goal: 'g' })], def)
   expect(m.nodes.map((n) => n.id).sort()).toEqual(['check', 'do', 'plan'])
   expect(m.nodes.every((n) => n.status === 'pending')).toBe(true)
+  // third tuple element = edge kind, so the DAG can draw review (of:)
+  // relationships differently from sequence (after:) dependencies
   expect(m.edges).toEqual(
-    expect.arrayContaining([['plan', 'do'], ['do', 'check']]),
+    expect.arrayContaining([['plan', 'do', 'after'], ['do', 'check', 'after']]),
   )
   expect(m.edges).toHaveLength(2) // 'of' and the explicit 'after' on check collapse to one edge, deduped
   expect(m.totals).toMatchObject({ maxCostUsd: 2.5, maxIterations: 5 })

@@ -7,7 +7,7 @@ const COL_WIDTH = 200
 const ROW_HEIGHT = 90
 const MARGIN = 60
 
-export function computeLayout(nodeIds: string[], edges: [string, string][]): LayoutNode[] {
+export function computeLayout(nodeIds: string[], edges: [string, string, ('after' | 'of')?][]): LayoutNode[] {
   const known = new Set(nodeIds)
   const relevant = edges.filter(([from, to]) => known.has(from) && known.has(to))
   const layer = new Map<string, number>(nodeIds.map((id) => [id, 0]))

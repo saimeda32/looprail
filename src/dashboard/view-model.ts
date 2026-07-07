@@ -106,24 +106,28 @@ export interface DashboardModel {
   reason?: string
   report?: FinalReport
   nodes: DashboardNode[]
-  edges: [string, string][]
+  edges: [string, string, ('after' | 'of')?][]
   totals: DashboardTotals
   plans: PlanVersion[]
 }
 
-function edgesFromDef(def: LoopDef): [string, string][] {
+function edgesFromDef(def: LoopDef): [string, string, 'after' | 'of'][] {
   const ids = new Set(def.nodes.map((n) => n.id))
   const seen = new Set<string>()
-  const edges: [string, string][] = []
-  const add = (from: string, to: string) => {
+  const edges: [string, string, 'after' | 'of'][] = []
+  // kind rides along as a third tuple element so the DAG can draw a
+  // review relationship (of:) differently from a sequence dependency
+  // (after:) - layout code indexes [0]/[1] and is unaffected. An edge that
+  // is BOTH keeps its first-seen kind (after wins by iteration order).
+  const add = (from: string, to: string, kind: 'after' | 'of') => {
     const key = `${from}\0${to}`
     if (seen.has(key)) return
     seen.add(key)
-    edges.push([from, to])
+    edges.push([from, to, kind])
   }
   for (const n of def.nodes) {
-    for (const dep of n.after ?? []) if (ids.has(dep)) add(dep, n.id)
-    if (n.of && ids.has(n.of)) add(n.of, n.id)
+    for (const dep of n.after ?? []) if (ids.has(dep)) add(dep, n.id, 'after')
+    if (n.of && ids.has(n.of)) add(n.of, n.id, 'of')
   }
   return edges
 }

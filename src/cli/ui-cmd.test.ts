@@ -130,7 +130,7 @@ test('a valid loopfile is loaded, expanded, and drives edges in /model', async (
   cleanup = () => result.dashboard!.close()
   const res = await get(result.url! + 'model')
   const payload = JSON.parse(res.body)
-  expect(payload.edges).toEqual(expect.arrayContaining([['do', 'crit']]))
+  expect(payload.edges).toEqual(expect.arrayContaining([['do', 'crit', 'after']]))
   expect(payload.totals.maxCostUsd).toBe(1)
 })
 
@@ -199,7 +199,7 @@ test("uiAction still serves graph edges and per-node agent/model for a run whose
     edges: [string, string][]
     nodes: { id: string; agent?: string; adapter?: string }[]
   }
-  expect(payload.edges).toEqual([['do', 'crit']])
+  expect(payload.edges).toEqual([['do', 'crit', 'after']])
   const doNode = payload.nodes.find((n) => n.id === 'do')
   expect(doNode).toMatchObject({ agent: 'worker', adapter: 'mock' })
 })

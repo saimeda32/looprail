@@ -187,7 +187,7 @@ test('/model prefers a run\'s own persisted loopfile.json copy over the workspac
     edges: [string, string][]
     nodes: { id: string; agent?: string; model?: string; adapter?: string }[]
   }
-  expect(payload.edges).toEqual([['do', 'crit']])
+  expect(payload.edges).toEqual([['do', 'crit', 'after']])
   const doNode = payload.nodes.find((n) => n.id === 'do')
   expect(doNode).toMatchObject({ agent: 'worker', adapter: 'mock', model: 'demo-model' })
 })
@@ -219,7 +219,7 @@ rails:
   dashboard = await startMissionControlServer({ registryPath })
   const model = await get(`${dashboard.url}/run/${hash}/run-1/model`)
   const payload = JSON.parse(model.body) as { edges: [string, string][] }
-  expect(payload.edges).toEqual([['do', 'crit']])
+  expect(payload.edges).toEqual([['do', 'crit', 'after']])
 })
 
 test('POST /run/<hash>/<runId>/control routes to serveControl, scoped to that workspace', async () => {
