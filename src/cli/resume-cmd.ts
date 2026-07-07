@@ -5,7 +5,7 @@ import {
   createDefaultRegistry, expandPanels, loadCache, readJournal, reconstructRunState, summarizeJournal,
   type LoopDef,
 } from '../index.js'
-import { persistRunLoopDef } from '../journal/loopfile-persist.js'
+import { loadRunLoopDef, persistRunLoopDef } from '../journal/loopfile-persist.js'
 import {
   executeRun, installCancelHandler, loadLoop, makeGate, removeRunPid, writeRunPid, type RunDeps,
 } from './run-cmd.js'
@@ -56,12 +56,34 @@ export async function resumeAction(
     io.out(err(`no journal for run "${source}"`))
     return 1
   }
+  // The run's OWN persisted LoopDef (runDir/loopfile.json) is the default,
+  // NOT the workspace's looprail.yaml - real bug caught live: a queue item
+  // started from `file: ship-check.yaml` parked at its gate, and resuming
+  // it re-read the workspace default looprail.yaml, silently continuing the
+  // parked run with a COMPLETELY DIFFERENT graph (and billing for it). An
+  // explicit --file still wins (deliberately re-pointing the resume is a
+  // real workflow); only a run predating loopfile persistence falls back to
+  // re-reading the workspace default.
   let loaded: { def: LoopDef; path: string }
-  try {
-    loaded = loadLoop(opts.file, opts.cwd)
-  } catch (e) {
-    io.out(err(e instanceof Error ? e.message : String(e)))
-    return 1
+  if (opts.file === undefined) {
+    const persisted = loadRunLoopDef(runDir)
+    if (persisted) {
+      loaded = { def: persisted, path: join(runDir, 'loopfile.json') }
+    } else {
+      try {
+        loaded = loadLoop(undefined, opts.cwd)
+      } catch (e) {
+        io.out(err(e instanceof Error ? e.message : String(e)))
+        return 1
+      }
+    }
+  } else {
+    try {
+      loaded = loadLoop(opts.file, opts.cwd)
+    } catch (e) {
+      io.out(err(e instanceof Error ? e.message : String(e)))
+      return 1
+    }
   }
   const events = readJournal(journalPath)
   const priorIterations = summarizeJournal(events).iterations

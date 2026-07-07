@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
@@ -416,6 +416,61 @@ rails:
   expect(asked).toEqual(['approve'])
   const parsed2 = JSON.parse(second.lines.at(-1)!) as { status: string }
   expect(parsed2.status).toBe('verified')
+})
+
+// Real bug caught live during the queue benchmark: a run started from
+// `file: ship-check.yaml` parked at its gate; resuming it with no --file
+// re-read the workspace's DEFAULT looprail.yaml and silently continued the
+// parked run with a completely different graph (and billed for it). The
+// run's own persisted loopfile.json is the resume default; --file still
+// deliberately overrides.
+test('resume with no --file continues the loopfile the run was STARTED from, not the workspace default', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-resume-file-'))
+  // the workspace default is a DIFFERENT graph - resuming into it is the bug
+  writeFileSync(join(cwd, 'looprail.yaml'), `
+name: wrong-default
+goal: Never this.
+agents:
+  worker: { adapter: mock }
+graph:
+  wrong: { role: executor, agent: worker }
+rails: { max_iterations: 2, max_cost_usd: 5 }
+`)
+  writeFileSync(join(cwd, 'alt.yaml'), `
+name: the-real-run
+goal: Say DONE.
+agents:
+  worker: { adapter: mock }
+graph:
+  do:      { role: executor, agent: worker }
+  approve: { role: gate, after: do }
+rails: { max_iterations: 2, max_cost_usd: 5, gate_timeout: 5 }
+`)
+  const reg = () => {
+    const r = createRegistry()
+    r.register(new MockAdapter([{ match: /EXECUTOR/, output: 'DONE', costUsd: 1 }]))
+    return r
+  }
+  const { makeGate } = await import('./run-cmd.js')
+  const { parseLoopfile } = await import('../index.js')
+  const first = capture()
+  const timingOutGate = makeGate(parseLoopfile(readFileSync(join(cwd, 'alt.yaml'), 'utf8')).rails, first.io, false, cwd, {
+    gateTimer: async (_ms, message) => { throw new Error(message) },
+  })
+  const code1 = await runAction('alt.yaml', { cwd, json: true }, { io: first.io, registry: reg(), gate: timingOutGate })
+  expect(code1).toBe(2) // parked
+
+  const parsed1 = JSON.parse(first.lines.at(-1)!) as { runId: string }
+  const asked: string[] = []
+  const approvingGate = async (node: { id: string }) => { asked.push(node.id); return { approved: true } }
+  // a registry that throws proves the executor came from cache AND that the
+  // wrong-default graph (whose node would have to actually run) wasn't used
+  const boom = createRegistry()
+  boom.register({ name: 'mock', invoke: async () => { throw new Error('must not invoke any agent') } } as Adapter)
+  const second = capture()
+  const code2 = await resumeAction(parsed1.runId, { cwd, json: true }, { io: second.io, registry: boom, gate: approvingGate })
+  expect(code2).toBe(0)
+  expect(asked).toEqual(['approve']) // alt.yaml's gate, not wrong-default's graph
 })
 
 test("resume refreshes the run's own persisted loopfile.json copy too, not just a fresh `run` - so a later dashboard read still shows the graph even after this workspace is deleted", async () => {
