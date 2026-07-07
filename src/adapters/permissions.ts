@@ -37,6 +37,43 @@ const PRESET_FLAGS: Record<string, Record<PermissionPreset, string[]>> = {
     standard: [],
     full: [],
   },
+  // gemini's --approval-mode choices (default | auto_edit | yolo | plan) are
+  // verified against the real v0.49.0 `gemini --help`, run live via npx.
+  // safe -> auto_edit mirrors claude-code's acceptEdits: edits auto-approve,
+  // anything riskier stays gated by the CLI's own policy. standard and full
+  // are deliberately the same yolo result - gemini has nothing looser than
+  // yolo (its only other lever, --sandbox, is deliberately NOT toggled here:
+  // it requires a container runtime the host can't be assumed to have, so
+  // flipping it on would break machines without docker/podman rather than
+  // loosen anything).
+  gemini: {
+    safe: ['--approval-mode', 'auto_edit'],
+    standard: ['--approval-mode', 'yolo'],
+    full: ['--approval-mode', 'yolo'],
+  },
+  // opencode's CLI surface has exactly one permission switch, verified
+  // against the real v1.17.14 `opencode run --help` (run live via npx):
+  // --auto, "auto-approve permissions that are not explicitly denied
+  // (dangerous!)". Anything finer lives in the user's own opencode.json
+  // permission config, out of a one-shot CLI invocation's reach - so safe
+  // and standard are deliberately the same empty result (defer to that
+  // config; per the v1.17.14 run.ts source, non-interactive opencode
+  // auto-REJECTS anything the config gates rather than hanging), and only
+  // full flips the CLI's own escalation switch.
+  opencode: {
+    safe: [],
+    standard: [],
+    full: ['--auto'],
+  },
+  // ollama runs no tools at all - `ollama run` only generates text, so there
+  // is no permission surface for any preset to widen or narrow. Every preset
+  // is deliberately the same empty result (aider precedent); the raw escape
+  // hatch below still works for passing ollama's own non-permission flags.
+  ollama: {
+    safe: [],
+    standard: [],
+    full: [],
+  },
 }
 
 // Absent config must reproduce each adapter's real behavior from before this
@@ -49,6 +86,12 @@ const DEFAULT_PRESET: Record<string, PermissionPreset> = {
   codex: 'safe',
   'copilot-cli': 'full',
   aider: 'safe',
+  // No pre-feature behavior to reproduce for the adapters added after the
+  // permissions feature (gemini, opencode, ollama) - safe is simply the
+  // conservative choice every non-copilot adapter already defaults to.
+  gemini: 'safe',
+  opencode: 'safe',
+  ollama: 'safe',
 }
 
 export function resolvePermissionArgs(

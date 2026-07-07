@@ -39,6 +39,9 @@ export {
 export { codexStreamLine, createCodexAdapter, parseCodexJsonl } from './adapters/codex.js'
 export { createAiderAdapter } from './adapters/aider.js'
 export { copilotStreamLine, createCopilotAdapter, parseCopilotJsonl } from './adapters/copilot.js'
+export { createGeminiAdapter, geminiStreamLine, parseGeminiStreamJsonl } from './adapters/gemini.js'
+export { createOpencodeAdapter, opencodeStreamLine, parseOpencodeJsonl } from './adapters/opencode.js'
+export { createOllamaAdapter, estimateTokens } from './adapters/ollama.js'
 export { createShellAdapter, shellQuote } from './adapters/shell.js'
 export {
   createDefaultRegistry, createCliMockAdapter, type DefaultRegistryOptions,

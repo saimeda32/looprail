@@ -359,7 +359,10 @@ logged in on your machine:
 | `codex` | OpenAI Codex CLI (`codex`) | `npm i -g @openai/codex`, then `codex login` | |
 | `copilot-cli` | GitHub Copilot CLI (`gh`) | Install the GitHub CLI, then `gh auth login` and `gh extension install github/gh-copilot` | model strings use dots (`claude-opus-4.8`), not the dashed form some other adapters use |
 | `aider` | [aider](https://aider.chat) | Install aider, set your provider's API key env var | reports no real dollar cost - looprail estimates one from its token counts instead |
-| `shell` | any command you give it | nothing - it's your command | for a local model, a script, or anything else with a CLI |
+| `gemini` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`) | `npm i -g @google/gemini-cli`, then run `gemini` once to log in (or set `GEMINI_API_KEY`) | reports no dollar cost - looprail estimates one from its token counts |
+| `opencode` | [opencode](https://opencode.ai) (`opencode`) | `npm i -g opencode-ai`, then `opencode auth login` | `model:` takes the `provider/model` form (e.g. `anthropic/claude-sonnet-4-5`) |
+| `ollama` | [Ollama](https://ollama.com) local models (`ollama`) | install from ollama.com, then `ollama pull <model>` - no login | `model:` is required (e.g. `llama3`); cost is genuinely $0, token counts are chars/4 estimates |
+| `shell` | any command you give it | nothing - it's your command | for a script or anything else with a CLI |
 | `mock` | nothing (built in) | nothing | deterministic, zero-cost - for demos and this repo's own tests |
 
 Each node picks which agent runs it, so you can shape a loop by cost and by
@@ -370,7 +373,7 @@ agents:
   builder: { adapter: claude-code, model: opus }   # expensive, rare
   checker: { adapter: claude-code, model: haiku }  # cheap, frequent
   skeptic: { adapter: codex }                       # different provider
-  local:   { adapter: shell, command: "ollama run llama3 {prompt}" }
+  local:   { adapter: ollama, model: llama3 }       # free, on your machine
 
 graph:
   draft: { role: executor, agent: builder }
@@ -383,8 +386,9 @@ spots instead of one. `looprail lint` warns when a judge uses the same model as
 the executor it is grading.
 
 Looprail doesn't drive every agent tool the same way. Claude Code, Codex,
-aider, and GitHub Copilot each have a real command-line mode looprail can
-shell out to and parse output from, so any of them can run any node. Cursor
+aider, GitHub Copilot, Gemini CLI, opencode, and Ollama each have a real
+command-line mode looprail can shell out to and parse output from, so any of
+them can run any node. Cursor
 doesn't have that (it's an IDE, not a scriptable process), so it can't be
 assigned a node - the only way Cursor or Claude Desktop connect to looprail is
 the other direction, as an MCP client calling into looprail's own tools via

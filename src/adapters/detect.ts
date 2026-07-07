@@ -26,6 +26,18 @@ const KNOWN = [
     name: 'gh', adapter: 'copilot-cli', command: 'gh',
     fixHint: 'install GitHub CLI, then `gh auth login` and `gh extension install github/gh-copilot`',
   },
+  {
+    name: 'gemini', adapter: 'gemini', command: 'gemini',
+    fixHint: 'npm i -g @google/gemini-cli, then run `gemini` once to log in (or set GEMINI_API_KEY)',
+  },
+  {
+    name: 'opencode', adapter: 'opencode', command: 'opencode',
+    fixHint: 'npm i -g opencode-ai, then `opencode auth login` to add a provider credential',
+  },
+  {
+    name: 'ollama', adapter: 'ollama', command: 'ollama',
+    fixHint: 'install ollama from https://ollama.com/download, then `ollama pull <model>` (no login needed)',
+  },
 ] as const
 
 export async function detectAgents(exec: ExecFn = defaultExec): Promise<DetectedAgent[]> {

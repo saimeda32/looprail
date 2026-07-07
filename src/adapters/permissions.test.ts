@@ -25,6 +25,24 @@ describe('resolvePermissionArgs - explicit presets', () => {
     expect(resolvePermissionArgs('standard', 'aider')).toEqual([])
     expect(resolvePermissionArgs('full', 'aider')).toEqual([])
   })
+
+  test('gemini: safe auto-approves edits only; standard and full are deliberately the same yolo result - gemini has nothing looser', () => {
+    expect(resolvePermissionArgs('safe', 'gemini')).toEqual(['--approval-mode', 'auto_edit'])
+    expect(resolvePermissionArgs('standard', 'gemini')).toEqual(['--approval-mode', 'yolo'])
+    expect(resolvePermissionArgs('full', 'gemini')).toEqual(['--approval-mode', 'yolo'])
+  })
+
+  test('opencode: safe/standard defer to the user\'s own opencode.json config; only full flips its one CLI switch (--auto)', () => {
+    expect(resolvePermissionArgs('safe', 'opencode')).toEqual([])
+    expect(resolvePermissionArgs('standard', 'opencode')).toEqual([])
+    expect(resolvePermissionArgs('full', 'opencode')).toEqual(['--auto'])
+  })
+
+  test('ollama: every preset resolves to the same empty result - a pure text generator has no permission surface at all', () => {
+    expect(resolvePermissionArgs('safe', 'ollama')).toEqual([])
+    expect(resolvePermissionArgs('standard', 'ollama')).toEqual([])
+    expect(resolvePermissionArgs('full', 'ollama')).toEqual([])
+  })
 })
 
 describe('resolvePermissionArgs - absent config (backward compatibility)', () => {
@@ -36,6 +54,11 @@ describe('resolvePermissionArgs - absent config (backward compatibility)', () =>
     expect(resolvePermissionArgs(undefined, 'claude-code')).toEqual(resolvePermissionArgs('safe', 'claude-code'))
     expect(resolvePermissionArgs(undefined, 'codex')).toEqual(resolvePermissionArgs('safe', 'codex'))
     expect(resolvePermissionArgs(undefined, 'aider')).toEqual(resolvePermissionArgs('safe', 'aider'))
+  })
+
+  test('gemini/opencode with no config resolve to safe - no pre-feature behavior existed to preserve, so conservative wins', () => {
+    expect(resolvePermissionArgs(undefined, 'gemini')).toEqual(resolvePermissionArgs('safe', 'gemini'))
+    expect(resolvePermissionArgs(undefined, 'opencode')).toEqual(resolvePermissionArgs('safe', 'opencode'))
   })
 })
 
