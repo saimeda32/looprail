@@ -83,6 +83,41 @@ export function validateGraph(def: LoopDef): string[] {
   return errors
 }
 
+// Transitive DESCENDANTS of each node: every node that depends on it,
+// directly or through a chain, via `after` or `of`. This is what makes
+// feedback lineage-scoped (see core/context.ts): a node should only be
+// disturbed by failures in work DERIVED from its own output - a critic
+// with `of: do` is a descendant of `do`, so `do` sees that critic's
+// failure; an independent branch's executor is NOT a descendant of that
+// critic, so its composed prompt is unchanged and the cache serves it
+// instead of pointlessly re-running it. Real waste caught live: one
+// branch's failure forced the WHOLE execution region to rebuild because
+// the global feedback string changed every node's prompt.
+export function descendantsByNode(nodes: NodeDef[]): Map<string, Set<string>> {
+  const ids = new Set(nodes.map((n) => n.id))
+  // direct dependents: for each node, who lists it in after/of
+  const directDependents = new Map<string, string[]>()
+  for (const id of ids) directDependents.set(id, [])
+  for (const n of nodes) {
+    const deps = new Set(n.after ?? [])
+    if (n.of && ids.has(n.of)) deps.add(n.of)
+    for (const dep of deps) if (ids.has(dep)) directDependents.get(dep)!.push(n.id)
+  }
+  const result = new Map<string, Set<string>>()
+  for (const n of nodes) {
+    const seen = new Set<string>()
+    const stack = [...(directDependents.get(n.id) ?? [])]
+    while (stack.length > 0) {
+      const cur = stack.pop()!
+      if (seen.has(cur)) continue
+      seen.add(cur)
+      for (const next of directDependents.get(cur) ?? []) stack.push(next)
+    }
+    result.set(n.id, seen)
+  }
+  return result
+}
+
 export function topoLayers(nodes: NodeDef[]): string[][] {
   const ids = new Set(nodes.map((n) => n.id))
   const remaining = new Map(nodes.map((n) => {

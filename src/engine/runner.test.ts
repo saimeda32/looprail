@@ -61,6 +61,43 @@ test('failed verdict feeds evidence into next iteration executor prompt', async 
   expect(secondExec.prompt).toContain('missing the DONE marker')
 })
 
+// EFF-2: an independent branch must NOT re-run when a DIFFERENT branch
+// fails. Two disjoint branches A and B; A's critic fails once (forcing a
+// second iteration), B passes. B's executor and critic have B in no other
+// branch's lineage, so their prompts stay byte-identical - lineage-scoped
+// feedback adds nothing to them - and the within-run cache serves them
+// instead of re-invoking. Proven by giving the mock EXACTLY ONE "Build B"
+// step: if B re-ran, the mock would exhaust and throw.
+test('an independent branch is served from cache when a different branch fails - not re-run', async () => {
+  const twoBranch: LoopDef = {
+    name: 'two-branch', goal: 'build A and B',
+    agents: { a: { adapter: 'mock' } },
+    nodes: [
+      { id: 'doA', role: 'executor', agent: 'a', prompt: 'Build A.' },
+      { id: 'critA', role: 'critic', agent: 'a', of: 'doA', after: ['doA'], prompt: 'Review A.' },
+      { id: 'doB', role: 'executor', agent: 'a', prompt: 'Build B.' },
+      { id: 'critB', role: 'critic', agent: 'a', of: 'doB', after: ['doB'], prompt: 'Review B.' },
+    ],
+    rails: { maxIterations: 4, maxCostUsd: 5 },
+    verdictPolicy: { kind: 'all-pass' },
+  }
+  const mock = new MockAdapter([
+    { match: /Build A\./, output: 'A v1' },
+    { match: /Review A\./, output: 'VERDICT: fail\nEVIDENCE: A needs fixing' },
+    { match: /Build B\./, output: 'B done' },                                   // ONLY ONE - re-running B would exhaust the mock
+    { match: /Review B\./, output: 'VERDICT: pass\nEVIDENCE: B ok' },           // ONLY ONE
+    { match: /Build A\./, output: 'A v2' },
+    { match: /Review A\./, output: 'VERDICT: pass\nEVIDENCE: A ok now' },
+  ])
+  const report = await runLoop(twoBranch, { registry: reg(mock) })
+  expect(report.status).toBe('verified')
+  expect(report.iterations).toBe(2)
+  // A re-ran (its lineage failed); B did not (served from the within-run cache)
+  expect(mock.calls.filter((c) => /Build A\./.test(c.prompt))).toHaveLength(2)
+  expect(mock.calls.filter((c) => /Build B\./.test(c.prompt))).toHaveLength(1)
+  expect(mock.calls.filter((c) => /Review B\./.test(c.prompt))).toHaveLength(1)
+})
+
 test('planner revision round runs when plan critic fails', async () => {
   const mock = new MockAdapter([
     { match: /PLANNER/, output: 'weak plan' },

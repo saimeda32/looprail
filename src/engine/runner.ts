@@ -139,9 +139,20 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   emit('run_start', { runId, name: def.name, goal: def.goal })
 
   const guard = new RailsGuard(def.rails, opts.now)
+  // Within-run cache: the same Map a resume seeds from the journal, but now
+  // ALSO live across a single run's own iterations. Without it, every
+  // iteration re-invoked every agent node even when its prompt was
+  // byte-identical to the prior pass - the exact waste lineage-scoped
+  // feedback (see core/context.ts) sets up: a node whose descendants didn't
+  // fail keeps a stable prompt, so its contextHash is unchanged and it is
+  // served from here instead of re-running. Testers and gates are never
+  // cached (they return before the hash path in nodes.ts - side effects and
+  // human input must always re-run); only agent nodes participate. A
+  // resume-provided cache is reused as-is so nothing regresses there.
+  const cache = opts.cache ?? new Map<string, NodeOutcome>()
   const deps: EngineDeps = {
     registry: opts.registry, gate: opts.gate, cwd: opts.cwd,
-    cache: opts.cache, hash: contextHash,
+    cache, hash: contextHash,
     sleep: opts.sleep, retries: opts.retries,
     // With a wall rail, an in-flight node inherits (at most) the remaining wall
     // budget as its timeout, so a hung node can't run past the wall deadline.
@@ -239,6 +250,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     plan: opts.initialPlan ?? null,
     iteration: opts.startIteration ?? 0,
     feedback: opts.initialFeedback ?? null,
+    feedbackBySource: null,
     humanFeedback: null,
   }
   let outcomes: NodeOutcome[] = []
@@ -477,6 +489,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     const initialPlan = await runPlanning()
     if (!initialPlan.ok) return await finish('halted', initialPlan.reason)
     state.feedback = null
+    state.feedbackBySource = null
   }
 
   while (true) {
@@ -493,6 +506,16 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     // freshly-merged agent key must resolve it, so the merged set is
     // threaded through here rather than the run's original, fixed one.
     outcomes = await runIteration({ ...expanded, agents: runAgents }, execution, state, deps, onNode, shouldContinue, onNodeStart, onChunk, onPermission)
+    // Populate the within-run cache with this iteration's agent-node results
+    // so the NEXT iteration can serve any node whose prompt stayed stable
+    // (see the `cache` declaration above). Only outcomes carrying a
+    // contextHash are agent nodes; testers/gates never set one and so are
+    // never cached. A failing node whose lineage got fresh feedback gets a
+    // new prompt and thus a new hash next iteration - it misses and re-runs,
+    // exactly as intended.
+    for (const o of outcomes) {
+      if (o.contextHash) cache.set(o.contextHash, o)
+    }
     const verdicts = outcomes.flatMap((o) => (o.verdict ? [o.verdict] : []))
     fingerprints.push(verdictFingerprint(verdicts))
     emit('iteration_end', { iteration: state.iteration, costUsd: guard.spentUsd, estimatedCostUsd: guard.estimatedSpentUsd })
@@ -588,6 +611,14 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     if (decision.action === 'verified') return await finish('verified', 'all verifiers passed')
     if (decision.action === 'halt') return await finish('halted', decision.reason)
     state.feedback = decision.feedback
+    // Structured, per-source feedback so the NEXT iteration injects it
+    // lineage-scoped (see core/context.ts): a node whose descendants didn't
+    // fail gets none, keeps its prompt stable, and is served from cache
+    // instead of needlessly re-running. The flat state.feedback above stays
+    // the planner's view and the fallback for every non-iterate path.
+    state.feedbackBySource = outcomes
+      .filter((o) => o.verdict && o.verdict.status !== 'pass')
+      .map((o) => ({ nodeId: o.nodeId, evidence: o.verdict!.evidence }))
     if (decision.action === 'replan') {
       replans += 1
       fingerprints.length = 0

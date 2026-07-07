@@ -162,3 +162,22 @@ describe('expandPanels', () => {
     ])
   })
 })
+
+
+test('descendantsByNode computes transitive dependents via after and of, keeping independent branches disjoint', async () => {
+  const { descendantsByNode } = await import('./graph.js')
+  const nodes = [
+    { id: 'doA', role: 'executor' as const },
+    { id: 'critA', role: 'critic' as const, of: 'doA', after: ['doA'] },
+    { id: 'doB', role: 'executor' as const },
+    { id: 'critB', role: 'critic' as const, of: 'doB', after: ['doB'] },
+    { id: 'merge', role: 'synthesizer' as const, after: ['critA', 'critB'] },
+  ]
+  const d = descendantsByNode(nodes)
+  expect([...d.get('doA')!].sort()).toEqual(['critA', 'merge'])
+  expect([...d.get('doB')!].sort()).toEqual(['critB', 'merge'])
+  // the two branches are disjoint: doA is NOT a descendant of doB and vice versa
+  expect(d.get('doA')!.has('doB')).toBe(false)
+  expect(d.get('doB')!.has('doA')).toBe(false)
+  expect(d.get('merge')!.size).toBe(0) // nothing depends on the sink
+})

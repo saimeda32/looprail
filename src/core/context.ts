@@ -1,10 +1,22 @@
 import type { LoopDef, NodeDef, NodeOutcome, Role } from './types.js'
 import { DEFAULT_VERDICT_THRESHOLD } from './types.js'
+import { descendantsByNode } from './graph.js'
 
 export interface RunState {
   plan: string | null
   iteration: number
   feedback: string | null
+  // Structured, per-source feedback for LINEAGE-SCOPED injection. When
+  // present, an execution-region node receives only the failing-verdict
+  // evidence whose source node is itself or one of its descendants (see
+  // core/graph.ts's descendantsByNode) - NOT the whole run's feedback. This
+  // is what stops the loop re-running independent branches: a node whose
+  // lineage had no failure sees no feedback, so its composed prompt is
+  // byte-identical to the prior iteration and the cache serves it instead
+  // of pointlessly rebuilding it. The planner still gets the flat global
+  // `feedback` (it must see the whole picture to replan). Null on the
+  // planning/format/human/splice paths, which keep the flat behavior.
+  feedbackBySource?: Array<{ nodeId: string; evidence: string }> | null
   // A human's own note, submitted from the dashboard while the run is live
   // (see journal/human-feedback.ts). Distinct from `feedback` (the critic's
   // evidence) so the executor can tell the two apart in its prompt, and
@@ -119,6 +131,22 @@ const GENERATES_GRAPH_EDIT_INSTRUCTIONS =
   'was not flagged byte-for-byte unchanged - never regenerate the whole graph ' +
   'from scratch when only one part needs to change.'
 
+// Builds the feedback string a specific node should see: only entries whose
+// source is this node or one of its descendants (see the RunState.
+// feedbackBySource comment). Returns null when nothing in this node's
+// lineage failed - the caller then adds no feedback section at all, which
+// is precisely what keeps the node's prompt (and its cache key) stable.
+function scopeFeedback(
+  def: LoopDef,
+  node: NodeDef,
+  bySource: Array<{ nodeId: string; evidence: string }>,
+): string | null {
+  const relevant = new Set<string>([node.id, ...(descendantsByNode(def.nodes).get(node.id) ?? [])])
+  const entries = bySource.filter((f) => relevant.has(f.nodeId))
+  if (entries.length === 0) return null
+  return entries.map((f) => `[${f.nodeId}] ${f.evidence}`).join('\n')
+}
+
 export function composeContext(
   def: LoopDef,
   node: NodeDef,
@@ -127,7 +155,18 @@ export function composeContext(
 ): string {
   const parts: string[] = [`# Goal\n${def.goal}`]
   if (state.plan) parts.push(`# Current plan\n${state.plan}`)
-  if (state.feedback) parts.push(`# Feedback from last iteration\n${state.feedback}`)
+  // Lineage-scoped feedback: a non-planner node sees only failures from its
+  // own descendants (or itself), so an independent branch that had no
+  // failure gets NO feedback section - its prompt stays byte-identical to
+  // the prior iteration and the cache serves it instead of re-running it.
+  // The planner still gets the flat global feedback (it replans the whole
+  // graph and must see every failure). The flat `feedback` is also the
+  // fallback whenever structured feedback isn't populated (planning, format,
+  // human, splice paths), so those are unchanged.
+  const scopedFeedback = node.role !== 'planner' && state.feedbackBySource
+    ? scopeFeedback(def, node, state.feedbackBySource)
+    : state.feedback
+  if (scopedFeedback) parts.push(`# Feedback from last iteration\n${scopedFeedback}`)
   if (state.humanFeedback) parts.push(`# Feedback from a human reviewer\n${state.humanFeedback}`)
 
   if (node.of) {
