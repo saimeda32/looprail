@@ -76,6 +76,38 @@ describe('validateGraph', () => {
         .toBe(true)
     }
   })
+
+  test('accepts a fallback chain that ends at an agent with no fallback', () => {
+    const def = {
+      ...base([{ id: 'do', role: 'executor' as const, agent: 'a' }]),
+      agents: { a: { adapter: 'mock', fallback: 'b' }, b: { adapter: 'mock' } },
+    }
+    expect(validateGraph(def)).toEqual([])
+  })
+
+  test('rejects a fallback that references an unknown agent', () => {
+    const def = {
+      ...base([{ id: 'do', role: 'executor' as const, agent: 'a' }]),
+      agents: { a: { adapter: 'mock', fallback: 'ghost' }, b: { adapter: 'mock' } },
+    }
+    expect(validateGraph(def)).toContain('agent "a": fallback references unknown agent "ghost"')
+  })
+
+  test('rejects a fallback chain that cycles, naming the whole chain', () => {
+    const def = {
+      ...base([{ id: 'do', role: 'executor' as const, agent: 'a' }]),
+      agents: { a: { adapter: 'mock', fallback: 'b' }, b: { adapter: 'mock', fallback: 'a' } },
+    }
+    expect(validateGraph(def)).toContain('agent "a": fallback chain cycles (a -> b -> a)')
+  })
+
+  test('rejects an agent falling back to itself', () => {
+    const def = {
+      ...base([{ id: 'do', role: 'executor' as const, agent: 'a' }]),
+      agents: { a: { adapter: 'mock', fallback: 'a' }, b: { adapter: 'mock' } },
+    }
+    expect(validateGraph(def)).toContain('agent "a": fallback chain cycles (a -> a)')
+  })
 })
 
 describe('topoLayers', () => {

@@ -390,6 +390,26 @@ assigned a node - the only way Cursor or Claude Desktop connect to looprail is
 the other direction, as an MCP client calling into looprail's own tools via
 `looprail mcp` (see [docs/MCP.md](docs/MCP.md)).
 
+### Rate-limit failover
+
+An agent can name a `fallback:` - another `agents:` key to hand its work to
+when the provider rate-limits it (HTTP 429s, quota/overload errors) and
+looprail's own retries are exhausted:
+
+```yaml
+agents:
+  worker:   { adapter: claude-code, model: sonnet, fallback: worker-b }
+  worker-b: { adapter: copilot-cli, model: claude-sonnet-5 }
+```
+
+Only clearly rate-limit-shaped failures trigger the hop - anything else still
+fails the node, so real errors stay loud. Chains follow (`a -> b -> c`) but
+must not cycle, and the fallback key must exist; `looprail lint` rejects both
+mistakes before a run ever depends on them. When a hop happens it is recorded
+in the journal, and the node's result is attributed to the agent that actually
+served the call - so cost and model info stay honest even on a night the
+primary provider spent throttling you.
+
 ### Rails
 
 Rails are the ceiling on a run. All of them are optional except the first two:

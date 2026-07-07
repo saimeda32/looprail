@@ -545,6 +545,41 @@ test('node_progress events are journaled and streamed live as adapters produce p
   expect(progress[0].data.iteration).toBe(1)
 })
 
+test('rate-limit failover is visible in the journal: node_progress records the hop, node_end carries the agent that served the call', async () => {
+  const registry = createRegistry()
+  registry.register({
+    name: 'claude-code',
+    invoke: async () => { throw new Error('claude-code exited 1: HTTP 429 Too Many Requests') },
+  })
+  registry.register({
+    name: 'copilot-cli',
+    async invoke(req) {
+      return {
+        output: req.prompt.includes('CRITIC') ? 'VERDICT: pass\nEVIDENCE: ok' : 'DONE',
+        costUsd: 0, tokens: 0, durationMs: 1,
+      }
+    },
+  })
+  const runDir = join(mkdtempSync(join(tmpdir(), 'lr-')), 'run')
+  const def = loop({
+    agents: {
+      worker: { adapter: 'claude-code', model: 'sonnet', fallback: 'worker-b' },
+      'worker-b': { adapter: 'copilot-cli', model: 'claude-sonnet-5' },
+    },
+    nodes: [
+      { id: 'do', role: 'executor', agent: 'worker' },
+      { id: 'crit', role: 'critic', agent: 'worker-b', of: 'do', after: ['do'] },
+    ],
+  })
+  const report = await runLoop(def, { registry, runDir, retries: 0, sleep: async () => {} })
+  expect(report.status).toBe('verified')
+  const events = readJournal(join(runDir, 'journal.jsonl'))
+  const hop = events.find((e) => e.type === 'node_progress' && e.data.nodeId === 'do')!
+  expect(hop.data.chunk).toContain('rate-limited on claude-code; failing over to worker-b (copilot-cli)')
+  const end = events.find((e) => e.type === 'node_end' && e.data.nodeId === 'do')!
+  expect(end.data).toMatchObject({ agent: 'worker-b', adapter: 'copilot-cli', model: 'claude-sonnet-5' })
+})
+
 test('a loop with no streaming adapter never emits node_progress (opt-in, zero overhead)', async () => {
   const mock = new MockAdapter([
     { match: /EXECUTOR/, output: 'DONE' },

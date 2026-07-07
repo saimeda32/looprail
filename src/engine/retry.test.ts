@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { InfraError, invokeWithRetry, isInfraError } from './retry.js'
+import { InfraError, invokeWithRetry, isInfraError, isRateLimitError, RateLimitError } from './retry.js'
 import type { Adapter } from '../core/types.js'
 
 function flaky(failures: number, message = 'ETIMEDOUT') {
@@ -49,6 +49,45 @@ test('isInfraError matches auth shapes only', () => {
   expect(isInfraError('logged out')).toBe(true)
   expect(isInfraError('rate limit exceeded')).toBe(false)
   expect(isInfraError('ECONNRESET')).toBe(false)
+})
+
+test('isRateLimitError matches only clearly rate-limit-shaped errors', () => {
+  expect(isRateLimitError('HTTP 429 Too Many Requests')).toBe(true)
+  expect(isRateLimitError('claude-code exited 1: rate limit exceeded, retry later')).toBe(true)
+  expect(isRateLimitError('RateLimitError: requests per minute exhausted')).toBe(true)
+  expect(isRateLimitError('overloaded_error: Overloaded')).toBe(true)
+  expect(isRateLimitError('insufficient quota for this request')).toBe(true)
+  expect(isRateLimitError('Claude AI usage limit reached|1751846400')).toBe(true)
+  expect(isRateLimitError('RESOURCE_EXHAUSTED')).toBe(true)
+  expect(isRateLimitError('ETIMEDOUT')).toBe(false)
+  expect(isRateLimitError('SyntaxError: unexpected token')).toBe(false)
+  expect(isRateLimitError('4 tests failed, 2 over the line-length limit')).toBe(false)
+})
+
+test('rate-limit errors still spend the full retry budget, then surface as RateLimitError with the original error as cause', async () => {
+  const { adapter, calls } = flaky(5, 'HTTP 429 Too Many Requests')
+  try {
+    await invokeWithRetry(adapter, { prompt: 'p' }, { sleep: async () => {} })
+    throw new Error('expected invokeWithRetry to throw')
+  } catch (err) {
+    expect(err).toBeInstanceOf(RateLimitError)
+    expect((err as Error).message).toMatch(/429/)
+    expect(((err as Error).cause as Error).message).toBe('HTTP 429 Too Many Requests')
+  }
+  expect(calls()).toBe(3) // initial attempt + 2 retries - never short-circuited
+})
+
+test('a transiently rate-limited adapter that recovers within the retry budget never surfaces a RateLimitError', async () => {
+  const { adapter, calls } = flaky(1, 'HTTP 429 Too Many Requests')
+  const res = await invokeWithRetry(adapter, { prompt: 'p' }, { sleep: async () => {} })
+  expect(res.output).toBe('ok')
+  expect(calls()).toBe(2)
+})
+
+test('auth shapes keep InfraError precedence even when the text also mentions a rate limit', async () => {
+  const { adapter } = flaky(5, 'HTTP 401 unauthorized (rate limit info unavailable)')
+  await expect(invokeWithRetry(adapter, { prompt: 'p' }, { sleep: async () => {} }))
+    .rejects.toThrow(InfraError)
 })
 
 test('forwards onChunk straight through to the adapter on every attempt', async () => {

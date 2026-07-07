@@ -52,6 +52,29 @@ export function validateGraph(def: LoopDef): string[] {
     if (n.role === 'tester' && !n.run) errors.push(`tester "${n.id}" has no run command`)
   }
 
+  // AgentDef.fallback is only ever consulted after a rate-limit failure
+  // (see engine/nodes.ts), so a typo'd key or an a->b->a loop would stay
+  // invisible until the exact moment a provider throttles a long overnight
+  // run - the worst possible time to discover a config error. Checked here,
+  // where every other reference (after/of/agent) is already checked.
+  for (const [key, agent] of Object.entries(def.agents)) {
+    if (agent.fallback === undefined) continue
+    if (!def.agents[agent.fallback]) {
+      errors.push(`agent "${key}": fallback references unknown agent "${agent.fallback}"`)
+      continue
+    }
+    const chain = [key]
+    let next: string | undefined = agent.fallback
+    while (next !== undefined && def.agents[next] !== undefined) {
+      if (chain.includes(next)) {
+        errors.push(`agent "${key}": fallback chain cycles (${[...chain, next].join(' -> ')})`)
+        break
+      }
+      chain.push(next)
+      next = def.agents[next].fallback
+    }
+  }
+
   try {
     topoLayers(def.nodes)
   } catch {

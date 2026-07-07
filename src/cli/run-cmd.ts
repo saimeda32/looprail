@@ -362,10 +362,14 @@ export function agentCostBreakdown(def: LoopDef, journalPath: string): [string, 
   const byAgent = new Map<string, number>()
   for (const e of readJournal(journalPath)) {
     if (e.type !== 'node_end') continue
-    const d = e.data as { nodeId?: unknown; costUsd?: unknown }
+    const d = e.data as { nodeId?: unknown; costUsd?: unknown; agent?: unknown }
     const baseId = String(d.nodeId ?? '').split('@')[0]
     const node = def.nodes.find((n) => n.id === baseId)
-    const key = node?.agent ?? `(${node?.role ?? 'unknown'})`
+    // The event's own agent (when journaled) wins over the loopfile's
+    // node.agent: rate-limit failover (see engine/nodes.ts) can serve a node
+    // with a different agent than the one configured, and cost must follow
+    // the agent that actually spent it, not the one that was asked first.
+    const key = typeof d.agent === 'string' ? d.agent : (node?.agent ?? `(${node?.role ?? 'unknown'})`)
     byAgent.set(key, (byAgent.get(key) ?? 0) + Number(d.costUsd ?? 0))
   }
   return [...byAgent.entries()]
@@ -383,11 +387,12 @@ export function agentEstimatedCostBreakdown(def: LoopDef, journalPath: string): 
   const byAgent = new Map<string, number>()
   for (const e of readJournal(journalPath)) {
     if (e.type !== 'node_end') continue
-    const d = e.data as { nodeId?: unknown; estimatedCostUsd?: unknown }
+    const d = e.data as { nodeId?: unknown; estimatedCostUsd?: unknown; agent?: unknown }
     if (d.estimatedCostUsd === undefined || d.estimatedCostUsd === null) continue
     const baseId = String(d.nodeId ?? '').split('@')[0]
     const node = def.nodes.find((n) => n.id === baseId)
-    const key = node?.agent ?? `(${node?.role ?? 'unknown'})`
+    // Same failover-aware attribution as agentCostBreakdown above.
+    const key = typeof d.agent === 'string' ? d.agent : (node?.agent ?? `(${node?.role ?? 'unknown'})`)
     byAgent.set(key, (byAgent.get(key) ?? 0) + Number(d.estimatedCostUsd))
   }
   return [...byAgent.entries()]
