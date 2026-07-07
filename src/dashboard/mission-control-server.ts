@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path'
 import { expandPanels, parseLoopfile, validateGraph, type LoopDef } from '../index.js'
 import { loadRunLoopDef } from '../journal/loopfile-persist.js'
 import {
-  discoverClaudeCodeSessions, discoverRuns, runsRootOf, workspaceHash,
+  discoverAgentSessions, discoverRuns, runsRootOf, workspaceHash,
   type RunListEntry, type SessionEntry,
 } from '../workspace/discover.js'
 import { defaultRegistryPath, listWorkspaces } from '../workspace/registry.js'
@@ -123,7 +123,7 @@ export function startMissionControlServer(opts: MissionControlServerOptions = {}
   const registryPath = opts.registryPath ?? defaultRegistryPath()
   const scan = opts.scan ?? (() => ({
     runs: discoverRuns(listWorkspaces(registryPath)),
-    sessions: discoverClaudeCodeSessions(listWorkspaces(registryPath)),
+    sessions: discoverAgentSessions(listWorkspaces(registryPath)),
   }))
 
   const server = createServer((req, res) => {

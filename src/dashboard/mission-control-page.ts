@@ -136,6 +136,12 @@ export function buildMissionControlPage(): string {
     margin-bottom: 18px;
   }
   #needs-grid .run-card { border-color: rgba(232,196,104,0.4); }
+  .show-all-btn {
+    grid-column: 1 / -1; padding: 9px; font: 11px var(--mono); cursor: pointer;
+    background: var(--panel); border: 1px dashed var(--line-bright); border-radius: 3px;
+    color: var(--ink-dim); transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .show-all-btn:hover { color: var(--ink); border-color: var(--signal-dim); }
   @keyframes pulse-dot { 50% { opacity: 0.35; } }
   .run-card .agents { font-size: 11.5px; color: var(--ink-dim); margin-bottom: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .run-card .stats { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
@@ -168,6 +174,10 @@ export function buildMissionControlPage(): string {
   }
   .session-card .workspace { font-size: 12px; color: var(--ink-dim); margin-bottom: 2px; }
   .session-card .session-id { font: 11px var(--mono); color: var(--ink-faint); margin-bottom: 4px; }
+  .session-badge.tool-claude-code { color: #c98a4b; border-color: rgba(201,138,75,0.4); }
+  .session-badge.tool-copilot-cli { color: #7fa66b; border-color: rgba(127,166,107,0.4); }
+  .session-badge.tool-codex { color: #6b9fa6; border-color: rgba(107,159,166,0.4); }
+  .session-badge.tool-aider { color: #a66b9f; border-color: rgba(166,107,159,0.4); }
   .session-card .meta { font: 11px var(--mono); color: var(--ink-faint); }
   @media (prefers-reduced-motion: reduce) {
     .status-running::before { animation: none !important; }
@@ -216,6 +226,7 @@ export function buildMissionControlPage(): string {
 </footer>
 <script>
 (function () {
+  var showAllRuns = false;
   var STATUS_CLASS = { running: 'status-running', verified: 'status-verified', halted: 'status-halted', canceled: 'status-canceled', parked: 'status-parked', stale: 'status-stale' };
 
   function el(tag, className, text) {
@@ -424,7 +435,21 @@ export function buildMissionControlPage(): string {
     needsHead.style.display = needs.length ? 'flex' : 'none';
     needsHead.textContent = needs.length ? 'Needs you (' + needs.length + ')' : '';
     needs.forEach(function (r) { needsGrid.appendChild(runCard(r)); });
-    rest.forEach(function (r) { grid.appendChild(runCard(r)); });
+    // The history wall: two rows by default, the rest behind one click -
+    // 50 uniform finished-run tiles drowned the page (audit MC-6).
+    var CAP = 8;
+    var shown = showAllRuns ? rest : rest.slice(0, CAP);
+    shown.forEach(function (r) { grid.appendChild(runCard(r)); });
+    if (rest.length > CAP) {
+      var toggle = el('button', 'show-all-btn',
+        showAllRuns ? 'Show fewer' : 'Show all ' + rest.length + ' runs');
+      toggle.type = 'button';
+      toggle.addEventListener('click', function () {
+        showAllRuns = !showAllRuns;
+        renderRuns(lastRuns);
+      });
+      grid.appendChild(toggle);
+    }
   }
 
   function minutesAgo(ts) {
@@ -434,10 +459,25 @@ export function buildMissionControlPage(): string {
 
   function sessionCard(session) {
     var div = el('div', 'session-card');
-    div.appendChild(el('span', 'session-badge', 'session'));
+    div.appendChild(el('span', 'session-badge tool-' + (session.tool || 'claude-code'), session.tool || 'claude-code'));
     div.appendChild(el('div', 'workspace', session.workspaceName));
-    div.appendChild(el('div', 'session-id', session.sessionId.length > 8 ? session.sessionId.slice(0, 8) + '…' : session.sessionId));
+    div.appendChild(el('div', 'session-id', session.sessionId.length > 8 ? session.sessionId.slice(0, 8) + '\u2026' : session.sessionId));
     div.appendChild(el('div', 'meta', 'active ' + minutesAgo(session.lastActiveAt) + 'm ago'));
+    // The one useful click for an external session looprail doesn't own:
+    // copy the tool's own resume command to pick it up in a terminal.
+    if (session.resumeCommand) {
+      div.title = 'click to copy: ' + session.resumeCommand;
+      div.style.cursor = 'pointer';
+      div.addEventListener('click', function () {
+        var done = function () {
+          var meta = div.querySelector('.meta');
+          if (meta) { meta.textContent = 'copied: ' + session.resumeCommand; }
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(session.resumeCommand).then(done, done);
+        } else { done(); }
+      });
+    }
     return div;
   }
 
@@ -449,7 +489,7 @@ export function buildMissionControlPage(): string {
       section.style.display = 'none';
       return;
     }
-    document.getElementById('sessions-heading').textContent = 'Recent Claude Code activity (' + sessions.length + ')';
+    document.getElementById('sessions-heading').textContent = 'Recent agent activity (' + sessions.length + ')';
     section.style.display = 'block';
     sessions.forEach(function (s) { grid.appendChild(sessionCard(s)); });
   }

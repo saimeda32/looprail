@@ -189,6 +189,13 @@ export interface SessionEntry {
   workspaceName: string
   sessionId: string
   lastActiveAt: number
+  // Which agent CLI the session belongs to - looprail is vendor-neutral,
+  // and "recent agent activity" that only ever saw one vendor's sessions
+  // (the original claude-code-only scan) undersold every mixed setup.
+  tool: 'claude-code' | 'copilot-cli' | 'codex' | 'aider'
+  // Best-effort resume hint ("claude --resume <id>") the card offers for
+  // copying - empty when the tool has no known session-resume command.
+  resumeCommand?: string
 }
 
 // Best-effort match of Claude Code's own project-directory naming scheme,
@@ -236,11 +243,14 @@ export function discoverClaudeCodeSessions(
           if (!file.endsWith('.jsonl')) continue
           const mtimeMs = statSync(join(projectDir, file)).mtimeMs
           if (mtimeMs < cutoff) continue
+          const sessionId = file.slice(0, -'.jsonl'.length)
           entries.push({
             workspace,
             workspaceName: basename(workspace),
-            sessionId: file.slice(0, -'.jsonl'.length),
+            sessionId,
             lastActiveAt: mtimeMs,
+            tool: 'claude-code',
+            resumeCommand: `claude --resume ${sessionId}`,
           })
         } catch (err) {
           // A single file's statSync throwing (e.g. a TOCTOU deletion between
@@ -254,4 +264,149 @@ export function discoverClaudeCodeSessions(
     }
   }
   return entries.sort((a, b) => b.lastActiveAt - a.lastActiveAt)
+}
+
+// Copilot CLI keeps one directory per session under
+// ~/.copilot/session-state/<uuid>/, with a workspace.yaml carrying `id:`
+// and `cwd:` lines and an events.jsonl whose mtime tracks activity
+// (verified live on this machine, not inferred). Only sessions whose cwd
+// falls inside a registered workspace are surfaced - same privacy posture
+// as the Claude scan: filenames, two yaml header lines, and mtimes; never
+// transcript content.
+export function discoverCopilotSessions(
+  workspaces: string[],
+  opts?: { homedir?: string, now?: () => number, recencyMs?: number },
+): SessionEntry[] {
+  const homedir = opts?.homedir ?? osHomedir()
+  const now = (opts?.now ?? Date.now)()
+  const cutoff = now - (opts?.recencyMs ?? 15 * 60 * 1000)
+  const root = join(homedir, '.copilot', 'session-state')
+  const entries: SessionEntry[] = []
+  const workspaceOf = (cwd: string): string | undefined =>
+    workspaces.find((w) => cwd === w || cwd.startsWith(w.endsWith('/') ? w : w + '/'))
+  try {
+    if (!existsSync(root)) return []
+    for (const dir of readdirSync(root)) {
+      try {
+        const yamlPath = join(root, dir, 'workspace.yaml')
+        if (!existsSync(yamlPath)) continue
+        // two header lines only - never the goal/name content below them
+        const head = readFileSync(yamlPath, 'utf8').slice(0, 2048)
+        const cwd = /^cwd:\s*(.+)$/m.exec(head)?.[1]?.trim()
+        if (!cwd) continue
+        const workspace = workspaceOf(cwd)
+        if (!workspace) continue
+        const eventsPath = join(root, dir, 'events.jsonl')
+        const mtimeMs = statSync(existsSync(eventsPath) ? eventsPath : join(root, dir)).mtimeMs
+        if (mtimeMs < cutoff) continue
+        entries.push({
+          workspace,
+          workspaceName: basename(workspace),
+          sessionId: dir,
+          lastActiveAt: mtimeMs,
+          tool: 'copilot-cli',
+          resumeCommand: `copilot --resume ${dir}`,
+        })
+      } catch (err) {
+        console.error(`discoverCopilotSessions: skipping unreadable session ${dir}`, err)
+      }
+    }
+  } catch (err) {
+    console.error('discoverCopilotSessions: skipping unreadable session store', err)
+  }
+  return entries.sort((a, b) => b.lastActiveAt - a.lastActiveAt)
+}
+
+// Codex stores rollout files under ~/.codex/sessions/YYYY/MM/DD/
+// rollout-<ts>-<id>.jsonl, whose first line's session_meta carries the cwd.
+// Only the first 4KB is read to find it - transcript content stays unread.
+export function discoverCodexSessions(
+  workspaces: string[],
+  opts?: { homedir?: string, now?: () => number, recencyMs?: number },
+): SessionEntry[] {
+  const homedir = opts?.homedir ?? osHomedir()
+  const now = (opts?.now ?? Date.now)()
+  const cutoff = now - (opts?.recencyMs ?? 15 * 60 * 1000)
+  const root = join(homedir, '.codex', 'sessions')
+  const entries: SessionEntry[] = []
+  const workspaceOf = (cwd: string): string | undefined =>
+    workspaces.find((w) => cwd === w || cwd.startsWith(w.endsWith('/') ? w : w + '/'))
+  const walk = (dir: string, depth: number): void => {
+    if (depth > 4) return
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name)
+      try {
+        const st = statSync(p)
+        if (st.isDirectory()) { walk(p, depth + 1); continue }
+        if (!name.startsWith('rollout-') || !name.endsWith('.jsonl')) continue
+        if (st.mtimeMs < cutoff) continue
+        const head = readFileSync(p, 'utf8').slice(0, 4096)
+        const cwd = /"cwd"\s*:\s*"([^"]+)"/.exec(head)?.[1]
+        if (!cwd) continue
+        const workspace = workspaceOf(cwd)
+        if (!workspace) continue
+        const sessionId = name.slice('rollout-'.length, -'.jsonl'.length)
+        entries.push({
+          workspace,
+          workspaceName: basename(workspace),
+          sessionId,
+          lastActiveAt: st.mtimeMs,
+          tool: 'codex',
+          resumeCommand: 'codex resume --last',
+        })
+      } catch (err) {
+        console.error(`discoverCodexSessions: skipping unreadable entry ${p}`, err)
+      }
+    }
+  }
+  try {
+    if (existsSync(root)) walk(root, 0)
+  } catch (err) {
+    console.error('discoverCodexSessions: skipping unreadable session store', err)
+  }
+  return entries.sort((a, b) => b.lastActiveAt - a.lastActiveAt)
+}
+
+// Aider has no session store - it keeps one rolling .aider.chat.history.md
+// per repo, IN the repo. Its mtime is the whole signal.
+export function discoverAiderSessions(
+  workspaces: string[],
+  opts?: { now?: () => number, recencyMs?: number },
+): SessionEntry[] {
+  const now = (opts?.now ?? Date.now)()
+  const cutoff = now - (opts?.recencyMs ?? 15 * 60 * 1000)
+  const entries: SessionEntry[] = []
+  for (const workspace of workspaces) {
+    try {
+      const historyPath = join(workspace, '.aider.chat.history.md')
+      if (!existsSync(historyPath)) continue
+      const mtimeMs = statSync(historyPath).mtimeMs
+      if (mtimeMs < cutoff) continue
+      entries.push({
+        workspace,
+        workspaceName: basename(workspace),
+        sessionId: 'aider',
+        lastActiveAt: mtimeMs,
+        tool: 'aider',
+        resumeCommand: 'aider --restore-chat-history',
+      })
+    } catch (err) {
+      console.error(`discoverAiderSessions: skipping unreadable workspace ${workspace}`, err)
+    }
+  }
+  return entries.sort((a, b) => b.lastActiveAt - a.lastActiveAt)
+}
+
+// The one aggregator mission control calls: every supported agent CLI's
+// sessions, newest first.
+export function discoverAgentSessions(
+  workspaces: string[],
+  opts?: { homedir?: string, now?: () => number, recencyMs?: number },
+): SessionEntry[] {
+  return [
+    ...discoverClaudeCodeSessions(workspaces, opts),
+    ...discoverCopilotSessions(workspaces, opts),
+    ...discoverCodexSessions(workspaces, opts),
+    ...discoverAiderSessions(workspaces, opts),
+  ].sort((a, b) => b.lastActiveAt - a.lastActiveAt)
 }

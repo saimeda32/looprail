@@ -400,3 +400,60 @@ test('discoverClaudeCodeSessions never reads file content - a corrupt jsonl file
   expect(sessions).toHaveLength(1)
   expect(sessions[0].sessionId).toBe('broken-session')
 })
+
+
+// Multi-tool session discovery: looprail is vendor-neutral, and "recent
+// agent activity" that only ever saw claude-code sessions undersold every
+// mixed setup. Each scanner reads filenames/headers/mtimes only.
+test('discoverCopilotSessions surfaces a copilot session whose cwd is inside a registered workspace, and skips outsiders', async () => {
+  const { discoverCopilotSessions } = await import('./discover.js')
+  const home = mkdtempSync(join(tmpdir(), 'lr-home-'))
+  const workspace = mkdtempSync(join(tmpdir(), 'lr-ws-'))
+  const inDir = join(home, '.copilot', 'session-state', 'abc-123')
+  const outDir = join(home, '.copilot', 'session-state', 'def-456')
+  mkdirSync(inDir, { recursive: true })
+  mkdirSync(outDir, { recursive: true })
+  writeFileSync(join(inDir, 'workspace.yaml'), 'id: abc-123\ncwd: ' + workspace + '\n')
+  writeFileSync(join(inDir, 'events.jsonl'), '{}\n')
+  writeFileSync(join(outDir, 'workspace.yaml'), 'id: def-456\ncwd: /somewhere/else\n')
+  const sessions = discoverCopilotSessions([workspace], { homedir: home })
+  expect(sessions).toHaveLength(1)
+  expect(sessions[0]).toMatchObject({
+    sessionId: 'abc-123', tool: 'copilot-cli', resumeCommand: 'copilot --resume abc-123',
+  })
+})
+
+test('discoverAiderSessions reads the per-repo history file mtime', async () => {
+  const { discoverAiderSessions } = await import('./discover.js')
+  const workspace = mkdtempSync(join(tmpdir(), 'lr-ws-'))
+  writeFileSync(join(workspace, '.aider.chat.history.md'), '# chat\n')
+  const sessions = discoverAiderSessions([workspace])
+  expect(sessions).toHaveLength(1)
+  expect(sessions[0].tool).toBe('aider')
+})
+
+test('discoverCodexSessions finds a rollout file by its embedded cwd', async () => {
+  const { discoverCodexSessions } = await import('./discover.js')
+  const home = mkdtempSync(join(tmpdir(), 'lr-home-'))
+  const workspace = mkdtempSync(join(tmpdir(), 'lr-ws-'))
+  const day = join(home, '.codex', 'sessions', '2026', '07', '06')
+  mkdirSync(day, { recursive: true })
+  writeFileSync(join(day, 'rollout-2026-07-06-xyz.jsonl'),
+    JSON.stringify({ type: 'session_meta', payload: { cwd: workspace } }) + '\n')
+  const sessions = discoverCodexSessions([workspace], { homedir: home })
+  expect(sessions).toHaveLength(1)
+  expect(sessions[0]).toMatchObject({ tool: 'codex', sessionId: '2026-07-06-xyz' })
+})
+
+test('discoverAgentSessions merges every tool, newest first', async () => {
+  const { discoverAgentSessions } = await import('./discover.js')
+  const home = mkdtempSync(join(tmpdir(), 'lr-home-'))
+  const workspace = mkdtempSync(join(tmpdir(), 'lr-ws-'))
+  writeFileSync(join(workspace, '.aider.chat.history.md'), '# chat\n')
+  const copilotDir = join(home, '.copilot', 'session-state', 's1')
+  mkdirSync(copilotDir, { recursive: true })
+  writeFileSync(join(copilotDir, 'workspace.yaml'), 'id: s1\ncwd: ' + workspace + '\n')
+  writeFileSync(join(copilotDir, 'events.jsonl'), '{}\n')
+  const sessions = discoverAgentSessions([workspace], { homedir: home })
+  expect(sessions.map((s) => s.tool).sort()).toEqual(['aider', 'copilot-cli'])
+})
