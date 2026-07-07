@@ -95,7 +95,12 @@ export function makeGate(
         ? timerDeps.gateTimer(timeoutSec * 1000, message)
         : new Promise<never>((_, reject) => {
             timeoutId = setTimeout(() => reject(new Error(message)), timeoutSec * 1000)
-            timeoutId.unref()
+            // Deliberately NOT unref'd - real bug caught live: while a gate
+            // waits, this timer can be the process's ONLY pending work (stdin
+            // at EOF in a headless queue/cron run). unref'd, the event loop
+            // drains and the process exits cleanly MID-GATE - no park, no halt
+            // event, an orphaned pid, and the caller reads it as success. It is
+            // cleared the moment the gate settles, so it never outlives the call.
           })
       // when the timer wins, abort the still-pending question so it settles;
       // swallow both losers' rejections so neither surfaces as an unhandled one
@@ -267,7 +272,12 @@ export function makeUiGate(
           ? timerDeps.gateTimer(timeoutSec * 1000, message)
           : new Promise<never>((_, reject) => {
               timeoutId = setTimeout(() => reject(new Error(message)), timeoutSec * 1000)
-              timeoutId.unref()
+              // Deliberately NOT unref'd - real bug caught live: while a gate
+              // waits, this timer can be the process's ONLY pending work (stdin
+              // at EOF in a headless queue/cron run). unref'd, the event loop
+              // drains and the process exits cleanly MID-GATE - no park, no halt
+              // event, an orphaned pid, and the caller reads it as success. It is
+              // cleared the moment the gate settles, so it never outlives the call.
             })
         // when the timer wins, abort the still-pending stdin question so it
         // settles; swallow the loser's rejection so it never surfaces as unhandled
@@ -338,7 +348,12 @@ export function makeDetachedGate(
           ? timerDeps.gateTimer(timeoutSec * 1000, message)
           : new Promise<never>((_, reject) => {
               timeoutId = setTimeout(() => reject(new Error(message)), timeoutSec * 1000)
-              timeoutId.unref()
+              // Deliberately NOT unref'd - real bug caught live: while a gate
+              // waits, this timer can be the process's ONLY pending work (stdin
+              // at EOF in a headless queue/cron run). unref'd, the event loop
+              // drains and the process exits cleanly MID-GATE - no park, no halt
+              // event, an orphaned pid, and the caller reads it as success. It is
+              // cleared the moment the gate settles, so it never outlives the call.
             })
         timer.catch(() => {
           ac.abort()

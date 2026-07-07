@@ -40,9 +40,10 @@ export function buildMissionControlPage(): string {
   body {
     margin: 0; font: 14px/1.5 var(--sans); color: var(--ink);
     background-image:
-      linear-gradient(var(--line) 1px, transparent 1px),
-      linear-gradient(90deg, var(--line) 1px, transparent 1px);
-    background-size: 48px 48px; background-position: -1px -1px;
+      radial-gradient(1200px 600px at 50% -100px, rgba(232,196,104,0.05), transparent 60%),
+      linear-gradient(rgba(50,45,38,0.55) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(50,45,38,0.55) 1px, transparent 1px);
+    background-size: auto, 48px 48px, 48px 48px; background-position: 0 0, -1px -1px, -1px -1px;
     display: flex; flex-direction: column; min-height: 100vh;
   }
   a { color: inherit; }
@@ -67,13 +68,22 @@ export function buildMissionControlPage(): string {
   .wordmark .dot { width: 7px; height: 7px; border-radius: 1px; background: var(--signal); box-shadow: 0 0 8px 1px rgba(232,196,104,0.55); animation: pulse-dot 2.4s ease-in-out infinite; }
   #run-count { font: 12px var(--mono); color: var(--ink-dim); }
 
-  .usage-strip { display: flex; align-items: center; justify-content: space-between; gap: 28px; flex-wrap: wrap; padding: 14px 18px; margin-bottom: 24px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel); }
-  .usage-figures { display: flex; gap: 28px; flex-wrap: wrap; }
-  .usage-item { display: flex; flex-direction: column; gap: 2px; }
-  .usage-item .label { font: 600 10px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-dim); }
-  .usage-item .value { font: 15px var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); }
+  .usage-strip {
+    display: flex; align-items: stretch; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+    padding: 0; margin-bottom: 28px; border: 1px solid var(--line); border-radius: 4px;
+    background: linear-gradient(180deg, var(--panel-raised), var(--panel));
+    box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 8px 24px rgba(0,0,0,0.35);
+    overflow: hidden;
+  }
+  .usage-figures { display: flex; flex-wrap: wrap; flex: 1; }
+  .usage-item {
+    display: flex; flex-direction: column; gap: 3px; justify-content: center;
+    padding: 14px 22px; border-right: 1px solid var(--line); min-width: 96px;
+  }
+  .usage-item .label { font: 600 9px var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); }
+  .usage-item .value { font: 17px var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); }
+  .range-picker { display: flex; gap: 4px; align-items: center; padding: 0 16px; }
 
-  .range-picker { display: flex; gap: 4px; }
   .range-btn { font: 11px var(--mono); padding: 5px 10px; border-radius: 3px; border: 1px solid var(--line); background: var(--panel-raised); color: var(--ink-dim); cursor: pointer; }
   .range-btn:hover { color: var(--ink); }
   .range-btn.active { color: var(--signal); border-color: rgba(232,196,104,0.4); background: rgba(232,196,104,0.1); }
@@ -82,29 +92,62 @@ export function buildMissionControlPage(): string {
   .section-head h2 { font-family: var(--sans); font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-dim); margin: 0; }
 
   main { }
-  #grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px;
+  #grid, #needs-grid, #running-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px;
   }
+  /* Card anatomy - identical slots on every card so the board reads as a
+     designed system, not a pile: status rail | name+pill | reason? | goal
+     (fixed 2-line box) | 4-slot labeled stats | footer. The status is
+     encoded twice on purpose: the pill names it, the left rail makes a
+     wall of cards scannable by color alone. */
   .run-card {
-    display: block; padding: 14px 16px; border-radius: 3px; background: var(--panel);
+    position: relative; display: flex; flex-direction: column; gap: 8px;
+    padding: 13px 16px 11px 18px; border-radius: 4px;
+    background: linear-gradient(180deg, var(--panel-raised), var(--panel) 70%);
     border: 1px solid var(--line); text-decoration: none; color: inherit;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.02) inset, 0 2px 10px rgba(0,0,0,0.25);
     transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+    overflow: hidden;
   }
+  .run-card::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--rail, var(--line-bright));
+  }
+  .run-card.rail-running { --rail: var(--signal); }
+  .run-card.rail-verified { --rail: var(--pass); }
+  .run-card.rail-halted { --rail: var(--warn); }
+  .run-card.rail-canceled, .run-card.rail-stale { --rail: var(--ink-faint); }
+  .run-card.rail-parked, .run-card.rail-gate { --rail: var(--signal); }
   .run-card:hover, .run-card:focus-visible {
-    border-color: var(--line-bright); transform: translateY(-1px);
-    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+    border-color: var(--line-bright); transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.45);
   }
-  .run-card .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px; gap: 8px; }
-  .run-card .name { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .run-card .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .run-card .name { font: 600 13.5px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .run-card .goal {
-    font-size: 11.5px; color: var(--ink-dim); line-height: 1.4; margin-bottom: 8px;
+    font-size: 11.5px; color: var(--ink-dim); line-height: 1.45;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    min-height: calc(2 * 1.45 * 11.5px);
   }
-  .run-card .workspace { font: 10.5px var(--mono); color: var(--ink-faint); margin-bottom: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .run-card .reason {
-    font-size: 11px; line-height: 1.4; margin: -1px 0 8px;
+    font-size: 11px; line-height: 1.4;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  .run-card .stats {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
+    border-top: 1px solid var(--line); padding-top: 8px; margin-top: auto;
+  }
+  .run-card .stat { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .run-card .stat-label { font: 600 8.5px var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); }
+  .run-card .stat-value { font: 12px var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .run-card .stat-value .of { color: var(--ink-faint); }
+  .run-card .stat.wall-over .stat-value { color: var(--fail); }
+  .run-card .card-footer {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    font: 10px var(--mono); color: var(--ink-faint);
+  }
+  .run-card .card-footer .ws { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .run-card .card-footer .when { flex-shrink: 0; }
   .run-card .reason.reason-halted { color: var(--warn); }
   .run-card .reason.reason-canceled { color: var(--ink-dim); }
   .status-pill {
@@ -131,11 +174,14 @@ export function buildMissionControlPage(): string {
     color: var(--signal); margin: 4px 0 8px; display: flex; align-items: center; gap: 8px;
   }
   .needs-head::after { content: ''; flex: 1; height: 1px; background: rgba(232,196,104,0.25); }
-  #needs-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px;
-    margin-bottom: 18px;
-  }
+  #needs-grid { margin-bottom: 22px; }
   #needs-grid .run-card { border-color: rgba(232,196,104,0.4); }
+  #running-grid { margin-bottom: 22px; }
+  .board-head {
+    font: 600 10.5px var(--sans); letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--ink-dim); margin: 4px 0 10px; display: flex; align-items: center; gap: 10px;
+  }
+  .board-head::after { content: ''; flex: 1; height: 1px; background: var(--line); }
   .show-all-btn {
     grid-column: 1 / -1; padding: 9px; font: 11px var(--mono); cursor: pointer;
     background: var(--panel); border: 1px dashed var(--line-bright); border-radius: 3px;
@@ -207,6 +253,9 @@ export function buildMissionControlPage(): string {
     <div id="empty-state" style="display:none"></div>
     <div class="needs-head" id="needs-head" style="display:none">Needs you</div>
     <div id="needs-grid"></div>
+    <div class="board-head" id="running-head" style="display:none">Running</div>
+    <div id="running-grid"></div>
+    <div class="board-head" id="history-head" style="display:none">History</div>
     <div id="grid"></div>
     <section id="sessions-section" style="display:none">
       <details id="sessions-details">
@@ -266,7 +315,7 @@ export function buildMissionControlPage(): string {
   }
 
   function runCard(run) {
-    var a = el('a', 'run-card');
+    var a = el('a', 'run-card rail-' + (run.awaitingGate ? 'gate' : (run.status || 'running')));
     a.href = '/run/' + run.workspaceHash + '/' + run.runId + '/';
     var top = el('div', 'top');
     top.appendChild(el('span', 'name', run.name || run.runId));
@@ -280,57 +329,52 @@ export function buildMissionControlPage(): string {
       a.appendChild(reasonEl);
     }
     if (run.goal) a.appendChild(el('div', 'goal', run.goal));
-    a.appendChild(el('div', 'workspace', run.workspaceName));
     if (run.agents.length) a.appendChild(el('div', 'agents', run.agents.join(', ')));
+    // A fixed four-slot labeled grid - the previous unlabeled flex-wrap
+    // line broke differently on every card (one row here, two rows there,
+    // figures changing meaning by position), which made the whole board
+    // read as random. Same slots, same order, every card; a missing value
+    // is a dash, never a collapsed cell.
     var stats = el('div', 'stats');
-    var iter = el('span', 'num');
-    iter.innerHTML = 'iter <b>' + run.iteration + '</b>';
-    stats.appendChild(iter);
-    var cost = el('span', 'num');
+    function stat(label, valueHtml, extraClass, valueId) {
+      var cell = el('div', 'stat' + (extraClass ? ' ' + extraClass : ''));
+      cell.appendChild(el('span', 'stat-label', label));
+      var v = el('span', 'stat-value');
+      v.innerHTML = valueHtml;
+      if (valueId) v.id = valueId;
+      cell.appendChild(v);
+      return cell;
+    }
+    stats.appendChild(stat('iter', String(run.iteration)));
+    var costHtml;
     // Adapters that can't report a real dollar figure (copilot-cli, codex,
-    // aider) still leave costUsd at 0 forever - showing that bare "$0.00"
-    // is misleading when the run plainly spent real tokens by estimate.
-    // Match the single-run dashboard's Spend-by-Agent convention (page.ts's
-    // renderAgentTable): the real, adapter-reported costUsd is always
-    // authoritative when nonzero, with the estimate appended in parens; but
-    // when costUsd is 0 and there IS a nonzero estimate, promote the
-    // estimate itself to the primary figure instead of showing a flat $0.00.
+    // aider) leave costUsd at 0 forever - a bare "$0.00" is misleading when
+    // the run plainly spent tokens. Promote the estimate (with ~) when it
+    // is all there is; real cost stays authoritative otherwise.
     if (run.costUsd > 0) {
-      cost.innerHTML = '$<b>' + run.costUsd.toFixed(2) + '</b>' +
-        (run.estimatedCostUsd ? ' (~$' + run.estimatedCostUsd.toFixed(2) + ' est)' : '');
+      costHtml = '$' + run.costUsd.toFixed(2);
     } else if (run.estimatedCostUsd > 0) {
-      cost.innerHTML = '~$<b>' + run.estimatedCostUsd.toFixed(2) + '</b> est';
+      costHtml = '~$' + run.estimatedCostUsd.toFixed(2);
     } else {
-      cost.innerHTML = '$<b>' + run.costUsd.toFixed(2) + '</b>';
+      costHtml = '$0.00';
     }
-    stats.appendChild(cost);
-    if (typeof run.tokens === 'number') {
-      var tok = el('span', 'num');
-      tok.innerHTML = '<b>' + formatTokens(run.tokens) + '</b> tok';
-      stats.appendChild(tok);
-    }
-    // A no-meter, text-only reading (matching this tile's existing .num
-    // treatment) rather than a full proportional meter bar, flagged with
-    // the wall-over class when the budget is blown so an overshoot reads
-    // at a glance.
+    stats.appendChild(stat('cost', costHtml));
+    stats.appendChild(stat('tokens', typeof run.tokens === 'number' ? formatTokens(run.tokens) : '\u2013'));
     var wallMs = elapsedMs(run);
     if (wallMs !== null) {
-      var wall = el('span', 'num');
-      wall.id = 'wall-' + run.workspaceHash + '-' + run.runId;
-      if (typeof run.maxWallMinutes === 'number') {
-        var wallMinutes = wallMs / 60000;
-        var overBudget = wallMinutes > run.maxWallMinutes;
-        wall.className = 'num' + (overBudget ? ' wall-over' : '');
-        wall.innerHTML = '<b>' + formatDuration(wallMs) + '</b> / ' + run.maxWallMinutes + 'm';
-      } else {
-        wall.innerHTML = '<b>' + formatDuration(wallMs) + '</b>';
-      }
-      stats.appendChild(wall);
+      var timeHtml = formatDuration(wallMs)
+        + (typeof run.maxWallMinutes === 'number' ? '<span class="of"> / ' + run.maxWallMinutes + 'm</span>' : '');
+      var over = typeof run.maxWallMinutes === 'number' && wallMs / 60000 > run.maxWallMinutes;
+      stats.appendChild(stat('time', timeHtml, over ? 'wall-over' : undefined,
+        'wall-' + run.workspaceHash + '-' + run.runId));
+    } else {
+      stats.appendChild(stat('time', '\u2013'));
     }
     a.appendChild(stats);
-    if (run.lastEventAt) {
-      a.appendChild(el('div', 'updated', 'updated ' + new Date(run.lastEventAt).toLocaleString()));
-    }
+    var footer = el('div', 'card-footer');
+    footer.appendChild(el('span', 'ws', run.workspaceName));
+    if (run.lastEventAt) footer.appendChild(el('span', 'when', timeAgoLabel(run.lastEventAt)));
+    a.appendChild(footer);
     return a;
   }
 
@@ -424,19 +468,29 @@ export function buildMissionControlPage(): string {
       return;
     }
     empty.style.display = 'none';
-    // Triage-first: the runs that need a HUMAN - a live gate waiting, or a
-    // parked run one click from resuming - render pinned above everything
-    // else. History must never drown the present (audit MC-1).
+    // Three boards, in attention order (audit MC-1/MC-6): Needs you (a
+    // live gate, a parked run), then Running, then capped History - the
+    // present must never drown under fifty uniform finished tiles.
     var needs = visible.filter(function (r) { return r.awaitingGate || r.status === 'parked'; });
-    var rest = visible.filter(function (r) { return !(r.awaitingGate || r.status === 'parked'); });
+    var runningNow = visible.filter(function (r) { return !r.awaitingGate && r.status === 'running'; });
+    var rest = visible.filter(function (r) {
+      return !(r.awaitingGate || r.status === 'parked' || r.status === 'running');
+    });
     var needsHead = document.getElementById('needs-head');
     var needsGrid = document.getElementById('needs-grid');
     needsGrid.innerHTML = '';
     needsHead.style.display = needs.length ? 'flex' : 'none';
     needsHead.textContent = needs.length ? 'Needs you (' + needs.length + ')' : '';
     needs.forEach(function (r) { needsGrid.appendChild(runCard(r)); });
-    // The history wall: two rows by default, the rest behind one click -
-    // 50 uniform finished-run tiles drowned the page (audit MC-6).
+    var runningHead = document.getElementById('running-head');
+    var runningGrid = document.getElementById('running-grid');
+    runningGrid.innerHTML = '';
+    runningHead.style.display = runningNow.length ? 'flex' : 'none';
+    runningHead.textContent = runningNow.length ? 'Running (' + runningNow.length + ')' : '';
+    runningNow.forEach(function (r) { runningGrid.appendChild(runCard(r)); });
+    var historyHead = document.getElementById('history-head');
+    historyHead.style.display = rest.length ? 'flex' : 'none';
+    historyHead.textContent = rest.length ? 'History (' + rest.length + ')' : '';
     var CAP = 8;
     var shown = showAllRuns ? rest : rest.slice(0, CAP);
     shown.forEach(function (r) { grid.appendChild(runCard(r)); });
@@ -450,6 +504,14 @@ export function buildMissionControlPage(): string {
       });
       grid.appendChild(toggle);
     }
+  }
+
+  function timeAgoLabel(ts) {
+    var m = Math.max(0, Math.round((Date.now() - ts) / 60000));
+    if (m < 1) return 'just now';
+    if (m < 60) return m + 'm ago';
+    if (m < 60 * 24) return Math.round(m / 60) + 'h ago';
+    return Math.round(m / (60 * 24)) + 'd ago';
   }
 
   function minutesAgo(ts) {

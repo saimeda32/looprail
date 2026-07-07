@@ -155,8 +155,12 @@ function baseRun(overrides: Record<string, unknown>) {
 
 function findCostSpan(card: ReturnType<typeof makeFakeElement>) {
   const stats = card.children.find((c) => (c as { className: string }).className === 'stats') as
-    { children: { className: string, innerHTML: string }[] } | undefined
-  return stats?.children.find((c) => c.innerHTML.indexOf('$') !== -1)
+    { children: { className: string, children: { className: string, innerHTML: string }[] }[] } | undefined
+  for (const cell of stats?.children ?? []) {
+    const value = cell.children?.find((ch) => ch.className === 'stat-value')
+    if (value && value.innerHTML.indexOf('$') !== -1) return value
+  }
+  return undefined
 }
 
 test('a run tile with costUsd 0 and a nonzero estimate shows the estimate prominently, not a flat $0.00', () => {
@@ -164,31 +168,30 @@ test('a run tile with costUsd 0 and a nonzero estimate shows the estimate promin
   const card = runCard(baseRun({ costUsd: 0, estimatedCostUsd: 0.42 }))
   const cost = findCostSpan(card)
   expect(cost).toBeDefined()
-  expect(cost!.innerHTML).toContain('0.42')
-  expect(cost!.innerHTML).toContain('est')
-  expect(cost!.innerHTML).not.toBe('$<b>0.00</b>')
+  expect(cost!.innerHTML).toBe('~$0.42')
 })
 
 test('a run tile with a nonzero real costUsd still shows the real figure as primary', () => {
   const runCard = loadRunCard()
   const card = runCard(baseRun({ costUsd: 1.5, estimatedCostUsd: 0 }))
   const cost = findCostSpan(card)
-  expect(cost!.innerHTML).toBe('$<b>1.50</b>')
+  expect(cost!.innerHTML).toBe('$1.50')
 })
 
 test('a run tile with both a nonzero real costUsd and an estimate keeps the real figure primary, estimate appended', () => {
   const runCard = loadRunCard()
   const card = runCard(baseRun({ costUsd: 1.5, estimatedCostUsd: 0.3 }))
   const cost = findCostSpan(card)
-  expect(cost!.innerHTML).toContain('$<b>1.50</b>')
-  expect(cost!.innerHTML).toContain('~$0.30 est')
+  // compact fixed-slot cell: the REAL figure is the value; the estimate
+  // lives in the hover title rather than crowding the 4-slot grid
+  expect(cost!.innerHTML).toBe('$1.50')
 })
 
 test('a run tile with costUsd 0 and no estimate still shows a flat $0.00 (nothing was actually spent)', () => {
   const runCard = loadRunCard()
   const card = runCard(baseRun({ costUsd: 0, estimatedCostUsd: 0 }))
   const cost = findCostSpan(card)
-  expect(cost!.innerHTML).toBe('$<b>0.00</b>')
+  expect(cost!.innerHTML).toBe('$0.00')
 })
 
 function loadRenderUsage() {
