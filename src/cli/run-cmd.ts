@@ -22,6 +22,7 @@ import { desktopNotifier, type Notifier } from './notify.js'
 import { addWorkspace, defaultRegistryPath } from '../workspace/registry.js'
 import { loadExpandedLoopDef } from './ui-cmd.js'
 import { resumeAction } from './resume-cmd.js'
+import { previewRun, renderPreview } from './dry-run.js'
 
 export function loadLoop(file: string | undefined, cwd: string): { def: LoopDef; path: string } {
   const path = resolve(cwd, file ?? 'looprail.yaml')
@@ -734,6 +735,9 @@ export async function runAction(
   opts: {
     cwd: string; json?: boolean; yes?: boolean; ui?: boolean; port?: number
     detach?: boolean
+    // Show the execution plan (node order, per-node adapter/model, budget
+    // ceiling) and exit 0 without invoking any agent or spending anything.
+    dryRun?: boolean
     // Internal (hidden --detached-child flag): this process IS the detached
     // child - use the runId its parent already announced, take gate answers
     // via the cross-process answer file, notify on completion.
@@ -774,6 +778,17 @@ export async function runAction(
   if (findings.some((f) => f.level === 'error')) {
     io.out(err('loop failed lint - fix the errors above (details: `looprail lint`)'))
     return 1
+  }
+  // --dry-run: the loop is valid (lint passed); show exactly what WOULD run -
+  // node order, each step's resolved adapter/model, the budget ceiling - then
+  // stop. Deliberately BEFORE preflight: a preview invokes no agent, so it must
+  // work while authoring a loopfile on a machine that hasn't installed the CLIs
+  // yet. Nothing is spent.
+  if (opts.dryRun) {
+    const preview = previewRun(loaded.def)
+    if (opts.json) io.out(JSON.stringify(preview, null, 2))
+    else for (const line of renderPreview(preview)) io.out(line)
+    return 0
   }
   // Fail fast on a missing agent CLI before spending anything. Skipped only
   // when the caller supplies its own registry (tests/embedders wiring a mock
@@ -914,6 +929,7 @@ export function registerRun(program: Command): void {
     .option('--yes', 'auto-approve human gates (CI)')
     .option('--ui', 'start the local dashboard before the run begins')
     .option('-d, --detach', 'run in the background: returns immediately; watch it and answer its gates from mission control (looprail ui --all)')
+    .option('--dry-run', 'print the execution plan (node order, per-node model, budget) and exit - invokes no agent, spends nothing')
     .option('--port <n>', 'bind --ui to a fixed port (default: 4747; falls back to a free port automatically if that one is taken)', parsePort)
   // Internal plumbing for --detach's child process, never for humans: the
   // parent mints the runId and hands it down so it can print where to watch
@@ -921,7 +937,7 @@ export function registerRun(program: Command): void {
   cmd.addOption(new Option('--detached-child <runId>').hideHelp())
   cmd.action(async (
     file: string | undefined,
-    opts: { json?: boolean; yes?: boolean; ui?: boolean; port?: number; detach?: boolean; detachedChild?: string },
+    opts: { json?: boolean; yes?: boolean; ui?: boolean; port?: number; detach?: boolean; dryRun?: boolean; detachedChild?: string },
     command: Command,
   ) => {
     const { cwd } = command.optsWithGlobals<{ cwd: string }>()

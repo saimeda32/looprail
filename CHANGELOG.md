@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **`looprail run --dry-run`** - print the execution plan (dependency-ordered
+  node groups, each step's resolved adapter/model, and the budget ceiling)
+  and exit without invoking any agent or spending anything. Runs before the
+  agent-availability preflight, so you can preview a loopfile while authoring
+  it on a machine that hasn't installed the CLIs yet. `--json` emits the plan
+  structurally.
+
 ## 0.6.1
 
 Ease of use, accuracy, and cost-safety polish.

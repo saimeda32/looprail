@@ -92,6 +92,29 @@ test('verified run exits 0, renders progress and report, writes a journal', asyn
   expect(readdirSync(join(runsRoot(cwd), runs[0]))).toContain('journal.jsonl')
 })
 
+test('--dry-run prints the plan and exits 0 without running anything', async () => {
+  const { cwd, io, lines } = setup(FIXTURE)
+  const code = await runAction(undefined, { cwd, dryRun: true }, { io })
+  expect(code).toBe(0)
+  const text = lines.join('\n')
+  expect(text).toContain('Say DONE.')     // goal echoed
+  expect(text).toContain('do')             // node in the plan
+  expect(text).toContain('mock')           // resolved adapter
+  expect(text.toLowerCase()).toContain('nothing was spent')
+  // The decisive assertion: a preview invokes no agent and creates no run.
+  expect(existsSync(runsRoot(cwd))).toBe(false)
+})
+
+test('--dry-run --json emits the structured plan', async () => {
+  const { cwd, io, lines } = setup(FIXTURE)
+  const code = await runAction(undefined, { cwd, dryRun: true, json: true }, { io })
+  expect(code).toBe(0)
+  const plan = JSON.parse(lines.join('\n'))
+  expect(plan.goal).toBe('Say DONE.')
+  expect(plan.rails).toEqual({ maxIterations: 2, maxCostUsd: 1 })
+  expect(plan.layers.flat().map((n: { id: string }) => n.id).sort()).toEqual(['crit', 'do'])
+})
+
 test('a run records its own pid while active, then removes it once the run finishes', async () => {
   // A stale pid left behind after the process that owned it exits is a real
   // safety issue, not just clutter: `looprail resume`/`replay` on this same

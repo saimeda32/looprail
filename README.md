@@ -169,6 +169,7 @@ dollars, whichever comes first.
 | `looprail demo` | Run a full verified loop on the built-in mock adapter - no API key, nothing installed |
 | `looprail init` | Detect installed agents and scaffold a `looprail.yaml` |
 | `looprail run [file]` | Run the loop with live progress and a cost report |
+| `looprail run --dry-run` | Print the execution plan (node order, per-node model, budget ceiling) and exit - invokes no agent, spends nothing |
 | `looprail bench [file]` | A/B two or more named loop configs against the same task and report measured deltas (`benchmarks/`) |
 | `looprail route [file]` | Benchmark auto-generated adapter/model variants of your own loopfile and record the best mix in `.looprail/routing.json` |
 | `looprail run --ui` | Same, and open a live dashboard for this run |
