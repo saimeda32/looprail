@@ -125,6 +125,16 @@ export interface NodeDef {
   after?: string[]          // dependency node ids
   of?: string               // critic target node id
   panel?: number | string[] // fan-out: count (same agent) or one per agent key
+  // With panel, under the all-pass policy only: clone 1 runs first (the probe
+  // leader - with panel:[a,b,c] the first listed agent leads, so put the
+  // cheapest reviewer first); if it FAILS, the remaining clones are skipped,
+  // since the iteration's aggregate is already determined to be fail. Never
+  // skips on the pass path - verified still requires every clone to run and
+  // pass. See docs/superpowers/specs/2026-07-07-probe-panels-design.md.
+  probe?: boolean
+  // Internal - set by expandPanels on probe followers: the leader clone's id.
+  // The scheduler checks the leader's verdict at dispatch time.
+  probeOf?: string
   rounds?: number           // planner-critic revision rounds (critics of planner)
   // When set on a planner node, its output is parsed as a loopfile-fragment
   // (a graph: list, optionally its own agents:/rails:) instead of prose, and

@@ -365,3 +365,21 @@ graph:
   expect(tests.expect).toBe('exit 0')
   expect(tests.after).toEqual(['implement_server'])
 })
+
+test('parses probe: true on a panel node', () => {
+  const def = parseLoopfile(`
+name: t
+goal: g
+agents:
+  a: { adapter: mock }
+graph:
+  do:   { role: executor, agent: a }
+  crit: { role: critic, agent: a, of: do, after: do, panel: 3, probe: true }
+rails:
+  max_iterations: 2
+  max_cost_usd: 1
+`)
+  const crit = def.nodes.find((n) => n.id === 'crit')!
+  expect(crit.probe).toBe(true)
+  expect(crit.panel).toBe(3)
+})

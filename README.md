@@ -404,6 +404,19 @@ A critic panel with one critic per provider gives you three different blind
 spots instead of one. `looprail lint` warns when a judge uses the same model as
 the executor it is grading.
 
+Add `probe: true` to a panel to cut its cost on failing iterations: clone 1
+runs first (with `panel: [a, b, c]` the first listed agent leads, so put the
+cheapest reviewer there), and if it fails, the rest are skipped - under the
+`all-pass` policy that iteration's outcome is already decided, so the skipped
+reviews could not have changed anything. A pass is never thinned: to verify,
+every clone must still run and pass. Probe only applies under `all-pass`
+(under `quorum`/`weighted` one fail decides nothing, so the panel runs at
+full width, and `looprail lint` tells you so).
+
+```yaml
+  crit: { role: critic, of: draft, after: draft, panel: [checker, skeptic, local], probe: true }
+```
+
 Looprail doesn't drive every agent tool the same way. Claude Code, Codex,
 aider, GitHub Copilot, Gemini CLI, opencode, and Ollama each have a real
 command-line mode looprail can shell out to and parse output from, so any of

@@ -140,5 +140,23 @@ export function lintLoop(def: LoopDef): LintFinding[] {
     }
   }
 
+  // Probe (EFF-5) misconfigurations that silently do nothing: probe only has
+  // an effect on a panel node under the all-pass policy (see expandPanels in
+  // core/graph.ts). Both are warns, not errors - the loop still runs
+  // correctly, just without the savings the author thought they turned on.
+  for (const n of def.nodes.filter((x) => x.probe)) {
+    if (!n.panel) {
+      findings.push({
+        rule: 'L011', level: 'warn', node: n.id,
+        message: `node "${n.id}" sets probe without a panel - probe only short-circuits panel clones, so it has no effect here`,
+      })
+    } else if (def.verdictPolicy.kind !== 'all-pass') {
+      findings.push({
+        rule: 'L012', level: 'warn', node: n.id,
+        message: `probe panel "${n.id}" has no effect under the ${def.verdictPolicy.kind} policy - one clone's fail doesn't determine those aggregates, so the panel runs at full width`,
+      })
+    }
+  }
+
   return findings
 }

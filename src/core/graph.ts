@@ -143,13 +143,26 @@ export function topoLayers(nodes: NodeDef[]): string[][] {
 export function expandPanels(def: LoopDef): LoopDef {
   const expansion = new Map<string, string[]>()
   const nodes: NodeDef[] = []
+  // Probe wiring is only sound under all-pass: there, one clone's fail already
+  // determines the aggregate, so skipping its siblings cannot change the
+  // iterate/stop decision. Under quorum/weighted a single fail decides
+  // nothing (2 passes + 1 fail can still meet a quorum of 2), so probe is
+  // ignored and the panel runs at full width (lint L012 tells the author).
+  const probeApplies = def.verdictPolicy.kind === 'all-pass'
   for (const n of def.nodes) {
     if (!n.panel) { nodes.push(n); continue }
     const agents = Array.isArray(n.panel)
       ? n.panel
       : Array.from({ length: n.panel }, () => n.agent!)
+    const leaderId = `${n.id}@1`
     const clones = agents.map((agent, i) => ({
-      ...n, id: `${n.id}@${i + 1}`, agent, panel: undefined,
+      ...n, id: `${n.id}@${i + 1}`, agent, panel: undefined, probe: undefined,
+      // Followers of a probe panel wait on the leader and record who it is,
+      // so the scheduler can skip them once the leader has already failed
+      // the iteration. The leader itself keeps the original wiring.
+      ...(probeApplies && n.probe && i > 0
+        ? { after: [...(n.after ?? []), leaderId], probeOf: leaderId }
+        : {}),
     }))
     expansion.set(n.id, clones.map((c) => c.id))
     nodes.push(...clones)

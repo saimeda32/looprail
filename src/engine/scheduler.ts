@@ -45,6 +45,17 @@ export async function runIteration(
     const layerResults = await pool(
       layer.map((id) => async () => {
         const node = byId.get(id)!
+        // Probe panel short-circuit (EFF-5): a follower whose leader already
+        // FAILED this iteration is pure spend - under all-pass the aggregate
+        // is determined, its verdict cannot change the iterate/stop decision.
+        // Skips ONLY on a definite fail (pass/error/missing dispatch
+        // normally) and ONLY under all-pass (expandPanels only sets probeOf
+        // there; this guard keeps the invariant local). Same "no outcome
+        // exists" posture as a rail-breach skip.
+        if (
+          node.probeOf && def.verdictPolicy.kind === 'all-pass'
+          && outcomes.get(node.probeOf)?.verdict?.status === 'fail'
+        ) return undefined
         onNodeStart?.(node)
         let outcome = await executeNode(
           def, node, state, outcomes, deps,

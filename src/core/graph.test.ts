@@ -161,6 +161,55 @@ describe('expandPanels', () => {
       ['do', 'a'], ['crit@1', 'a'], ['crit@2', 'b'],
     ])
   })
+
+  test('probe panel: followers depend on the leader and carry probeOf (all-pass policy)', () => {
+    const def = base([
+      { id: 'do', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'do', panel: 3, probe: true, after: ['do'] },
+    ])
+    const out = expandPanels(def)
+    const leader = out.nodes.find((n) => n.id === 'crit@1')!
+    const f2 = out.nodes.find((n) => n.id === 'crit@2')!
+    const f3 = out.nodes.find((n) => n.id === 'crit@3')!
+    // leader keeps the original wiring, no probeOf
+    expect(leader.after).toEqual(['do'])
+    expect(leader.probeOf).toBeUndefined()
+    // followers additionally wait on the leader and know who it is
+    expect(f2.after).toEqual(['do', 'crit@1'])
+    expect(f3.after).toEqual(['do', 'crit@1'])
+    expect(f2.probeOf).toBe('crit@1')
+    expect(f3.probeOf).toBe('crit@1')
+    // the leader edge pushes followers one layer later
+    const layers = topoLayers(out.nodes)
+    expect(layers[1]).toEqual(['crit@1'])
+    expect(layers[2].sort()).toEqual(['crit@2', 'crit@3'])
+  })
+
+  test('probe wiring is NOT applied under quorum/weighted - one fail does not determine those aggregates', () => {
+    const def: LoopDef = {
+      ...base([
+        { id: 'do', role: 'executor', agent: 'a' },
+        { id: 'crit', role: 'critic', agent: 'a', of: 'do', panel: 3, probe: true, after: ['do'] },
+      ]),
+      verdictPolicy: { kind: 'quorum', atLeast: 2 },
+    }
+    const out = expandPanels(def)
+    for (const id of ['crit@1', 'crit@2', 'crit@3']) {
+      const n = out.nodes.find((x) => x.id === id)!
+      expect(n.after).toEqual(['do'])
+      expect(n.probeOf).toBeUndefined()
+    }
+  })
+
+  test('probe without panel is inert in expansion', () => {
+    const def = base([
+      { id: 'do', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'do', probe: true, after: ['do'] },
+    ])
+    const out = expandPanels(def)
+    expect(out.nodes.map((n) => n.id)).toEqual(['do', 'crit'])
+    expect(out.nodes[1].probeOf).toBeUndefined()
+  })
 })
 
 

@@ -162,3 +162,34 @@ test('L010 counts a transitive verifier (executor -> intermediate -> tester)', (
   // build's descendants include refine and (transitively) test -> verified
   expect(rules(def)).not.toContain('L010')
 })
+
+// L011/L012: probe (EFF-5) misconfigurations that silently do nothing.
+test('L011 warns when probe is set without a panel', () => {
+  const def = make([
+    { id: 'do', role: 'executor', agent: 'big' },
+    { id: 'crit', role: 'critic', agent: 'small', of: 'do', after: ['do'], probe: true },
+  ])
+  const findings = lintLoop(def).filter((f) => f.rule === 'L011')
+  expect(findings).toHaveLength(1)
+  expect(findings[0]).toMatchObject({ level: 'warn', node: 'crit' })
+})
+
+test('L012 warns when a probe panel sits under a non-all-pass policy', () => {
+  const def = make([
+    { id: 'do', role: 'executor', agent: 'big' },
+    { id: 'crit', role: 'critic', agent: 'small', of: 'do', after: ['do'], panel: 3, probe: true },
+  ], { verdictPolicy: { kind: 'quorum', atLeast: 2 } })
+  const findings = lintLoop(def).filter((f) => f.rule === 'L012')
+  expect(findings).toHaveLength(1)
+  expect(findings[0]).toMatchObject({ level: 'warn', node: 'crit' })
+})
+
+test('a probe panel under all-pass produces no probe findings', () => {
+  const def = make([
+    { id: 'do', role: 'executor', agent: 'big' },
+    { id: 'crit', role: 'critic', agent: 'small', of: 'do', after: ['do'], panel: 3, probe: true },
+  ])
+  const found = rules(def)
+  expect(found).not.toContain('L011')
+  expect(found).not.toContain('L012')
+})

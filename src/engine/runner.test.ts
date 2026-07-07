@@ -942,3 +942,30 @@ test("no runDir set means no persisted loopfile.json copy is written at all, on 
   const report = await runLoop(def, { registry: reg(mock), gate: async () => ({ approved: true }) })
   expect(report.status).toBe('verified') // splice itself still works with no runDir at all
 })
+
+// EFF-5 probe panels, end to end: iteration 1's leader fails -> followers are
+// skipped (spend saved, aggregate already determined); iteration 2's leader
+// passes -> ALL clones run and pass -> verified. The guarantee holds: the run
+// only verified after every declared clone actually ran and passed.
+test('probe panel: failing iteration runs only the leader; the verifying iteration runs the full panel', async () => {
+  const mock = new MockAdapter([
+    { match: /EXECUTOR/, output: 'half done' },
+    { match: /CRITIC/, output: 'VERDICT: fail\nEVIDENCE: missing DONE' },
+    { match: /EXECUTOR/, output: 'DONE' },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok' },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok' },
+    { match: /CRITIC/, output: 'VERDICT: pass\nEVIDENCE: ok' },
+  ])
+  const def = loop({
+    nodes: [
+      { id: 'do', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'do', after: ['do'], panel: 3, probe: true },
+    ],
+  })
+  const report = await runLoop(def, { registry: reg(mock) })
+  expect(report.status).toBe('verified')
+  expect(report.iterations).toBe(2)
+  const criticCalls = mock.calls.filter((c) => c.prompt.includes('CRITIC')).length
+  // 1 (probe leader, iteration 1) + 3 (full panel, iteration 2) - NOT 6
+  expect(criticCalls).toBe(4)
+})

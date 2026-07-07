@@ -178,3 +178,86 @@ test('onPermission is labeled per node id even when nodes run concurrently', asy
   expect(seen.n1).toContain('UNIQUE-N1-MARKER')
   expect(seen.n2).toContain('UNIQUE-N2-MARKER')
 })
+
+// Probe panels (EFF-5): a follower carrying probeOf is skipped when its
+// leader has already FAILED this iteration under all-pass - the aggregate is
+// determined, the follower cannot change the iterate/stop decision. Never
+// skipped on the pass path: verified still requires every clone to run.
+test('probe follower is skipped when its leader failed (all-pass)', async () => {
+  const registry = createRegistry()
+  let invocations = 0
+  registry.register({
+    name: 'probe',
+    async invoke(req) {
+      invocations++
+      const critic = req.prompt.includes('VERDICT:')
+      return {
+        output: critic ? 'VERDICT: fail\nEVIDENCE: broken' : 'built the thing',
+        costUsd: 0, tokens: 0, durationMs: 1,
+      }
+    },
+  })
+  const nodes: NodeDef[] = [
+    { id: 'do', role: 'executor', agent: 'a' },
+    { id: 'c@1', role: 'critic', agent: 'a', of: 'do', after: ['do'] },
+    { id: 'c@2', role: 'critic', agent: 'a', of: 'do', after: ['do', 'c@1'], probeOf: 'c@1' },
+    { id: 'c@3', role: 'critic', agent: 'a', of: 'do', after: ['do', 'c@1'], probeOf: 'c@1' },
+  ]
+  const outcomes = await runIteration(
+    makeDef(), nodes, { plan: null, iteration: 1, feedback: null }, { registry })
+  // executor + leader only - the two followers never dispatched
+  expect(invocations).toBe(2)
+  expect(outcomes.map((o) => o.nodeId)).toEqual(['do', 'c@1'])
+})
+
+test('probe followers all run when the leader passes - the pass path is never thinned', async () => {
+  const registry = createRegistry()
+  let invocations = 0
+  registry.register({
+    name: 'probe',
+    async invoke(req) {
+      invocations++
+      const critic = req.prompt.includes('VERDICT:')
+      return {
+        output: critic ? 'VERDICT: pass\nEVIDENCE: solid' : 'built the thing',
+        costUsd: 0, tokens: 0, durationMs: 1,
+      }
+    },
+  })
+  const nodes: NodeDef[] = [
+    { id: 'do', role: 'executor', agent: 'a' },
+    { id: 'c@1', role: 'critic', agent: 'a', of: 'do', after: ['do'] },
+    { id: 'c@2', role: 'critic', agent: 'a', of: 'do', after: ['do', 'c@1'], probeOf: 'c@1' },
+    { id: 'c@3', role: 'critic', agent: 'a', of: 'do', after: ['do', 'c@1'], probeOf: 'c@1' },
+  ]
+  const outcomes = await runIteration(
+    makeDef(), nodes, { plan: null, iteration: 1, feedback: null }, { registry })
+  expect(invocations).toBe(4)
+  expect(outcomes.map((o) => o.nodeId).sort()).toEqual(['c@1', 'c@2', 'c@3', 'do'])
+})
+
+test('probe follower still runs when the leader ERRORS - only a definite fail skips', async () => {
+  const registry = createRegistry()
+  let critics = 0
+  registry.register({
+    name: 'probe',
+    async invoke(req) {
+      const critic = req.prompt.includes('VERDICT:')
+      if (critic) critics++
+      return {
+        output: critic
+          ? (critics === 1 ? 'VERDICT: error\nEVIDENCE: adapter hiccup' : 'VERDICT: pass\nEVIDENCE: ok')
+          : 'built the thing',
+        costUsd: 0, tokens: 0, durationMs: 1,
+      }
+    },
+  })
+  const nodes: NodeDef[] = [
+    { id: 'do', role: 'executor', agent: 'a' },
+    { id: 'c@1', role: 'critic', agent: 'a', of: 'do', after: ['do'] },
+    { id: 'c@2', role: 'critic', agent: 'a', of: 'do', after: ['do', 'c@1'], probeOf: 'c@1' },
+  ]
+  const outcomes = await runIteration(
+    makeDef(), nodes, { plan: null, iteration: 1, feedback: null }, { registry })
+  expect(outcomes.map((o) => o.nodeId)).toEqual(['do', 'c@1', 'c@2'])
+})

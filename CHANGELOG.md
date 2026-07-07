@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Probe panels (`probe: true`)** - adaptive panel depth that never weakens
+  the verification guarantee. On a `panel` verifier under the `all-pass`
+  policy, clone 1 runs first; if it fails, the remaining clones are skipped -
+  that iteration's aggregate is already determined, so the skipped reviews
+  could not have changed the iterate/stop decision. The pass path is never
+  thinned: verified still requires every clone to run and pass. With
+  `panel: [a, b, c]` the first listed agent leads, so put the cheapest
+  reviewer first. New lint rules L011 (probe without panel) and L012 (probe
+  under quorum/weighted, where one fail decides nothing) warn when probe
+  silently has no effect.
+
 - **`looprail templates`** - list the built-in loop shapes (fix-tests,
   research-report, refactor, content-pipeline, review-diff, build-app) with
   each one's description and the agent roles it wires, so you can discover and
