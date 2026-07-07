@@ -1401,3 +1401,52 @@ test('--json includes filesTouched inside the nested report object', async () =>
   const parsed = JSON.parse(lines[0]) as { report: { filesTouched?: string[] } }
   expect(parsed.report.filesTouched).toContain('touched.txt')
 })
+
+
+// Preflight: fail before spending a cent if a required agent CLI is missing.
+import { preflightAdapters } from './run-cmd.js'
+import type { LoopDef, DetectedAgent } from '../index.js'
+
+const preflightLoop = (adapter: string): LoopDef => ({
+  name: 'p', goal: 'g',
+  agents: { worker: { adapter } },
+  nodes: [{ id: 'do', role: 'executor', agent: 'worker' }],
+  rails: { maxIterations: 1, maxCostUsd: 1 },
+  verdictPolicy: { kind: 'all-pass' },
+})
+const roster = (over: Partial<DetectedAgent> & { adapter: string; available: boolean }): DetectedAgent => ({
+  name: over.adapter, command: over.adapter, fixHint: 'install it', ...over,
+})
+
+test('preflight blocks when a required adapter is installed-but-unavailable, with its fix hint', async () => {
+  const lines: string[] = []
+  const res = await preflightAdapters(preflightLoop('claude-code'),
+    { out: (l) => lines.push(l) },
+    async () => [roster({ adapter: 'claude-code', available: false, fixHint: 'log in with `claude`' })])
+  expect(res.ok).toBe(false)
+  expect(lines.join(String.fromCharCode(10))).toContain('log in with `claude`')
+  expect(lines.join(String.fromCharCode(10))).toContain('nothing was spent')
+})
+
+test('preflight passes when the required adapter is available', async () => {
+  const res = await preflightAdapters(preflightLoop('claude-code'),
+    { out: () => {} },
+    async () => [roster({ adapter: 'claude-code', available: true })])
+  expect(res.ok).toBe(true)
+})
+
+test('preflight never blocks mock/shell (always-available adapters), without even calling detect', async () => {
+  let detectCalled = false
+  const res = await preflightAdapters(preflightLoop('mock'),
+    { out: () => {} },
+    async () => { detectCalled = true; return [] })
+  expect(res.ok).toBe(true)
+  expect(detectCalled).toBe(false)
+})
+
+test('preflight leaves an adapter detection has never heard of alone (unknown != broken)', async () => {
+  const res = await preflightAdapters(preflightLoop('some-future-cli'),
+    { out: () => {} },
+    async () => []) // detection knows nothing about it
+  expect(res.ok).toBe(true)
+})

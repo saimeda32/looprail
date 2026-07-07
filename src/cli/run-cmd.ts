@@ -4,9 +4,9 @@ import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { Option, type Command } from 'commander'
 import {
-  createDefaultRegistry, expandPanels, findPlanGenerator, gateParkedMessage, JournalWriter, lintLoop, normalizeGateAnswer,
+  createDefaultRegistry, detectAgents, expandPanels, findPlanGenerator, gateParkedMessage, JournalWriter, lintLoop, normalizeGateAnswer,
   parseLoopfile, readJournal, runLoop, summarizeJournal,
-  type AdapterRegistry, type GateAnswer, type GateHandler, type JournalEvent, type LoopDef, type NodeDef,
+  type AdapterRegistry, type DetectedAgent, type GateAnswer, type GateHandler, type JournalEvent, type LoopDef, type NodeDef,
   type NodeOutcome, type Rails, type RunReport,
 } from '../index.js'
 import type { ResumeOverrides } from '../dashboard/server.js'
@@ -569,6 +569,42 @@ export interface RunDeps {
   spawner?: (cmd: string, args: string[], options: Record<string, unknown>) => { unref(): void }
   // Seam for the detached child's completion notification (see notify.ts).
   notifier?: Notifier
+  // Seam for the pre-run adapter availability check; defaults to the real
+  // detectAgents. Tests inject a fixed roster.
+  detect?: () => Promise<DetectedAgent[]>
+}
+
+// Adapters that never need a CLI to be installed or logged in - excluded
+// from the preflight so a mock/shell loop never trips it.
+const ALWAYS_AVAILABLE_ADAPTERS = new Set(['mock', 'shell'])
+
+// Fail a run BEFORE it spends anything if the loopfile needs an agent CLI
+// that isn't installed or logged in. Without this, a loop whose LATER node
+// uses a missing adapter would happily run (and bill) its earlier nodes on
+// an available one, then die mid-run with a raw "command not found" - money
+// and time spent to reach a failure a one-line check catches up front.
+// Deliberately conservative: only a KNOWN adapter that detection explicitly
+// reports unavailable blocks the run; an adapter detection has never heard
+// of is left alone (unknown != broken), and mock/shell are always fine.
+export async function preflightAdapters(
+  def: LoopDef, io: CliIo, detect: () => Promise<DetectedAgent[]>,
+): Promise<{ ok: true } | { ok: false }> {
+  const used = new Set(
+    Object.values(def.agents).map((a) => a.adapter).filter((a) => !ALWAYS_AVAILABLE_ADAPTERS.has(a)),
+  )
+  if (used.size === 0) return { ok: true }
+  const roster = await detect()
+  const byAdapter = new Map(roster.map((d) => [d.adapter, d]))
+  const missing = [...used]
+    .map((a) => byAdapter.get(a))
+    .filter((d): d is DetectedAgent => d !== undefined && !d.available)
+  if (missing.length === 0) return { ok: true }
+  io.out(err(`this loop needs ${missing.length} agent CLI(s) that aren't ready:`))
+  for (const d of missing) {
+    io.out(err(`  ${d.adapter} - ${d.fixHint}`))
+  }
+  io.out(dim('  fix the above (or run `looprail doctor`), then try again - nothing was spent.'))
+  return { ok: false }
 }
 
 // The `run --detach` parent: mints the runId, creates the run directory (so
@@ -738,6 +774,13 @@ export async function runAction(
   if (findings.some((f) => f.level === 'error')) {
     io.out(err('loop failed lint - fix the errors above (details: `looprail lint`)'))
     return 1
+  }
+  // Fail fast on a missing agent CLI before spending anything. Skipped only
+  // when the caller supplies its own registry (tests/embedders wiring a mock
+  // registry directly - they've opted out of real-CLI resolution entirely).
+  if (!deps.registry) {
+    const preflight = await preflightAdapters(loaded.def, io, deps.detect ?? detectAgents)
+    if (!preflight.ok) return 1
   }
   if (opts.detach) return detachRun(file, opts, io, deps)
   const runId = opts.detachedChild ?? `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
