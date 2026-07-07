@@ -430,6 +430,7 @@ export interface ExecCtx {
   startIteration?: number
   initialPlan?: string | null
   initialFeedback?: string | null
+  initialPriorOutputs?: Record<string, string> | null
   skipPlanning?: boolean
 }
 
@@ -474,7 +475,8 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
       registry: ctx.registry, gate: ctx.gate, cwd: ctx.cwd,
       runDir: ctx.runDir, runId: ctx.runId, cache: ctx.cache, onEvent,
       startIteration: ctx.startIteration,
-      initialPlan: ctx.initialPlan, initialFeedback: ctx.initialFeedback, skipPlanning: ctx.skipPlanning,
+      initialPlan: ctx.initialPlan, initialFeedback: ctx.initialFeedback,
+      initialPriorOutputs: ctx.initialPriorOutputs, skipPlanning: ctx.skipPlanning,
     })
   } catch (e) {
     ctx.io.out(err(e instanceof Error ? e.message : String(e)))

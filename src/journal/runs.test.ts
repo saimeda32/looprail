@@ -29,7 +29,7 @@ function ev(type: JournalEvent['type'], data: Record<string, unknown>): JournalE
 }
 
 test('reconstructRunState returns null plan and null feedback for an empty journal', () => {
-  expect(reconstructRunState([])).toEqual({ plan: null, feedback: null, sources: [] })
+  expect(reconstructRunState([])).toEqual({ plan: null, feedback: null, sources: [], priorOutputs: {} })
 })
 
 test('reconstructRunState picks up the last planner output', () => {

@@ -17,6 +17,14 @@ export interface RunState {
   // `feedback` (it must see the whole picture to replan). Null on the
   // planning/format/human/splice paths, which keep the flat behavior.
   feedbackBySource?: Array<{ nodeId: string; evidence: string }> | null
+  // Last output each node produced, by node id - fed back to a RE-RUNNING
+  // executor/synthesizer as "your previous attempt" so it makes the minimal
+  // change to address the feedback instead of rebuilding the whole artifact
+  // from the goal. Caught live: a benchmark executor re-emitted ~741 lines
+  // every iteration to fix one failing test. Only injected when the node
+  // also has scoped feedback (i.e. it is actually re-running), so a
+  // cache-served node's prompt stays byte-identical and it is not disturbed.
+  priorOutputs?: Record<string, string> | null
   // A human's own note, submitted from the dashboard while the run is live
   // (see journal/human-feedback.ts). Distinct from `feedback` (the critic's
   // evidence) so the executor can tell the two apart in its prompt, and
@@ -167,6 +175,21 @@ export function composeContext(
     ? scopeFeedback(def, node, state.feedbackBySource)
     : state.feedback
   if (scopedFeedback) parts.push(`# Feedback from last iteration\n${scopedFeedback}`)
+  // Incremental memory: a RE-RUNNING executor/synthesizer gets its own
+  // previous attempt as the base, so it patches the specific problem
+  // instead of regenerating the whole artifact from the goal. Gated on the
+  // node actually re-running (it has scoped feedback) so a cache-served
+  // node's prompt stays byte-identical - the prior-attempt section never
+  // appears on a node that didn't fail. Only work-PRODUCING roles: a critic
+  // or judge reviews the current work fresh; it has no attempt to revise.
+  if (scopedFeedback && (node.role === 'executor' || node.role === 'synthesizer')) {
+    const prior = state.priorOutputs?.[node.id]
+    if (prior) {
+      parts.push(
+        `# Your previous attempt\nRevise this - make the minimal change that addresses the feedback above. Do not rebuild from scratch.\n\n${prior}`,
+      )
+    }
+  }
   if (state.humanFeedback) parts.push(`# Feedback from a human reviewer\n${state.humanFeedback}`)
 
   if (node.of) {

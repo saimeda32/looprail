@@ -49,6 +49,11 @@ export interface RunOptions {
   // skipPlanning by resume-cmd.ts; a fresh `run` never sets these.
   initialPlan?: string | null
   initialFeedback?: string | null
+  // Each node's last output, reconstructed from the journal on resume (see
+  // journal/runs.ts's reconstructRunState) so a resumed executor's
+  // "previous attempt" section matches what the original run produced -
+  // keeping resume cache-consistent with EFF-3. A fresh run leaves it unset.
+  initialPriorOutputs?: Record<string, string> | null
   // A resumed run continues execution iterations - re-running the planning
   // phase from scratch would discard the plan already reconstructed above
   // and restart the planner-critic revision dance pointlessly.
@@ -251,6 +256,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     iteration: opts.startIteration ?? 0,
     feedback: opts.initialFeedback ?? null,
     feedbackBySource: null,
+    priorOutputs: opts.initialPriorOutputs ?? null,
     humanFeedback: null,
   }
   let outcomes: NodeOutcome[] = []
@@ -513,9 +519,15 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     // never cached. A failing node whose lineage got fresh feedback gets a
     // new prompt and thus a new hash next iteration - it misses and re-runs,
     // exactly as intended.
+    const priorOutputs: Record<string, string> = { ...(state.priorOutputs ?? {}) }
     for (const o of outcomes) {
       if (o.contextHash) cache.set(o.contextHash, o)
+      // Remember each node's output so a re-running executor/synthesizer can
+      // revise its own prior attempt next iteration (see core/context.ts's
+      // priorOutputs) rather than rebuild from the goal.
+      if (o.output) priorOutputs[o.nodeId] = o.output
     }
+    state.priorOutputs = priorOutputs
     const verdicts = outcomes.flatMap((o) => (o.verdict ? [o.verdict] : []))
     fingerprints.push(verdictFingerprint(verdicts))
     emit('iteration_end', { iteration: state.iteration, costUsd: guard.spentUsd, estimatedCostUsd: guard.estimatedSpentUsd })

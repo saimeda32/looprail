@@ -96,6 +96,13 @@ export interface ReconstructedState {
   // nothing to do with this reconstruction and is safe to reuse from
   // cache exactly as any earlier iteration's outcomes are.
   sources: { nodeId: string; iteration: number }[]
+  // Each node's most recent output, so a resumed run seeds the same
+  // priorOutputs a continuous run would have (see core/context.ts): without
+  // it, a re-running executor's "your previous attempt" section would be
+  // absent on resume, its prompt would differ from the original run's cached
+  // entry, and the resume would cache-MISS and re-invoke work it should
+  // reuse. Reconstructing it keeps resume cache-consistent with EFF-3.
+  priorOutputs: Record<string, string>
 }
 
 // Resuming a halted run in place (resume-cmd.ts) starts a fresh in-memory
@@ -116,8 +123,12 @@ export function reconstructRunState(events: JournalEvent[]): ReconstructedState 
   let plannerSource: { nodeId: string; iteration: number } | null = null
   let lastIteration = 0
   const verdictsByIteration = new Map<number, { nodeId: string; evidence: string; status: string }[]>()
+  const priorOutputs: Record<string, string> = {}
   for (const e of events) {
     const d = e.data as Record<string, unknown>
+    if (e.type === 'node_end' && d.output !== undefined && d.output !== null) {
+      priorOutputs[String(d.nodeId)] = String(d.output)
+    }
     if (e.type === 'node_end' && d.role === 'planner') {
       plan = String(d.output ?? '')
       plannerSource = { nodeId: String(d.nodeId), iteration: Number(d.iteration ?? 0) }
@@ -151,5 +162,5 @@ export function reconstructRunState(events: JournalEvent[]): ReconstructedState 
     : null
   const sources: { nodeId: string; iteration: number }[] = failing.map((v) => ({ nodeId: v.nodeId, iteration: lastIteration }))
   if (plan !== null && plannerSource) sources.push(plannerSource)
-  return { plan, feedback, sources }
+  return { plan, feedback, sources, priorOutputs }
 }

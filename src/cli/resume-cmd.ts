@@ -87,7 +87,7 @@ export async function resumeAction(
   }
   const events = readJournal(journalPath)
   const priorIterations = summarizeJournal(events).iterations
-  const { plan, feedback, sources } = reconstructRunState(events)
+  const { plan, feedback, sources, priorOutputs } = reconstructRunState(events)
   // Excludes only the node_end entries whose own output composed the
   // reconstructed feedback/plan above (see runs.ts's reconstructRunState
   // and cache.ts's loadCache) - not every node_end sharing this iteration
@@ -136,6 +136,7 @@ export async function resumeAction(
       startIteration: priorIterations,
       initialPlan: plan,
       initialFeedback: feedback,
+      initialPriorOutputs: priorOutputs,
       skipPlanning: true,
     })
   } finally {

@@ -118,7 +118,7 @@ test('a stale, plateaued node_end IS served from cache with no exclusion, but IS
 
   const journalPath = join(runDir, 'journal.jsonl')
   const events = readJournal(journalPath)
-  const { plan, feedback, sources } = reconstructRunState(events)
+  const { plan, feedback, sources, priorOutputs } = reconstructRunState(events)
   expect(feedback).toBe('[crit] still no')
   expect(sources).toEqual([{ nodeId: 'crit', iteration: 2 }])
 
@@ -141,6 +141,7 @@ test('a stale, plateaued node_end IS served from cache with no exclusion, but IS
     startIteration: priorIterations,
     initialPlan: plan,
     initialFeedback: feedback,
+    initialPriorOutputs: priorOutputs,
     skipPlanning: true,
   })
   expect(replayed.status).toBe('halted') // stale "still no" replayed forever, never a fresh chance
@@ -165,6 +166,7 @@ test('a stale, plateaued node_end IS served from cache with no exclusion, but IS
     startIteration: priorIterations,
     initialPlan: plan,
     initialFeedback: feedback,
+    initialPriorOutputs: priorOutputs,
     skipPlanning: true,
   })
   expect(resumed.status).toBe('verified') // crit really re-evaluated, genuinely passed this time

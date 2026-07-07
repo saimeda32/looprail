@@ -107,3 +107,54 @@ test('a generates:graph planner on its first attempt (no prior plan yet) does no
   const ctx = composeContext(def, node, { plan: null, iteration: 0, feedback: null }, new Map())
   expect(ctx.toLowerCase()).not.toContain('edits')
 })
+
+
+// EFF-2: lineage-scoped feedback - a node sees only failures from its own
+// descendants; an independent branch gets none, keeping its prompt stable.
+test('a node sees only feedback from its own descendants, not a sibling branch', () => {
+  const twoBranch: LoopDef = {
+    ...def,
+    nodes: [
+      { id: 'doA', role: 'executor', agent: 'a' },
+      { id: 'critA', role: 'critic', agent: 'a', of: 'doA', after: ['doA'] },
+      { id: 'doB', role: 'executor', agent: 'a' },
+      { id: 'critB', role: 'critic', agent: 'a', of: 'doB', after: ['doB'] },
+    ],
+  }
+  const st: RunState = {
+    plan: null, iteration: 2, feedback: '[critA] fix A',
+    feedbackBySource: [{ nodeId: 'critA', evidence: 'fix A' }],
+  }
+  const aCtx = composeContext(twoBranch, twoBranch.nodes[0], st, new Map())
+  const bCtx = composeContext(twoBranch, twoBranch.nodes[2], st, new Map())
+  expect(aCtx).toContain('fix A')             // doA's descendant critA failed
+  expect(bCtx).not.toContain('fix A')         // doB's lineage is clean -> no feedback section
+  expect(bCtx).not.toContain('Feedback from last iteration')
+})
+
+// EFF-3: a re-running executor gets its own previous attempt to revise,
+// with a minimal-change instruction - so it patches instead of rebuilding.
+test('a re-running executor receives its prior attempt and a minimal-change instruction', () => {
+  const node: NodeDef = { id: 'do', role: 'executor', agent: 'a' }
+  const st: RunState = {
+    plan: null, iteration: 2, feedback: '[crit] missing X',
+    feedbackBySource: [{ nodeId: 'do', evidence: 'missing X' }],
+    priorOutputs: { do: 'the big artifact I built last time' },
+  }
+  const ctx = composeContext(def, node, st, new Map())
+  expect(ctx).toContain('# Your previous attempt')
+  expect(ctx).toContain('the big artifact I built last time')
+  expect(ctx).toContain('minimal change')
+})
+
+test('a node with NO scoped feedback gets no prior-attempt section (stays cache-stable)', () => {
+  const node: NodeDef = { id: 'do', role: 'executor', agent: 'a' }
+  const st: RunState = {
+    plan: null, iteration: 2, feedback: null,
+    feedbackBySource: [{ nodeId: 'other', evidence: 'unrelated' }],
+    priorOutputs: { do: 'prior' },
+  }
+  const ctx = composeContext(def, node, st, new Map())
+  expect(ctx).not.toContain('# Your previous attempt')
+  expect(ctx).not.toContain('Feedback from last iteration')
+})
