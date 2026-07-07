@@ -10,6 +10,7 @@ import { registerLint } from './lint-cmd.js'
 import { registerQueue } from './queue-cmd.js'
 import { registerReplay } from './replay-cmd.js'
 import { registerResume } from './resume-cmd.js'
+import { registerRoute } from './route-cmd.js'
 import { registerRun } from './run-cmd.js'
 import { registerLogs, registerStatus } from './status-cmd.js'
 import { registerMcp } from './mcp-cmd.js'
@@ -32,6 +33,7 @@ export function buildProgram(): Command {
   registerRun(program)
   registerQueue(program)
   registerBench(program)
+  registerRoute(program)
   registerReplay(program)
   registerResume(program)
   registerStatus(program)

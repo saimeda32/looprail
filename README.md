@@ -158,6 +158,7 @@ dollars, whichever comes first.
 | `looprail init` | Detect installed agents and scaffold a `looprail.yaml` |
 | `looprail run [file]` | Run the loop with live progress and a cost report |
 | `looprail bench [file]` | A/B two or more named loop configs against the same task and report measured deltas (`benchmarks/`) |
+| `looprail route [file]` | Benchmark auto-generated adapter/model variants of your own loopfile and record the best mix in `.looprail/routing.json` |
 | `looprail run --ui` | Same, and open a live dashboard for this run |
 | `looprail run -d` | Detached: the run survives your terminal; watch it and answer its gates from mission control |
 | `looprail queue [file]` | Run a list of goals unattended, sequentially; wake up to a triage table (verified / parked / halted) |
@@ -427,6 +428,26 @@ actually ran, and the three benchmarks committed under `benchmarks/` are
 mock-backed, so `npm test` proves the whole harness end to end for free. See
 [benchmarks/README.md](benchmarks/README.md) for reading the report and
 running the same fixtures against real agents.
+
+### Empirical routing
+
+`looprail route` answers "which adapter/model mix is actually best for THIS
+repo's loop" with data instead of folklore. It takes your own `looprail.yaml`,
+detects which agent CLIs are installed, and auto-generates variant configs of
+the same loop - one per provider (plus each claude-code tier), with critics
+paired to a different model than the worker whenever a second provider is
+available - then runs each variant through the same bench machinery:
+
+```bash
+looprail route --variants 4 --max-cost-usd 5
+```
+
+These are real paid loops, so it asks before spending (skip with `--yes`) and
+stops launching variants the moment the total budget is spent - each variant's
+own `max_cost_usd` rail is also clamped to whatever budget remains. The report
+ranks variants verified-first, then by cost, and the winner's agent map is
+written to `.looprail/routing.json` (`--json` prints the same object) so other
+tooling can consume the recommendation.
 
 ### Verdict policies
 
