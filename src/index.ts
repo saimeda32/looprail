@@ -34,6 +34,11 @@ export {
 } from './adapters/cli-adapter.js'
 export { detectAgents, type DetectedAgent } from './adapters/detect.js'
 export {
+  listAdapterModels, parseAiderModelList, parseCodexModelCatalog,
+  parseCopilotConfigModels, parseOllamaList,
+  type AdapterModel, type AdapterModelListing, type ModelSource,
+} from './adapters/models.js'
+export {
   claudeStreamLine, createClaudeCodeAdapter, parseClaudeJson, parseClaudeStreamJsonl,
 } from './adapters/claude-code.js'
 export { codexStreamLine, createCodexAdapter, parseCodexJsonl } from './adapters/codex.js'

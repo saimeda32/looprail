@@ -164,6 +164,7 @@ dollars, whichever comes first.
 | `looprail ui [runId]` | Open the dashboard for a run (defaults to the latest) |
 | `looprail ui --all` | Open mission control: every run, across every registered project |
 | `looprail doctor` | Show which agent CLIs are installed and logged in |
+| `looprail doctor --models` | List the models each installed CLI can run, live-queried where the CLI allows it (`--json` for scripts) |
 | `looprail lint <file>` | Check a Loopfile for common loop-design mistakes |
 | `looprail status [runId]` | Show verdict history for a run (`--watch` to follow) |
 | `looprail logs <runId> [node]` | Print node output from a past run |
@@ -351,7 +352,10 @@ already trust, not a gap we're hiding.
 
 Every `agents:` entry names an `adapter:` - which CLI actually runs that
 agent. `looprail doctor` shows which of these it found installed and
-logged in on your machine:
+logged in on your machine, and `looprail doctor --models` lists the models
+each installed CLI can run - enumerated live from the CLI itself wherever it
+offers a way (codex, copilot, aider, ollama), with an honest `static` marker
+where it doesn't (claude has no enumeration command):
 
 | Adapter | Wraps | Install / login | Notes |
 | --- | --- | --- | --- |
