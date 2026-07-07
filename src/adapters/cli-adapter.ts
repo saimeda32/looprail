@@ -28,6 +28,10 @@ export type ExecFn = (
     timeoutMs?: number
     cwd?: string
     onChunk?: (text: string) => void
+    // Extra env for this subprocess, merged over the inherited process env
+    // (AgentDef.env -> AgentRequest.env). Used to point a single agent's CLI
+    // at a per-provider caching/optimizing proxy.
+    env?: Record<string, string>
     // Configuring a permissionDetector is what turns on the writable-stdin
     // path below - the common no-prompt case never sets this and keeps
     // today's stdin:'ignore' behavior untouched.
@@ -45,6 +49,9 @@ export const defaultExec: ExecFn = async (file, args, opts = {}) => {
   const needsWritableStdin = opts.permissionDetector !== undefined
   const subprocess = execa(file, args, {
     input: opts.input, timeout: opts.timeoutMs, cwd: opts.cwd, reject: false,
+    // execa extends process.env by default, so this MERGES rather than
+    // replaces - the CLI keeps its normal environment plus the proxy vars.
+    ...(opts.env ? { env: opts.env } : {}),
     // Without an explicit input, leave stdin closed rather than an open,
     // unfed pipe - a CLI that auto-detects piped input (claude -p does)
     // can stall for several seconds waiting to see if anything arrives on
@@ -200,6 +207,7 @@ export class CliAdapter implements Adapter {
       input: this.opts.stdin ? req.prompt : undefined,
       timeoutMs: req.timeoutMs,
       cwd: this.opts.cwd,
+      env: req.env,
       onChunk: wrappedOnChunk,
       permissionDetector: this.opts.permissionDetector,
       onPermission,

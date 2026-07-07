@@ -2,9 +2,9 @@ import { describe, expect, test } from 'vitest'
 import { CliAdapter, defaultExec, type ExecFn, type ExecResult, type PermissionRequest } from './cli-adapter.js'
 
 function fakeExec(result: Partial<ExecResult> = {}) {
-  const calls: { file: string; args: string[]; input?: string; timeoutMs?: number }[] = []
+  const calls: { file: string; args: string[]; input?: string; timeoutMs?: number; env?: Record<string, string> }[] = []
   const exec: ExecFn = async (file, args, opts = {}) => {
-    calls.push({ file, args, input: opts.input, timeoutMs: opts.timeoutMs })
+    calls.push({ file, args, input: opts.input, timeoutMs: opts.timeoutMs, env: opts.env })
     return { stdout: 'raw output\n', stderr: '', exitCode: 0, ...result }
   }
   return { exec, calls }
@@ -32,6 +32,15 @@ describe('CliAdapter', () => {
     const a = new CliAdapter({ name: 'x', command: 'mytool {prompt}', exec })
     await a.invoke({ prompt: 'p', timeoutMs: 5000 })
     expect(calls[0].timeoutMs).toBe(5000)
+  })
+
+  // EFF-6: per-agent env (AgentDef.env) reaches the subprocess so one agent
+  // can be pointed at a caching/optimizing proxy without a global env change.
+  test('forwards per-request env to the exec layer', async () => {
+    const { exec, calls } = fakeExec()
+    const a = new CliAdapter({ name: 'x', command: 'mytool {prompt}', exec })
+    await a.invoke({ prompt: 'p', env: { ANTHROPIC_BASE_URL: 'http://localhost:8787' } })
+    expect(calls[0].env).toEqual({ ANTHROPIC_BASE_URL: 'http://localhost:8787' })
   })
 
   test('parser maps stdout to output/cost/tokens', async () => {

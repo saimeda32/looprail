@@ -25,6 +25,15 @@ export interface AgentRequest {
   model?: string    // AgentDef.model, plumbed per request (model-tiered adapters)
   command?: string  // AgentDef.command, consumed by the shell adapter
   permissions?: PermissionConfig  // AgentDef.permissions, plumbed per request (see adapters/permissions.ts)
+  // AgentDef.env, merged over the inherited process environment when the
+  // underlying CLI subprocess is spawned. The intended use is routing an
+  // agent's model calls through an optimizing/caching PROXY per provider
+  // (e.g. { ANTHROPIC_BASE_URL: "http://localhost:8787" }) - so ONE agent
+  // can go through a proxy while another goes direct, without a global env
+  // change. looprail wraps CLIs rather than calling model APIs itself, so it
+  // does not implement caching; it just points the CLI at whatever proxy
+  // the user runs (see the README's proxy note).
+  env?: Record<string, string>
 }
 
 export interface AgentResult {
@@ -86,6 +95,10 @@ export interface AgentDef {
   model?: string
   command?: string
   permissions?: PermissionConfig
+  // Extra environment variables for this agent's CLI subprocess, merged over
+  // the inherited process env (see AgentRequest.env). Primary use: routing a
+  // single agent through a per-provider caching/optimizing proxy.
+  env?: Record<string, string>
   // Another agents-map key to hand this agent's call to when its invocation
   // exhausts retries on a rate-limit-shaped failure (engine/retry.ts's
   // RateLimitError; the hop itself lives in engine/nodes.ts). A per-account

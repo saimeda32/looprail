@@ -419,6 +419,31 @@ in the journal, and the node's result is attributed to the agent that actually
 served the call - so cost and model info stay honest even on a night the
 primary provider spent throttling you.
 
+### Token cost: caching proxies
+
+looprail wraps agent CLIs; it does not call model APIs directly, so it does
+not implement prompt caching or context compression itself. But the CLIs it
+runs read their own base-URL environment variables, so you can point them at
+an optimizing/caching proxy (headroom, an LLM gateway, your own) and looprail
+inherits the savings for free. Set the var globally before a run, or route a
+single agent through a proxy with a per-agent `env:`:
+
+```yaml
+agents:
+  # this worker's Claude calls go through a local caching proxy...
+  worker:   { adapter: claude-code, model: sonnet,
+              env: { ANTHROPIC_BASE_URL: "http://localhost:8787" } }
+  # ...while the reviewer goes straight to the provider
+  reviewer: { adapter: codex }
+```
+
+Independent of any proxy, looprail already minimizes what it *sends*: within a
+run it caches each node's result and re-runs only the nodes whose own lineage
+actually failed (an independent branch that passed is never rebuilt), and a
+re-running executor revises its previous attempt instead of regenerating the
+whole artifact from the goal. A proxy makes each call cheaper; looprail makes
+the loop send fewer, smaller calls - the two compound.
+
 ### Rails
 
 Rails are the ceiling on a run. All of them are optional except the first two:

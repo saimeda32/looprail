@@ -210,7 +210,7 @@ export async function executeNode(
     try {
       let res = await invokeWithRetry(adapter, {
         prompt, timeoutMs,
-        model: agentDef.model, command: agentDef.command, permissions: agentDef.permissions,
+        model: agentDef.model, command: agentDef.command, permissions: agentDef.permissions, env: agentDef.env,
       }, deps, onChunk, onPermission)
       let verdict = VERIFYING.has(node.role) ? parseVerdict(node.id, res.output) : null
       let cost = res.costUsd
@@ -221,7 +221,7 @@ export async function executeNode(
         const retry = await invokeWithRetry(adapter, {
           prompt: `${prompt}\n\nYour previous reply had no verdict block. Reply again ending with:\nVERDICT: pass|fail\nEVIDENCE: <reason>`,
           timeoutMs,
-          model: agentDef.model, command: agentDef.command, permissions: agentDef.permissions,
+          model: agentDef.model, command: agentDef.command, permissions: agentDef.permissions, env: agentDef.env,
         }, deps, onChunk, onPermission)
         cost += retry.costUsd
         tokens += retry.tokens
