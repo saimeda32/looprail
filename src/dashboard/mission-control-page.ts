@@ -220,6 +220,12 @@ export function buildMissionControlPage(): string {
   }
   .session-card .workspace { font-size: 12px; color: var(--ink-dim); margin-bottom: 2px; }
   .session-card .session-id { font: 11px var(--mono); color: var(--ink-faint); margin-bottom: 4px; }
+  .session-card .session-summary {
+    font-size: 11px; color: var(--ink-dim); line-height: 1.4; margin: 2px 0 6px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .session-card .session-detail { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .session-card .detail-line { font: 10px var(--mono); color: var(--ink-faint); overflow-wrap: anywhere; }
   .session-badge.tool-claude-code { color: #c98a4b; border-color: rgba(201,138,75,0.4); }
   .session-badge.tool-copilot-cli { color: #7fa66b; border-color: rgba(127,166,107,0.4); }
   .session-badge.tool-codex { color: #6b9fa6; border-color: rgba(107,159,166,0.4); }
@@ -523,23 +529,37 @@ export function buildMissionControlPage(): string {
     var div = el('div', 'session-card');
     div.appendChild(el('span', 'session-badge tool-' + (session.tool || 'claude-code'), session.tool || 'claude-code'));
     div.appendChild(el('div', 'workspace', session.workspaceName));
+    if (session.summary) {
+      var sum = el('div', 'session-summary', session.summary);
+      sum.title = session.summary;
+      div.appendChild(sum);
+    }
     div.appendChild(el('div', 'session-id', session.sessionId.length > 8 ? session.sessionId.slice(0, 8) + '\u2026' : session.sessionId));
     div.appendChild(el('div', 'meta', 'active ' + minutesAgo(session.lastActiveAt) + 'm ago'));
-    // The one useful click for an external session looprail doesn't own:
-    // copy the tool's own resume command to pick it up in a terminal.
+    // Click expands a detail block: what the session is about, the full id,
+    // the workspace path, and an explicit copy-resume button - a tile that
+    // silently copied to the clipboard read as a tile that did nothing.
+    var detail = el('div', 'session-detail');
+    detail.style.display = 'none';
+    detail.appendChild(el('div', 'detail-line', 'session ' + session.sessionId));
+    detail.appendChild(el('div', 'detail-line', session.workspace));
     if (session.resumeCommand) {
-      div.title = 'click to copy: ' + session.resumeCommand;
-      div.style.cursor = 'pointer';
-      div.addEventListener('click', function () {
-        var done = function () {
-          var meta = div.querySelector('.meta');
-          if (meta) { meta.textContent = 'copied: ' + session.resumeCommand; }
-        };
+      var copyBtn = el('button', 'control-btn', 'copy resume command');
+      copyBtn.type = 'button';
+      copyBtn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var done = function () { copyBtn.textContent = 'copied: ' + session.resumeCommand; };
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(session.resumeCommand).then(done, done);
         } else { done(); }
       });
+      detail.appendChild(copyBtn);
     }
+    div.appendChild(detail);
+    div.style.cursor = 'pointer';
+    div.addEventListener('click', function () {
+      detail.style.display = detail.style.display === 'none' ? 'block' : 'none';
+    });
     return div;
   }
 

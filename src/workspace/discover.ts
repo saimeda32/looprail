@@ -196,6 +196,11 @@ export interface SessionEntry {
   // Best-effort resume hint ("claude --resume <id>") the card offers for
   // copying - empty when the tool has no known session-resume command.
   resumeCommand?: string
+  // Best-effort one-line "what is this session about" - the first user
+  // prompt (claude-code) or the session's own recorded goal (copilot).
+  // Read from the first few KB only, never the whole transcript; this is
+  // the user's own local machine looking at their own sessions.
+  summary?: string
 }
 
 // Best-effort match of Claude Code's own project-directory naming scheme,
@@ -217,6 +222,31 @@ export interface SessionEntry {
 // is intentionally not attempted here.
 export function claudeCodeProjectSlug(workspace: string): string {
   return workspace.replace(/[^a-zA-Z0-9]/g, '-')
+}
+
+// First user-message text from the head of a Claude Code session transcript
+// - reads at most 32KB and the first 40 lines, never the whole file.
+function claudeSessionSummary(jsonlPath: string): string | undefined {
+  try {
+    const head = readFileSync(jsonlPath, 'utf8').slice(0, 32768)
+    for (const line of head.split('\n').slice(0, 40)) {
+      try {
+        const e = JSON.parse(line) as { type?: string; message?: { role?: string; content?: unknown }; summary?: string }
+        if (e.type === 'summary' && typeof e.summary === 'string') return e.summary.slice(0, 200)
+        if (e.type === 'user' && e.message) {
+          const content = e.message.content
+          const text = typeof content === 'string'
+            ? content
+            : Array.isArray(content)
+              ? content.map((c) => (c as { text?: string }).text ?? '').join(' ')
+              : ''
+          const trimmed = text.trim()
+          if (trimmed) return trimmed.slice(0, 200)
+        }
+      } catch { /* partial/other line shapes - keep scanning */ }
+    }
+  } catch { /* unreadable - no summary */ }
+  return undefined
 }
 
 // Each workspace's work is wrapped in its own try/catch for the same reason
@@ -251,6 +281,7 @@ export function discoverClaudeCodeSessions(
             lastActiveAt: mtimeMs,
             tool: 'claude-code',
             resumeCommand: `claude --resume ${sessionId}`,
+            summary: claudeSessionSummary(join(projectDir, file)),
           })
         } catch (err) {
           // A single file's statSync throwing (e.g. a TOCTOU deletion between
@@ -299,6 +330,8 @@ export function discoverCopilotSessions(
         const eventsPath = join(root, dir, 'events.jsonl')
         const mtimeMs = statSync(existsSync(eventsPath) ? eventsPath : join(root, dir)).mtimeMs
         if (mtimeMs < cutoff) continue
+        const nameMatch = /^name:\s*\|?-?\s*\n?([\s\S]{0,300})/m.exec(head.split('name:')[1] !== undefined ? 'name:' + head.split('name:')[1] : '')
+        const summary = nameMatch ? nameMatch[1].split('\n').map((l) => l.trim()).filter(Boolean).join(' ').slice(0, 200) : undefined
         entries.push({
           workspace,
           workspaceName: basename(workspace),
@@ -306,6 +339,7 @@ export function discoverCopilotSessions(
           lastActiveAt: mtimeMs,
           tool: 'copilot-cli',
           resumeCommand: `copilot --resume ${dir}`,
+          ...(summary ? { summary } : {}),
         })
       } catch (err) {
         console.error(`discoverCopilotSessions: skipping unreadable session ${dir}`, err)
