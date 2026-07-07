@@ -103,3 +103,31 @@ real production bugs in the tool (unref'd gate timers silently killing
 headless runs mid-gate; resume continuing the wrong loopfile; the earlier
 parked/detached-gate work) - each now a regression test. The evidence
 trail for every claim above is a journal.
+
+
+## Efficiency: what the loop sends (0.6.0)
+
+The overhead measured above (~2.7x tokens vs bare) came mostly from the loop
+RESTARTING from the beginning every iteration - it re-ran every node and
+rebuilt the whole artifact even when only one thing failed. 0.6.0 changes
+what the loop sends, proven deterministically (unit tests, no API cost):
+
+- **Independent branches are no longer re-run.** Feedback is lineage-scoped:
+  a node receives only failures from its own descendants, so a branch that
+  passed keeps a byte-identical prompt and is served from a within-run
+  cache. Proven: a two-branch loop where branch A fails re-runs A twice and
+  serves branch B from cache exactly once (`runner.test.ts`).
+- **A re-running executor revises its prior attempt** instead of
+  regenerating from the goal - it receives its own previous output with a
+  minimal-change instruction (`context.test.ts`).
+- **A broken test COMMAND halts as a config error** instead of being fed to
+  a critic - the exact phantom that cost $11.50 in Case D
+  (`nodes.test.ts`).
+- **A plateaued loop halts** with "not converging" after 3 byte-identical
+  failing iterations instead of grinding to the wall (`router.test.ts`).
+
+These are structural: they reduce calls the loop makes, which no external
+caching proxy can do (a proxy makes each call cheaper; only looprail knows
+the DAG well enough to send fewer). A full-dollar re-measure requires a
+multi-iteration task and is left as future work; the mechanisms are unit-
+proven and shipped.

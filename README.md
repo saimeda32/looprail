@@ -19,8 +19,18 @@ agent CLI through that loop and stops when the checks pass or a budget runs
 out.
 
 It works with the agent CLIs you already have installed and logged into:
-Claude Code, Codex, aider, GitHub Copilot, or any shell command. No API keys go
-into looprail. If `claude` works in your terminal, looprail works.
+Claude Code, Codex, Gemini CLI, aider, GitHub Copilot, opencode, local models
+via ollama, or any shell command. No API keys go into looprail. If `claude`
+works in your terminal, looprail works.
+
+Skill packs teach an agent *what* a senior engineer does; looprail is the
+layer that makes it **structurally impossible to skip.** "Verification is
+mandatory, never subjective approval" stops being an instruction the agent
+can rationalize past and becomes a tester node that runs in the engine and a
+critic on a different model. It's also the one orchestrator that can mix
+*vendors* - a Claude worker checked by a Codex critic, a local model that
+fails over to a paid one when it's rate-limited - because a neutral tool can
+do what no single lab's CLI ever will. ([benchmarks](docs/BENCHMARKS.md))
 
 > **Looprail is not an agent.** It doesn't write code, and it has no model of
 > its own. It's the loop AROUND an agent: the part that decides what to run

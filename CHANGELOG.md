@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.6.0
+
+The multi-provider moat + an efficiency pass.
+
+Multi-provider (a neutral orchestrator can mix vendors no single lab's CLI ever will):
+
+- **Rate-limit failover.** An agent can name a `fallback:` - another agents
+  key to hand its work to when the provider rate-limits it and retries are
+  exhausted. Cycle-guarded, lint-checked, journaled; the result is
+  attributed to the agent that actually served the call.
+- **`looprail doctor --models`** live-queries each installed CLI's real
+  model catalog (codex, copilot, aider, ollama), labeling each row live or
+  static - no stale hardcoded tier lists.
+- **`looprail route`** auto-generates adapter/model variants of your own
+  loopfile, benches them under a budget, ranks best-first, and writes the
+  winner to `.looprail/routing.json` - "which model is best for THIS repo",
+  answered with data.
+- **Three new first-class adapters**: gemini, opencode, and ollama (local
+  models, real $0 cost, estimated tokens - replacing the shell workaround).
+- **Per-agent `env:`** points a single agent's CLI at a caching/optimizing
+  proxy without a global env change.
+
+Efficiency (the loop sends fewer, smaller, righter calls):
+
+- **Lineage-scoped feedback + within-run cache** - a node re-runs only when
+  its own dependency lineage failed, so independent branches that passed are
+  served from cache instead of rebuilt.
+- **Incremental executors** revise their prior attempt instead of
+  regenerating the whole artifact from the goal.
+- **Tester infrastructure errors** (broken test command, module-resolution)
+  halt as config errors instead of being fed to a critic as a phantom
+  failure.
+- **Convergence breaker** halts a plateaued loop ("not converging") instead
+  of grinding to the iteration/wall rail.
+
+Dashboard:
+
+- Triage-first mission control (Needs-you / Running / History), parked and
+  stale as first-class statuses, one-click resume, node telemetry + attempt
+  pips on the graph, live-output panel that follows the graph frontier,
+  multi-tool session activity (claude-code / copilot / codex / aider).
+
+
 ## 0.3.0
 
 MCP:
