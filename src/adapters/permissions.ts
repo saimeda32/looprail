@@ -51,6 +51,20 @@ const PRESET_FLAGS: Record<string, Record<PermissionPreset, string[]>> = {
     standard: ['--approval-mode', 'yolo'],
     full: ['--approval-mode', 'yolo'],
   },
+  // opencode's CLI surface has exactly one permission switch, verified
+  // against the real v1.17.14 `opencode run --help` (run live via npx):
+  // --auto, "auto-approve permissions that are not explicitly denied
+  // (dangerous!)". Anything finer lives in the user's own opencode.json
+  // permission config, out of a one-shot CLI invocation's reach - so safe
+  // and standard are deliberately the same empty result (defer to that
+  // config; per the v1.17.14 run.ts source, non-interactive opencode
+  // auto-REJECTS anything the config gates rather than hanging), and only
+  // full flips the CLI's own escalation switch.
+  opencode: {
+    safe: [],
+    standard: [],
+    full: ['--auto'],
+  },
 }
 
 // Absent config must reproduce each adapter's real behavior from before this
@@ -64,9 +78,10 @@ const DEFAULT_PRESET: Record<string, PermissionPreset> = {
   'copilot-cli': 'full',
   aider: 'safe',
   // No pre-feature behavior to reproduce for the adapters added after the
-  // permissions feature (gemini) - safe is simply the conservative choice
-  // every non-copilot adapter already defaults to.
+  // permissions feature (gemini, opencode) - safe is simply the conservative
+  // choice every non-copilot adapter already defaults to.
   gemini: 'safe',
+  opencode: 'safe',
 }
 
 export function resolvePermissionArgs(

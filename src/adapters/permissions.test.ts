@@ -31,6 +31,12 @@ describe('resolvePermissionArgs - explicit presets', () => {
     expect(resolvePermissionArgs('standard', 'gemini')).toEqual(['--approval-mode', 'yolo'])
     expect(resolvePermissionArgs('full', 'gemini')).toEqual(['--approval-mode', 'yolo'])
   })
+
+  test('opencode: safe/standard defer to the user\'s own opencode.json config; only full flips its one CLI switch (--auto)', () => {
+    expect(resolvePermissionArgs('safe', 'opencode')).toEqual([])
+    expect(resolvePermissionArgs('standard', 'opencode')).toEqual([])
+    expect(resolvePermissionArgs('full', 'opencode')).toEqual(['--auto'])
+  })
 })
 
 describe('resolvePermissionArgs - absent config (backward compatibility)', () => {
@@ -44,8 +50,9 @@ describe('resolvePermissionArgs - absent config (backward compatibility)', () =>
     expect(resolvePermissionArgs(undefined, 'aider')).toEqual(resolvePermissionArgs('safe', 'aider'))
   })
 
-  test('gemini with no config resolves to safe - no pre-feature behavior existed to preserve, so conservative wins', () => {
+  test('gemini/opencode with no config resolve to safe - no pre-feature behavior existed to preserve, so conservative wins', () => {
     expect(resolvePermissionArgs(undefined, 'gemini')).toEqual(resolvePermissionArgs('safe', 'gemini'))
+    expect(resolvePermissionArgs(undefined, 'opencode')).toEqual(resolvePermissionArgs('safe', 'opencode'))
   })
 })
 

@@ -7,6 +7,7 @@ import { createCodexAdapter } from './codex.js'
 import { createAiderAdapter } from './aider.js'
 import { createCopilotAdapter } from './copilot.js'
 import { createGeminiAdapter } from './gemini.js'
+import { createOpencodeAdapter } from './opencode.js'
 import { createShellAdapter } from './shell.js'
 
 export interface DefaultRegistryOptions {
@@ -46,6 +47,7 @@ export function createDefaultRegistry(opts: DefaultRegistryOptions = {}): Adapte
   reg.register(createAiderAdapter(opts))
   reg.register(createCopilotAdapter(opts))
   reg.register(createGeminiAdapter(opts))
+  reg.register(createOpencodeAdapter(opts))
   reg.register(createShellAdapter(opts))
   return reg
 }

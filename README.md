@@ -360,6 +360,7 @@ logged in on your machine:
 | `copilot-cli` | GitHub Copilot CLI (`gh`) | Install the GitHub CLI, then `gh auth login` and `gh extension install github/gh-copilot` | model strings use dots (`claude-opus-4.8`), not the dashed form some other adapters use |
 | `aider` | [aider](https://aider.chat) | Install aider, set your provider's API key env var | reports no real dollar cost - looprail estimates one from its token counts instead |
 | `gemini` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`) | `npm i -g @google/gemini-cli`, then run `gemini` once to log in (or set `GEMINI_API_KEY`) | reports no dollar cost - looprail estimates one from its token counts |
+| `opencode` | [opencode](https://opencode.ai) (`opencode`) | `npm i -g opencode-ai`, then `opencode auth login` | `model:` takes the `provider/model` form (e.g. `anthropic/claude-sonnet-4-5`) |
 | `shell` | any command you give it | nothing - it's your command | for a local model, a script, or anything else with a CLI |
 | `mock` | nothing (built in) | nothing | deterministic, zero-cost - for demos and this repo's own tests |
 

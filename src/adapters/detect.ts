@@ -30,6 +30,10 @@ const KNOWN = [
     name: 'gemini', adapter: 'gemini', command: 'gemini',
     fixHint: 'npm i -g @google/gemini-cli, then run `gemini` once to log in (or set GEMINI_API_KEY)',
   },
+  {
+    name: 'opencode', adapter: 'opencode', command: 'opencode',
+    fixHint: 'npm i -g opencode-ai, then `opencode auth login` to add a provider credential',
+  },
 ] as const
 
 export async function detectAgents(exec: ExecFn = defaultExec): Promise<DetectedAgent[]> {
