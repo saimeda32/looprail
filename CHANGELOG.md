@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0
 
 - **Probe panels (`probe: true`)** - adaptive panel depth that never weakens
   the verification guarantee. On a `panel` verifier under the `all-pass`
@@ -26,6 +26,11 @@
   the catalog for scripting.
 - **Interactive `init` template picker now shows descriptions** - each choice
   reads `name - what it does` instead of a bare name, so the pick is informed.
+- **`benchmarks/efficiency/`** - a deliberate, human-run, real-dollar
+  engine-version A/B (`looprail@0.5.0` vs current) that prices the 0.6.0
+  efficiency work on a seeded two-branch task; never run by `npm test`.
+- The no-loopfile empty state now points at all three on-ramps (`init`,
+  `templates`, `demo`).
 
 ## 0.6.2
 
