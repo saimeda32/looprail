@@ -65,6 +65,15 @@ const PRESET_FLAGS: Record<string, Record<PermissionPreset, string[]>> = {
     standard: [],
     full: ['--auto'],
   },
+  // ollama runs no tools at all - `ollama run` only generates text, so there
+  // is no permission surface for any preset to widen or narrow. Every preset
+  // is deliberately the same empty result (aider precedent); the raw escape
+  // hatch below still works for passing ollama's own non-permission flags.
+  ollama: {
+    safe: [],
+    standard: [],
+    full: [],
+  },
 }
 
 // Absent config must reproduce each adapter's real behavior from before this
@@ -78,10 +87,11 @@ const DEFAULT_PRESET: Record<string, PermissionPreset> = {
   'copilot-cli': 'full',
   aider: 'safe',
   // No pre-feature behavior to reproduce for the adapters added after the
-  // permissions feature (gemini, opencode) - safe is simply the conservative
-  // choice every non-copilot adapter already defaults to.
+  // permissions feature (gemini, opencode, ollama) - safe is simply the
+  // conservative choice every non-copilot adapter already defaults to.
   gemini: 'safe',
   opencode: 'safe',
+  ollama: 'safe',
 }
 
 export function resolvePermissionArgs(

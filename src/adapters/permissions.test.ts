@@ -37,6 +37,12 @@ describe('resolvePermissionArgs - explicit presets', () => {
     expect(resolvePermissionArgs('standard', 'opencode')).toEqual([])
     expect(resolvePermissionArgs('full', 'opencode')).toEqual(['--auto'])
   })
+
+  test('ollama: every preset resolves to the same empty result - a pure text generator has no permission surface at all', () => {
+    expect(resolvePermissionArgs('safe', 'ollama')).toEqual([])
+    expect(resolvePermissionArgs('standard', 'ollama')).toEqual([])
+    expect(resolvePermissionArgs('full', 'ollama')).toEqual([])
+  })
 })
 
 describe('resolvePermissionArgs - absent config (backward compatibility)', () => {

@@ -34,6 +34,10 @@ const KNOWN = [
     name: 'opencode', adapter: 'opencode', command: 'opencode',
     fixHint: 'npm i -g opencode-ai, then `opencode auth login` to add a provider credential',
   },
+  {
+    name: 'ollama', adapter: 'ollama', command: 'ollama',
+    fixHint: 'install ollama from https://ollama.com/download, then `ollama pull <model>` (no login needed)',
+  },
 ] as const
 
 export async function detectAgents(exec: ExecFn = defaultExec): Promise<DetectedAgent[]> {

@@ -8,6 +8,7 @@ import { createAiderAdapter } from './aider.js'
 import { createCopilotAdapter } from './copilot.js'
 import { createGeminiAdapter } from './gemini.js'
 import { createOpencodeAdapter } from './opencode.js'
+import { createOllamaAdapter } from './ollama.js'
 import { createShellAdapter } from './shell.js'
 
 export interface DefaultRegistryOptions {
@@ -48,6 +49,7 @@ export function createDefaultRegistry(opts: DefaultRegistryOptions = {}): Adapte
   reg.register(createCopilotAdapter(opts))
   reg.register(createGeminiAdapter(opts))
   reg.register(createOpencodeAdapter(opts))
+  reg.register(createOllamaAdapter(opts))
   reg.register(createShellAdapter(opts))
   return reg
 }
