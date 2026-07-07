@@ -3,6 +3,13 @@ import type { RailBreach } from './rails.js'
 import { aggregateVerdicts } from './verdict.js'
 import { detectStall } from './fingerprint.js'
 
+// How many byte-identical failing iterations, absent an explicit
+// stall_after, mean "not making progress" and trip the convergence
+// breaker. 3 (not 2) so a single legitimate retry of the same shape isn't
+// mistaken for a plateau; a loop that genuinely fixes forward changes its
+// failing set well before three identical rounds.
+const DEFAULT_CONVERGENCE_LIMIT = 3
+
 export function composeFeedback(outcomes: NodeOutcome[]): string {
   return outcomes
     .filter((o) => o.verdict && o.verdict.status !== 'pass')
@@ -13,7 +20,14 @@ export function composeFeedback(outcomes: NodeOutcome[]): string {
 export interface RouteInput {
   outcomes: NodeOutcome[]
   policy: VerdictPolicy
+  // Coarse node+status(+score) fingerprints per iteration, for stall_after.
   fingerprints: string[]
+  // Evidence-inclusive fingerprints per iteration, for the convergence
+  // breaker - a plateau is the exact same failure recurring, not just the
+  // same node failing (see fingerprint.ts's progressFingerprint). Optional
+  // so existing callers/tests that only pass `fingerprints` still compile;
+  // the breaker simply doesn't fire without it.
+  progressFingerprints?: string[]
   rails: Rails
   replansUsed: number
   breach: RailBreach | null
@@ -76,6 +90,20 @@ export function routeIteration(input: RouteInput): RouterDecision {
       return { action: 'replan', feedback }
     }
     return { action: 'halt', reason: 'stalled: identical failures persisted and replan limit exhausted' }
+  }
+  // Always-on convergence breaker. Even without an explicit stall_after, a
+  // loop producing the byte-identical failing state every iteration is not
+  // making progress - it will only grind to the iteration/wall rail burning
+  // budget. Caught live: a loop iterated to its wall against the same
+  // failure repeatedly. When stall_after IS set, the block above already
+  // governs (and may replan); this floor applies only when it isn't set, so
+  // an unconfigured loop still stops instead of running the whole budget.
+  if (!input.rails.stallAfter && input.progressFingerprints
+    && detectStall(input.progressFingerprints, DEFAULT_CONVERGENCE_LIMIT)) {
+    return {
+      action: 'halt',
+      reason: `not converging: the same failure(s) persisted across ${DEFAULT_CONVERGENCE_LIMIT} iterations without change - the loop is not making progress (set stall_after to replan on a plateau instead)`,
+    }
   }
   return { action: 'iterate', feedback }
 }

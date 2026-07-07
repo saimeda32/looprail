@@ -6,7 +6,7 @@ import { expandPanels, validateGraph } from '../core/graph.js'
 import type { RunState } from '../core/context.js'
 import { RailsGuard } from '../core/rails.js'
 import { routeIteration } from '../core/router.js'
-import { verdictFingerprint } from '../core/fingerprint.js'
+import { progressFingerprint, verdictFingerprint } from '../core/fingerprint.js'
 import { buildFallbackReport, buildReportPrompt, parseReport, pickReportingAgentKey } from '../core/report.js'
 import { filesTouched } from '../core/git.js'
 import { JournalWriter } from '../journal/journal.js'
@@ -262,6 +262,9 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   let outcomes: NodeOutcome[] = []
   let replans = 0
   const fingerprints: string[] = []
+  // Evidence-inclusive history for the convergence breaker (router.ts);
+  // reset in lockstep with `fingerprints` at every replan boundary.
+  const progressFingerprints: string[] = []
   // The last full graph fragment a generates:'graph' planner produced that
   // parsed AND passed structural validation - the base a later compact
   // `edits:` reply is applied against (see src/config/loopfile.ts's design
@@ -487,6 +490,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
       }
       replans += 1
       fingerprints.length = 0
+      progressFingerprints.length = 0
       emit('replan', { replans, feedback: state.feedback ?? undefined })
     }
   }
@@ -530,6 +534,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     state.priorOutputs = priorOutputs
     const verdicts = outcomes.flatMap((o) => (o.verdict ? [o.verdict] : []))
     fingerprints.push(verdictFingerprint(verdicts))
+    progressFingerprints.push(progressFingerprint(verdicts))
     emit('iteration_end', { iteration: state.iteration, costUsd: guard.spentUsd, estimatedCostUsd: guard.estimatedSpentUsd })
 
     const breach = guard.check(state.iteration)
@@ -585,6 +590,9 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
             state.feedback = result.reason
             replans += 1
             fingerprints.length = 0
+          progressFingerprints.length = 0
+            progressFingerprints.length = 0
+      progressFingerprints.length = 0
             emit('replan', { replans, feedback: state.feedback })
             const replanned = await runPlanning()
             if (!replanned.ok) planApprovalHalt = replanned.reason
@@ -598,6 +606,8 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
           state.feedback = o.verdict.evidence.replace(/^human feedback:\s*/, '')
           replans += 1
           fingerprints.length = 0
+          progressFingerprints.length = 0
+      progressFingerprints.length = 0
           emit('replan', { replans, feedback: state.feedback })
           const replanned = await runPlanning()
           if (!replanned.ok) planApprovalHalt = replanned.reason
@@ -609,7 +619,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     if (planApprovalHandled) continue
 
     const decision = routeIteration({
-      outcomes, policy: def.verdictPolicy, fingerprints,
+      outcomes, policy: def.verdictPolicy, fingerprints, progressFingerprints,
       rails: def.rails, replansUsed: replans, breach,
     })
 
@@ -634,6 +644,7 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     if (decision.action === 'replan') {
       replans += 1
       fingerprints.length = 0
+      progressFingerprints.length = 0
       emit('replan', { replans, feedback: decision.feedback })
       const replanned = await runPlanning()
       if (!replanned.ok) return await finish('halted', replanned.reason)

@@ -114,3 +114,50 @@ test('config-tagged error verdict halts loudly instead of iterating', () => {
   // verify the prefix is stripped so it does not double-label
   expect((d as { reason: string }).reason).toBe('config error - check your loop definition: [metacrit] target output for "pcrit" unavailable - check graph ordering')
 })
+
+
+// EFF-4: the convergence breaker halts a plateaued loop even with no
+// stall_after configured, instead of grinding to the iteration/wall rail.
+test('the convergence breaker halts after 3 byte-identical failing iterations when stall_after is unset', () => {
+  const fp = 'crit:fail'
+  const noStall: Rails = { maxIterations: 8, maxCostUsd: 10 } // stall_after deliberately unset
+  const pf = 'crit:fail:still broken' // evidence-inclusive: an identical failure
+  const twice = routeIteration({
+    outcomes: [outcome('crit', 'fail', 'still broken')],
+    policy: { kind: 'all-pass' },
+    fingerprints: [fp, fp], progressFingerprints: [pf, pf], rails: noStall, replansUsed: 0, breach: null,
+  })
+  expect(twice.action).toBe('iterate') // only 2 identical - not a plateau yet
+
+  const thrice = routeIteration({
+    outcomes: [outcome('crit', 'fail', 'still broken')],
+    policy: { kind: 'all-pass' },
+    fingerprints: [fp, fp, fp], progressFingerprints: [pf, pf, pf], rails: noStall, replansUsed: 0, breach: null,
+  })
+  expect(thrice.action).toBe('halt')
+  expect((thrice as { reason: string }).reason).toContain('not converging')
+})
+
+test('an explicit stall_after governs instead of the default breaker (may replan, not just halt)', () => {
+  const fp = 'crit:fail'
+  const d = routeIteration({
+    outcomes: [outcome('crit', 'fail', 'x')],
+    policy: { kind: 'all-pass' },
+    fingerprints: [fp, fp], rails: { ...rails, stallAfter: 2, replanLimit: 1 },
+    replansUsed: 0, breach: null,
+  })
+  expect(d.action).toBe('replan') // stall_after path, not the not-converging halt
+})
+
+test('the convergence breaker does NOT trip when the failure evidence changes each iteration (genuine progress)', () => {
+  const noStall: Rails = { maxIterations: 8, maxCostUsd: 10 }
+  const d = routeIteration({
+    outcomes: [outcome('crit', 'fail', 'attempt 3 still wrong')],
+    policy: { kind: 'all-pass' },
+    // same node+status fingerprint, but DIFFERENT evidence each round
+    fingerprints: ['crit:fail', 'crit:fail', 'crit:fail'],
+    progressFingerprints: ['crit:fail:attempt 1 wrong', 'crit:fail:attempt 2 wrong', 'crit:fail:attempt 3 still wrong'],
+    rails: noStall, replansUsed: 0, breach: null,
+  })
+  expect(d.action).toBe('iterate') // the executor is trying new things - keep going
+})
