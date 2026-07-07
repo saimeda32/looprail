@@ -83,10 +83,20 @@ export async function initAction(opts: InitOpts, deps: InitDeps = {}): Promise<n
   }
 
   const templateNames = Object.keys(TEMPLATES)
-  const templateName = opts.template
-    ?? (opts.yes || !deps.ask
-      ? templateNames[0]
-      : await deps.ask('Pick a template', templateNames))
+  let templateName: string
+  if (opts.template) {
+    templateName = opts.template
+  } else if (opts.yes || !deps.ask) {
+    templateName = templateNames[0]
+  } else {
+    // Show each template's description in the picker so the choice is
+    // informed, not a guess at what a bare name does. The enriched label is
+    // mapped back to its template name after the pick.
+    const labels = templateNames.map((n) => `${n} - ${TEMPLATES[n].description}`)
+    const byLabel = new Map(labels.map((l, i) => [l, templateNames[i]]))
+    const picked = await deps.ask('Pick a template', labels)
+    templateName = byLabel.get(picked) ?? templateNames[0]
+  }
   const template = TEMPLATES[templateName]
   if (!template) {
     io.out(err(`unknown template "${templateName}" - one of: ${templateNames.join(', ')}`))

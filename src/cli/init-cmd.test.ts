@@ -98,6 +98,24 @@ test('interactive path uses the injected ask for agent and template', async () =
   expect(readFileSync(join(cwd, 'looprail.yaml'), 'utf8')).toContain('adapter: codex')
 })
 
+test('the template picker shows each template’s description, not a bare name', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-init-'))
+  let templateChoices: string[] = []
+  await initAction({ cwd }, {
+    detect: detected(['claude-code']),
+    ask: async (question, choices) => {
+      if (question === 'Pick a template') templateChoices = choices
+      return choices[0]
+    },
+    io: capture().io,
+  })
+  // every choice carries "name - description", and the pick still resolves to
+  // a real template (fix-tests is first)
+  expect(templateChoices[0]).toContain('fix-tests')
+  expect(templateChoices[0]).toContain('anti-gaming critic')
+  expect(readFileSync(join(cwd, 'looprail.yaml'), 'utf8')).toContain('name: fix-tests')
+})
+
 test('non-interactive (--yes): every agent role silently gets its recommended tier, no prompting', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'lr-init-'))
   const { io } = capture()

@@ -7,6 +7,8 @@
   each one's description and the agent roles it wires, so you can discover and
   pick a template without stepping through interactive `init`. `--json` emits
   the catalog for scripting.
+- **Interactive `init` template picker now shows descriptions** - each choice
+  reads `name - what it does` instead of a bare name, so the pick is informed.
 
 ## 0.6.2
 
