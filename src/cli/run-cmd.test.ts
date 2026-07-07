@@ -710,6 +710,15 @@ test('agentCostBreakdown folds journal costs per agent (panel clones collapse)',
   expect(agentCostBreakdown(def, w.path)).toEqual([['worker', 0.3], ['checker', 0.2]])
 })
 
+test('agentCostBreakdown attributes cost to the agent the journal says served the node (rate-limit failover), not the loopfile default', async () => {
+  const def = parseLoopfile(FIXTURE)
+  const dir = join(mkdtempSync(join(tmpdir(), 'lr-bd-')), 'run')
+  const w = new JournalWriter(dir, () => 1)
+  w.write('node_end', { nodeId: 'do', costUsd: 0.3, agent: 'checker' }) // failed over off "worker"
+  w.write('node_end', { nodeId: 'crit', costUsd: 0.1, agent: 'checker' })
+  expect(agentCostBreakdown(def, w.path)).toEqual([['checker', 0.4]])
+})
+
 test('agentEstimatedCostBreakdown folds journal estimates per agent, separate from real cost', async () => {
   const def = parseLoopfile(FIXTURE)
   const dir = join(mkdtempSync(join(tmpdir(), 'lr-bd-')), 'run')

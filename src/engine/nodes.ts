@@ -6,7 +6,7 @@ import { DEFAULT_VERDICT_THRESHOLD, normalizeGateAnswer } from '../core/types.js
 import { composeContext, type RunState } from '../core/context.js'
 import { parseVerdict } from '../core/verdict.js'
 import type { AdapterRegistry } from '../adapters/registry.js'
-import { InfraError, invokeWithRetry } from './retry.js'
+import { InfraError, invokeWithRetry, RateLimitError } from './retry.js'
 
 export interface EngineDeps {
   registry: AdapterRegistry
@@ -132,9 +132,10 @@ export async function executeNode(
   // unknown agent key or an unregistered adapter reproduces identically on
   // every iteration and must halt loudly rather than iterate (see the
   // invokeWithRetry call below, whose failures ARE transient).
+  let agentKey = node.agent!
   let agentDef: AgentDef, adapter: Adapter, prompt: string, key: string | undefined
   try {
-    agentDef = def.agents[node.agent!]
+    agentDef = def.agents[agentKey]
     if (!agentDef) throw new Error(`unknown agent "${node.agent}" - check the loop's agents map`)
     adapter = deps.registry.get(agentDef.adapter)
     prompt = composeContext(def, node, state, outcomes)
@@ -151,76 +152,110 @@ export async function executeNode(
     }
   }
 
-  try {
-    let res = await invokeWithRetry(adapter, {
-      prompt, timeoutMs,
-      model: agentDef.model, command: agentDef.command, permissions: agentDef.permissions,
-    }, deps, onChunk, onPermission)
-    let verdict = VERIFYING.has(node.role) ? parseVerdict(node.id, res.output) : null
-    let cost = res.costUsd
-    let tokens = res.tokens
-    let estimatedCost = res.estimatedCostUsd
-
-    if (VERIFYING.has(node.role) && !verdict) {
-      const retry = await invokeWithRetry(adapter, {
-        prompt: `${prompt}\n\nYour previous reply had no verdict block. Reply again ending with:\nVERDICT: pass|fail\nEVIDENCE: <reason>`,
-        timeoutMs,
+  // Rate-limit failover walks the AgentDef.fallback chain, so this whole
+  // invocation block loops: each pass runs one agent, and only a spent
+  // RateLimitError (see invokeWithRetry) with a usable fallback re-enters it
+  // with the next agent's def. `attempted` cycle-guards at runtime
+  // independently of validateGraph's config-time check, because a spliced-in
+  // agents fragment can rewrite the agents map mid-run without ever passing
+  // through that validation.
+  const attempted = new Set<string>([agentKey])
+  for (;;) {
+    try {
+      let res = await invokeWithRetry(adapter, {
+        prompt, timeoutMs,
         model: agentDef.model, command: agentDef.command, permissions: agentDef.permissions,
       }, deps, onChunk, onPermission)
-      cost += retry.costUsd
-      tokens += retry.tokens
-      // estimatedCostUsd is optional (undefined means "no estimate
-      // computable", never 0 - see AgentResult) - undefined stays undefined
-      // only when NEITHER call produced one; either producing one sums in
-      // the other as 0 rather than losing it.
-      estimatedCost = (estimatedCost === undefined && retry.estimatedCostUsd === undefined)
-        ? undefined
-        : (estimatedCost ?? 0) + (retry.estimatedCostUsd ?? 0)
-      verdict = parseVerdict(node.id, retry.output)
-        ?? { node: node.id, status: 'fail', evidence: 'verdict unparseable' }
-      res = retry
-    }
+      let verdict = VERIFYING.has(node.role) ? parseVerdict(node.id, res.output) : null
+      let cost = res.costUsd
+      let tokens = res.tokens
+      let estimatedCost = res.estimatedCostUsd
 
-    if (VERIFYING.has(node.role) && verdict && verdict.status === 'pass') {
-      // Every critic/judge is held to an effective threshold: the loopfile's
-      // explicit `threshold:` when set, else DEFAULT_VERDICT_THRESHOLD.
-      const effectiveThreshold = node.threshold ?? DEFAULT_VERDICT_THRESHOLD
-      if (verdict.score === undefined || !Number.isFinite(verdict.score)) {
-        // No usable SCORE to compare: only an explicit threshold fails the
-        // verdict here (preserves prior judge behavior). A merely-default
-        // threshold must not fail every score-less reply, since most
-        // existing critic replies never include a SCORE at all.
-        if (node.threshold !== undefined) {
-          verdict = { ...verdict, status: 'fail', evidence: `${node.role} reported no usable SCORE; threshold ${node.threshold} requires one` }
-        }
-      } else if (verdict.score < effectiveThreshold) {
-        verdict = { ...verdict, status: 'fail', evidence: `score ${verdict.score} below threshold ${effectiveThreshold}` }
+      if (VERIFYING.has(node.role) && !verdict) {
+        const retry = await invokeWithRetry(adapter, {
+          prompt: `${prompt}\n\nYour previous reply had no verdict block. Reply again ending with:\nVERDICT: pass|fail\nEVIDENCE: <reason>`,
+          timeoutMs,
+          model: agentDef.model, command: agentDef.command, permissions: agentDef.permissions,
+        }, deps, onChunk, onPermission)
+        cost += retry.costUsd
+        tokens += retry.tokens
+        // estimatedCostUsd is optional (undefined means "no estimate
+        // computable", never 0 - see AgentResult) - undefined stays undefined
+        // only when NEITHER call produced one; either producing one sums in
+        // the other as 0 rather than losing it.
+        estimatedCost = (estimatedCost === undefined && retry.estimatedCostUsd === undefined)
+          ? undefined
+          : (estimatedCost ?? 0) + (retry.estimatedCostUsd ?? 0)
+        verdict = parseVerdict(node.id, retry.output)
+          ?? { node: node.id, status: 'fail', evidence: 'verdict unparseable' }
+        res = retry
       }
-    }
 
-    return {
-      ...base, output: res.output, verdict, costUsd: cost, tokens, estimatedCostUsd: estimatedCost,
-      durationMs: res.durationMs, contextHash: key,
-      // prefer the adapter's own resolved model (e.g. copilot's
-      // session.tools_updated data.model) over the loopfile's configured
-      // one, which can be "auto" or omitted entirely - see AgentResult.
-      agent: node.agent, adapter: agentDef.adapter, model: res.resolvedModel ?? agentDef.model,
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    return {
-      ...base,
-      output: '',
-      verdict: {
-        node: node.id,
-        status: 'error',
-        evidence: err instanceof InfraError ? `infra: ${msg}` : msg,
-      },
-      // agent/adapter were already resolved above (this catch is only
-      // reachable once invokeWithRetry itself throws) - kept even on a
-      // failed invocation, since agent/adapter is a fact about which node
-      // was attempted, not about whether it succeeded.
-      agent: node.agent, adapter: agentDef.adapter, model: agentDef.model,
+      if (VERIFYING.has(node.role) && verdict && verdict.status === 'pass') {
+        // Every critic/judge is held to an effective threshold: the loopfile's
+        // explicit `threshold:` when set, else DEFAULT_VERDICT_THRESHOLD.
+        const effectiveThreshold = node.threshold ?? DEFAULT_VERDICT_THRESHOLD
+        if (verdict.score === undefined || !Number.isFinite(verdict.score)) {
+          // No usable SCORE to compare: only an explicit threshold fails the
+          // verdict here (preserves prior judge behavior). A merely-default
+          // threshold must not fail every score-less reply, since most
+          // existing critic replies never include a SCORE at all.
+          if (node.threshold !== undefined) {
+            verdict = { ...verdict, status: 'fail', evidence: `${node.role} reported no usable SCORE; threshold ${node.threshold} requires one` }
+          }
+        } else if (verdict.score < effectiveThreshold) {
+          verdict = { ...verdict, status: 'fail', evidence: `score ${verdict.score} below threshold ${effectiveThreshold}` }
+        }
+      }
+
+      return {
+        ...base, output: res.output, verdict, costUsd: cost, tokens, estimatedCostUsd: estimatedCost,
+        durationMs: res.durationMs, contextHash: key,
+        // prefer the adapter's own resolved model (e.g. copilot's
+        // session.tools_updated data.model) over the loopfile's configured
+        // one, which can be "auto" or omitted entirely - see AgentResult.
+        // agentKey (not node.agent) so a failed-over call is attributed to
+        // the agent that ACTUALLY served it - billing/journal truth, not
+        // the loopfile's original intent.
+        agent: agentKey, adapter: agentDef.adapter, model: res.resolvedModel ?? agentDef.model,
+      }
+    } catch (err) {
+      if (err instanceof RateLimitError && agentDef.fallback !== undefined
+          && !attempted.has(agentDef.fallback) && def.agents[agentDef.fallback]) {
+        const nextKey = agentDef.fallback
+        const nextDef = def.agents[nextKey]
+        let nextAdapter: Adapter | undefined
+        try {
+          nextAdapter = deps.registry.get(nextDef.adapter)
+        } catch {
+          // An unregistered fallback adapter can't serve the hop; fall
+          // through to the normal failure outcome below rather than trade a
+          // rate-limit error for a confusing registry one.
+        }
+        if (nextAdapter) {
+          onChunk?.(`rate-limited on ${agentDef.adapter}; failing over to ${nextKey} (${nextDef.adapter})\n`)
+          attempted.add(nextKey)
+          agentKey = nextKey
+          agentDef = nextDef
+          adapter = nextAdapter
+          continue
+        }
+      }
+      const msg = err instanceof Error ? err.message : String(err)
+      return {
+        ...base,
+        output: '',
+        verdict: {
+          node: node.id,
+          status: 'error',
+          evidence: err instanceof InfraError ? `infra: ${msg}` : msg,
+        },
+        // agent/adapter were already resolved above (this catch is only
+        // reachable once invokeWithRetry itself throws) - kept even on a
+        // failed invocation, since agent/adapter is a fact about which agent
+        // was attempted last, not about whether it succeeded.
+        agent: agentKey, adapter: agentDef.adapter, model: agentDef.model,
+      }
     }
   }
 }

@@ -37,6 +37,15 @@ test('parses a full loopfile into a LoopDef', () => {
   expect(judge.threshold).toBe(0.85)
 })
 
+test('parses an agent fallback into AgentDef.fallback', () => {
+  const def = parseLoopfile(SAMPLE.replace(
+    'worker:  { adapter: claude-code, model: sonnet }',
+    'worker:  { adapter: claude-code, model: sonnet, fallback: checker }',
+  ))
+  expect(def.agents.worker).toEqual({ adapter: 'claude-code', model: 'sonnet', fallback: 'checker' })
+  expect(def.agents.checker.fallback).toBeUndefined()
+})
+
 test('quorum policy maps to atLeast', () => {
   const def = parseLoopfile(SAMPLE.replace('policy: all-pass', 'policy: { quorum: 2 }'))
   expect(def.verdictPolicy).toEqual({ kind: 'quorum', atLeast: 2 })

@@ -81,7 +81,21 @@ export interface Adapter {
   ): Promise<AgentResult>
 }
 
-export interface AgentDef { adapter: string; model?: string; command?: string; permissions?: PermissionConfig }
+export interface AgentDef {
+  adapter: string
+  model?: string
+  command?: string
+  permissions?: PermissionConfig
+  // Another agents-map key to hand this agent's call to when its invocation
+  // exhausts retries on a rate-limit-shaped failure (engine/retry.ts's
+  // RateLimitError; the hop itself lives in engine/nodes.ts). A per-account
+  // 429/quota ceiling doesn't clear within one retry window, but a
+  // different provider's account is untouched by it - so an overnight run
+  // survives a throttled provider instead of failing its node. Validated by
+  // core/graph.ts's validateGraph: the key must exist and chains must not
+  // cycle.
+  fallback?: string
+}
 
 // App-level default pass-score floor applied to critic/judge verdicts whose
 // loopfile node omits an explicit `threshold:`. 0.7 sits above the midpoint of

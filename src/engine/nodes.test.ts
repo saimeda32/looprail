@@ -2,7 +2,7 @@ import { expect, test } from 'vitest'
 import { executeNode, type EngineDeps } from './nodes.js'
 import { MockAdapter } from '../adapters/mock.js'
 import { createRegistry } from '../adapters/registry.js'
-import type { LoopDef, NodeDef, NodeOutcome } from '../core/types.js'
+import type { Adapter, LoopDef, NodeDef, NodeOutcome } from '../core/types.js'
 import type { RunState } from '../core/context.js'
 
 const def: LoopDef = {
@@ -370,4 +370,134 @@ test('onPermission is forwarded to the adapter for an executor node', async () =
     async (req) => { seenQuestions.push(req.question); return true })
   expect(seenQuestions).toEqual(['allow tool?'])
   expect(out.output).toBe('ok-approved')
+})
+
+// --- rate-limit failover (AgentDef.fallback) ---
+
+const rateLimited = (name: string) => {
+  let calls = 0
+  const adapter: Adapter = {
+    name,
+    async invoke() {
+      calls++
+      throw new Error(`${name} exited 1: HTTP 429 Too Many Requests`)
+    },
+  }
+  return { adapter, calls: () => calls }
+}
+
+const fallbackDef = (agents: LoopDef['agents']): LoopDef => ({ ...def, agents })
+
+test('a rate-limited agent fails over to its fallback, and the outcome carries the agent that actually served the call', async () => {
+  const registry = createRegistry()
+  const limited = rateLimited('claude-code')
+  registry.register(limited.adapter)
+  registry.register({
+    name: 'copilot-cli',
+    invoke: async () => ({ output: 'served by fallback', costUsd: 0.02, tokens: 7, durationMs: 1 }),
+  })
+  const two = fallbackDef({
+    worker: { adapter: 'claude-code', model: 'sonnet', fallback: 'worker-b' },
+    'worker-b': { adapter: 'copilot-cli', model: 'claude-sonnet-5' },
+  })
+  const chunks: string[] = []
+  const out = await executeNode(
+    two, { id: 'do', role: 'executor', agent: 'worker' }, state, none,
+    { registry, sleep: async () => {} }, (c) => chunks.push(c))
+  expect(limited.calls()).toBe(3) // the first agent's own retry budget was spent first
+  expect(out).toMatchObject({
+    output: 'served by fallback', verdict: null, costUsd: 0.02,
+    agent: 'worker-b', adapter: 'copilot-cli', model: 'claude-sonnet-5',
+  })
+  expect(chunks.join('')).toContain('rate-limited on claude-code; failing over to worker-b (copilot-cli)')
+})
+
+test('failover follows a multi-hop chain, hopping again only on rate-limit failures', async () => {
+  const registry = createRegistry()
+  registry.register(rateLimited('claude-code').adapter)
+  registry.register(rateLimited('codex').adapter)
+  registry.register({
+    name: 'copilot-cli',
+    invoke: async () => ({ output: 'third time lucky', costUsd: 0, tokens: 0, durationMs: 1 }),
+  })
+  const three = fallbackDef({
+    a: { adapter: 'claude-code', fallback: 'b' },
+    b: { adapter: 'codex', fallback: 'c' },
+    c: { adapter: 'copilot-cli' },
+  })
+  const out = await executeNode(
+    three, { id: 'do', role: 'executor', agent: 'a' }, state, none,
+    { registry, sleep: async () => {} })
+  expect(out).toMatchObject({ output: 'third time lucky', agent: 'c', adapter: 'copilot-cli' })
+})
+
+test('a non-rate-limit failure never fails over - the fallback adapter is not even invoked', async () => {
+  const registry = createRegistry()
+  registry.register({
+    name: 'claude-code',
+    invoke: async () => { throw new Error('claude-code exited 1: cannot apply patch') },
+  })
+  let fallbackCalls = 0
+  registry.register({
+    name: 'copilot-cli',
+    invoke: async () => {
+      fallbackCalls++
+      return { output: 'never', costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  })
+  const two = fallbackDef({
+    worker: { adapter: 'claude-code', fallback: 'worker-b' },
+    'worker-b': { adapter: 'copilot-cli' },
+  })
+  const out = await executeNode(
+    two, { id: 'do', role: 'executor', agent: 'worker' }, state, none,
+    { registry, sleep: async () => {} })
+  expect(fallbackCalls).toBe(0)
+  expect(out.verdict).toMatchObject({ status: 'error' })
+  expect(out).toMatchObject({ agent: 'worker', adapter: 'claude-code' })
+})
+
+test('a rate-limited agent with no fallback still fails the node with the rate-limit evidence', async () => {
+  const registry = createRegistry()
+  registry.register(rateLimited('claude-code').adapter)
+  const solo = fallbackDef({ worker: { adapter: 'claude-code' } })
+  const out = await executeNode(
+    solo, { id: 'do', role: 'executor', agent: 'worker' }, state, none,
+    { registry, sleep: async () => {} })
+  expect(out.verdict).toMatchObject({ status: 'error' })
+  expect(out.verdict!.evidence).toContain('429')
+})
+
+test('a fallback cycle among rate-limited agents terminates: each agent is tried once, then the node fails', async () => {
+  const registry = createRegistry()
+  const first = rateLimited('claude-code')
+  const second = rateLimited('codex')
+  registry.register(first.adapter)
+  registry.register(second.adapter)
+  const cyclic = fallbackDef({
+    a: { adapter: 'claude-code', fallback: 'b' },
+    b: { adapter: 'codex', fallback: 'a' },
+  })
+  const out = await executeNode(
+    cyclic, { id: 'do', role: 'executor', agent: 'a' }, state, none,
+    { registry, sleep: async () => {}, retries: 0 })
+  expect(first.calls()).toBe(1)
+  expect(second.calls()).toBe(1)
+  expect(out.verdict).toMatchObject({ status: 'error' })
+  expect(out).toMatchObject({ agent: 'b', adapter: 'codex' })
+})
+
+test('a fallback whose adapter is not registered fails the node with the original rate-limit error, not a registry error', async () => {
+  const registry = createRegistry()
+  registry.register(rateLimited('claude-code').adapter)
+  const two = fallbackDef({
+    worker: { adapter: 'claude-code', fallback: 'worker-b' },
+    'worker-b': { adapter: 'not-installed' },
+  })
+  const out = await executeNode(
+    two, { id: 'do', role: 'executor', agent: 'worker' }, state, none,
+    { registry, sleep: async () => {} })
+  expect(out.verdict).toMatchObject({ status: 'error' })
+  expect(out.verdict!.evidence).toContain('429')
+  expect(out).toMatchObject({ agent: 'worker', adapter: 'claude-code' })
 })
