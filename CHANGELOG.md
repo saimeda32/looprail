@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **`looprail templates`** - list the built-in loop shapes (fix-tests,
+  research-report, refactor, content-pipeline, review-diff, build-app) with
+  each one's description and the agent roles it wires, so you can discover and
+  pick a template without stepping through interactive `init`. `--json` emits
+  the catalog for scripting.
+
 ## 0.6.2
 
 - **`looprail run --dry-run`** - print the execution plan (dependency-ordered

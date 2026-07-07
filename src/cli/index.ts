@@ -13,6 +13,7 @@ import { registerReplay } from './replay-cmd.js'
 import { registerResume } from './resume-cmd.js'
 import { registerRoute } from './route-cmd.js'
 import { registerRun } from './run-cmd.js'
+import { registerTemplates } from './templates-cmd.js'
 import { registerLogs, registerStatus } from './status-cmd.js'
 import { registerMcp } from './mcp-cmd.js'
 import { registerUi } from './ui-cmd.js'
@@ -31,6 +32,7 @@ export function buildProgram(): Command {
   registerDemo(program)
   registerDoctor(program)
   registerInit(program)
+  registerTemplates(program)
   registerLint(program)
   registerRun(program)
   registerQueue(program)

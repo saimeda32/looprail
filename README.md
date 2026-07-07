@@ -167,6 +167,7 @@ dollars, whichever comes first.
 | Command | What it does |
 | --- | --- |
 | `looprail demo` | Run a full verified loop on the built-in mock adapter - no API key, nothing installed |
+| `looprail templates` | List the built-in loop shapes (fix-tests, refactor, build-app, review-diff, …) and the agents each one wires |
 | `looprail init` | Detect installed agents and scaffold a `looprail.yaml` |
 | `looprail run [file]` | Run the loop with live progress and a cost report |
 | `looprail run --dry-run` | Print the execution plan (node order, per-node model, budget ceiling) and exit - invokes no agent, spends nothing |
