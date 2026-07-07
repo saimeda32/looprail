@@ -28,6 +28,7 @@ export async function doctorAction(deps: DoctorDeps = {}): Promise<number> {
   const available = agents.filter((a) => a.available)
   if (available.length === 0) {
     io.out(err('no agent CLI found - install one above, or use adapter "mock"/"shell" in your loopfile'))
+    io.out(dim('  want to see looprail work first? `looprail demo` runs a full verified loop with no CLI at all.'))
     return 1
   }
   io.out(ok(`${available.length} adapter(s) ready - adapters reuse each CLI's own login, no API keys needed`))

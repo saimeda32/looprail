@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.1
+
+Ease of use, accuracy, and cost-safety polish.
+
+- **`looprail demo`** - run a full verified loop (plan -> build -> real
+  test -> independent critic -> verified) on the built-in mock adapter,
+  offline and instant, with no API key and nothing installed. The
+  30-second "so that's what it does" before any setup.
+- **Preflight adapter check** - a run now fails BEFORE spending anything
+  if the loopfile needs an agent CLI that isn't installed or logged in,
+  printing each missing one with its fix hint instead of billing earlier
+  nodes and then dying mid-run on a raw "command not found".
+- **Robust verdict parsing** - a critic's verdict block is tolerated with
+  markdown bold, heading/blockquote/list prefixes, and trailing text
+  (`**VERDICT: pass**`, `## VERDICT: fail`, `VERDICT: fail - reason`),
+  taking the last verdict line. Fewer wasted re-ask invocations and fewer
+  misreads.
+- **New lint rule L010** - warns when an executor's work is verified by
+  nothing downstream, catching a loop that "verifies" one branch while
+  silently shipping another unchecked.
+
+
 ## 0.6.0
 
 The multi-provider moat + an efficiency pass.
