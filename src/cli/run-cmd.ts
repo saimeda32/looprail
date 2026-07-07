@@ -27,7 +27,7 @@ import { previewRun, renderPreview } from './dry-run.js'
 export function loadLoop(file: string | undefined, cwd: string): { def: LoopDef; path: string } {
   const path = resolve(cwd, file ?? 'looprail.yaml')
   if (!existsSync(path)) {
-    throw new Error(`no loopfile at ${path} - run \`looprail init\` to scaffold one`)
+    throw new Error(`no loopfile at ${path} - \`looprail init\` to scaffold one, \`looprail templates\` to browse the built-in shapes, or \`looprail demo\` to watch a loop run first`)
   }
   return { def: parseLoopfile(readFileSync(path, 'utf8')), path }
 }
