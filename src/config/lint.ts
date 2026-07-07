@@ -1,5 +1,5 @@
 import type { LoopDef, NodeDef } from '../core/types.js'
-import { validateGraph } from '../core/graph.js'
+import { descendantsByNode, validateGraph } from '../core/graph.js'
 
 export interface LintFinding {
   rule: string
@@ -113,6 +113,30 @@ export function lintLoop(def: LoopDef): LintFinding[] {
           })
         }
       }
+    }
+  }
+
+  // L010: an executor whose work nothing DOWNSTREAM verifies. L001 already
+  // catches a loop with no verifier at all, but a loop can have a verifier
+  // for one branch and silently leave another executor's output unchecked -
+  // it "verifies" while shipping unverified work, the exact failure looprail
+  // exists to prevent. A node's work is verified if any of its descendants
+  // (transitive after/of dependents) is a tester/judge/gate or a work critic
+  // reviewing it. Planning critics don't count - they review the plan, not
+  // the built work.
+  const descendants = descendantsByNode(def.nodes)
+  const byId = new Map(def.nodes.map((n) => [n.id, n]))
+  const isVerifier = (n: NodeDef) =>
+    ['tester', 'judge', 'gate'].includes(n.role) || (n.role === 'critic' && !isPlanningCritic(n))
+  for (const ex of def.nodes.filter((n) => n.role === 'executor')) {
+    const verified = [...(descendants.get(ex.id) ?? [])]
+      .map((id) => byId.get(id))
+      .some((d) => d !== undefined && isVerifier(d))
+    if (!verified) {
+      findings.push({
+        rule: 'L010', level: 'warn', node: ex.id,
+        message: `executor "${ex.id}" produces work that nothing downstream verifies - add a tester or critic that depends on it, or its result ships unchecked`,
+      })
     }
   }
 

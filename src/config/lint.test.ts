@@ -127,3 +127,38 @@ test('L009: a raw permissions key matching the agent\'s own adapter produces no 
     { agents: { worker: { adapter: 'claude-code', permissions: { raw: { 'claude-code': ['--add-dir', './scripts'] } } } } })
   expect(rules(def)).not.toContain('L009')
 })
+
+
+// L010: an executor whose work nothing downstream verifies (a loop can pass
+// L001 with a verifier on ONE branch while leaving another unchecked).
+test('L010 warns on an executor with no downstream verifier', () => {
+  const def = make([
+    { id: 'doA', role: 'executor', agent: 'big' },
+    { id: 'critA', role: 'critic', agent: 'small', of: 'doA', after: ['doA'] },
+    { id: 'doB', role: 'executor', agent: 'big' }, // nothing verifies doB
+  ])
+  const findings = lintLoop(def).filter((f) => f.rule === 'L010')
+  expect(findings).toHaveLength(1)
+  expect(findings[0].node).toBe('doB')
+  expect(findings[0].level).toBe('warn')
+})
+
+test('L010 does NOT fire when every executor is verified by a downstream tester or critic', () => {
+  const def = make([
+    { id: 'doA', role: 'executor', agent: 'big' },
+    { id: 'critA', role: 'critic', agent: 'small', of: 'doA', after: ['doA'] },
+    { id: 'doB', role: 'executor', agent: 'big' },
+    { id: 'testB', role: 'tester', after: ['doB'], run: 'npm test', expect: 'exit 0' },
+  ])
+  expect(rules(def)).not.toContain('L010')
+})
+
+test('L010 counts a transitive verifier (executor -> intermediate -> tester)', () => {
+  const def = make([
+    { id: 'build', role: 'executor', agent: 'big' },
+    { id: 'refine', role: 'executor', agent: 'big', after: ['build'] },
+    { id: 'test', role: 'tester', after: ['refine'], run: 'npm test', expect: 'exit 0' },
+  ])
+  // build's descendants include refine and (transitively) test -> verified
+  expect(rules(def)).not.toContain('L010')
+})
