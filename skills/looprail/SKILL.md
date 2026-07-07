@@ -28,17 +28,22 @@ say so.
 npm install -g looprail   # once
 looprail init             # detects installed agent CLIs + the repo's test command,
                           # scaffolds looprail.yaml from a template gallery
+looprail run --dry-run    # preview node order, per-node models, and budget - spends nothing
 looprail run --ui         # run with a live dashboard (gates answerable there)
 ```
 
+`looprail templates` lists the built-in loop shapes with what each verifies;
 `looprail init --yes` scaffolds non-interactively. `looprail lint` checks a
 loopfile without running it. `looprail doctor` shows which agent CLIs are
-installed and logged in.
+installed and logged in. To show the user what looprail even is,
+`looprail demo` runs a full verified loop offline in seconds - no API key,
+no agent CLI, nothing touched.
 
 ## The commands that matter
 
 | Task | Command |
 | --- | --- |
+| Preview what a run will do before spending | `looprail run --dry-run` (node order, models, budget; exits without invoking any agent) |
 | Run until verified, watch live | `looprail run --ui` |
 | Run in background, survives the terminal | `looprail run -d` (watch/answer gates via `looprail ui --all`) |
 | Batch many goals unattended | `looprail queue` (queue.yaml of goals; gated items park, never block) |
@@ -98,6 +103,12 @@ verify:
   BEFORE code changes is the cheapest place to say no. Gates time out into
   a PARKED, resumable state, never a failure.
 - Always set rails: `max_iterations`, `max_cost_usd`, `max_wall_minutes`.
+- `panel: 3` (or `panel: [a, b, c]`) fans a critic/judge out for diverse
+  review. Add `probe: true` to cut panel cost on failing iterations: the
+  first clone runs first, and if it FAILS the rest are skipped - the
+  iteration is already decided (all-pass policy only; a verified pass
+  still requires every clone to run and pass). Put the cheapest reviewer
+  first in the list.
 
 ## Self-planning (when no loopfile fits)
 

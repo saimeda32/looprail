@@ -13,6 +13,12 @@
   under quorum/weighted, where one fail decides nothing) warn when probe
   silently has no effect.
 
+- **Skill pack installable via the skills CLI** - `npx skills add
+  saimeda32/looprail` now installs the bundled agent skill (Claude Code,
+  Cursor, Codex, and other agents), refreshed to teach the current on-ramps
+  (`demo`, `templates`, `run --dry-run`) and probe panels. A CI test now
+  guards the skill against rot: every `looprail <cmd>` it names must exist
+  in the CLI.
 - **`looprail templates`** - list the built-in loop shapes (fix-tests,
   research-report, refactor, content-pipeline, review-diff, build-app) with
   each one's description and the agent roles it wires, so you can discover and

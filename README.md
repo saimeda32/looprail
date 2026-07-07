@@ -203,7 +203,14 @@ full list of tools it exposes, and how gates and permissions work over MCP.
 MCP gives your assistant looprail's *tools*; the bundled **Claude Code
 skill** teaches it *when to reach for them* - so "run this until it's
 actually done" or "batch these overnight" triggers a verified loop instead
-of a long chat. Install it once:
+of a long chat. Install it once with the [skills CLI](https://github.com/vercel-labs/skills)
+(works for Claude Code, Cursor, Codex, and other agents):
+
+```bash
+npx skills add saimeda32/looprail
+```
+
+or copy it by hand:
 
 ```bash
 cp -r "$(npm root -g)/looprail/skills/looprail" ~/.claude/skills/
