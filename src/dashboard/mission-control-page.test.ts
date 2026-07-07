@@ -229,7 +229,15 @@ test('the aggregate cost total combines real and estimated spend across every ru
     baseRun({ costUsd: 0.5, estimatedCostUsd: 0 }),
     baseRun({ costUsd: 0, estimatedCostUsd: 0.42 }),
   ])
-  expect(store['usage-cost'].textContent).toBe('$0.92')
+  // ~ prefix: part of this figure is estimate-derived, and a bare "$"
+  // would read as billed truth (audit MC-5)
+  expect(store['usage-cost'].textContent).toBe('~$0.92')
+})
+
+test('an all-real aggregate keeps the plain $ prefix - the ~ only appears when an estimate is inside the figure', () => {
+  const { renderUsage, store } = loadRenderUsage()
+  renderUsage([baseRun({ costUsd: 1.25, estimatedCostUsd: 0 })])
+  expect(store['usage-cost'].textContent).toBe('$1.25')
 })
 
 test('the aggregate cost total sums multiple estimate-only runs correctly', () => {
@@ -238,7 +246,7 @@ test('the aggregate cost total sums multiple estimate-only runs correctly', () =
     baseRun({ costUsd: 0, estimatedCostUsd: 0.1 }),
     baseRun({ costUsd: 0, estimatedCostUsd: 0.2 }),
   ])
-  expect(store['usage-cost'].textContent).toBe('$0.30')
+  expect(store['usage-cost'].textContent).toBe('~$0.30')
 })
 
 test('the aggregate cost total stays a flat $0.00 when no run has any real or estimated spend', () => {

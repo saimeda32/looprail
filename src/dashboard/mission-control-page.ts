@@ -151,6 +151,11 @@ export function buildMissionControlPage(): string {
   #sessions-section h2 {
     font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-dim); margin: 0 0 10px;
   }
+  #sessions-details summary {
+    cursor: pointer; font: 600 11px var(--sans); letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--ink-faint); margin-bottom: 8px;
+  }
+  #sessions-details summary:hover { color: var(--ink-dim); }
   #sessions-grid {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;
   }
@@ -194,8 +199,10 @@ export function buildMissionControlPage(): string {
     <div id="needs-grid"></div>
     <div id="grid"></div>
     <section id="sessions-section" style="display:none">
-      <h2 id="sessions-heading">Recent Claude Code activity</h2>
-      <div id="sessions-grid"></div>
+      <details id="sessions-details">
+        <summary id="sessions-heading">Recent Claude Code activity</summary>
+        <div id="sessions-grid"></div>
+      </details>
     </section>
   </main>
 </div>
@@ -374,7 +381,11 @@ export function buildMissionControlPage(): string {
     // come from different sources. Per-tile/per-workspace breakdowns are
     // exactly where the real-vs-estimated distinction still matters and stay
     // separate.
-    document.getElementById('usage-cost').textContent = '$' + (totalCost + totalEstimatedCost).toFixed(2);
+    // the ~ prefix appears whenever any part of the figure is estimated -
+    // a bare "$14.34" where most is token-derived estimate reads as billed
+    // truth (audit MC-5)
+    document.getElementById('usage-cost').textContent =
+      (totalEstimatedCost > 0 ? '~$' : '$') + (totalCost + totalEstimatedCost).toFixed(2);
     document.getElementById('usage-tokens').textContent = formatTokens(totalTokens);
     // Plain reading, no meter - there is no single max_wall_minutes to be
     // proportional against once runs from different loopfiles (each with
