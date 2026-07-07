@@ -10,6 +10,10 @@ one retry) on pass rate and wasted-work cost.
 - `bug-fix-on-seeded-repo.bench.yaml` - fix the one failing test in a seeded repo.
 - `cited-research-report.bench.yaml` - produce a report where every claim is cited.
 - `data-pipeline-fix.bench.yaml` - repair a broken pipeline transform.
+- `efficiency/` - the one REAL-MONEY benchmark: an engine-version A/B
+  (`looprail@0.5.0` vs this checkout) pricing the 0.6.0 efficiency work on
+  real agents. Never run by `npm test`; run its `run.sh` deliberately - see
+  its own README.
 
 Each one points at a `baseline.yaml` and a `looprail.yaml` in its own
 subdirectory. Every agent in every fixture uses `adapter: mock`, so the

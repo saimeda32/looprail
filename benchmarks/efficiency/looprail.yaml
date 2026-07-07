@@ -1,0 +1,49 @@
+# EFF-7 engine-version A/B loopfile. Deliberately restricted to fields that
+# parse identically on looprail 0.5.0 (the last pre-optimization engine) and
+# current - no probe, no fallback, nothing newer. Two INDEPENDENT branches:
+# branch A (fix + tests + fix-crit) is engineered to iterate; branch B
+# (docs + docs-crit) usually passes first try. The efficiency work being
+# measured (lineage-scoped feedback + within-run cache) means the current
+# engine re-runs ONLY branch A on iteration 2+, while 0.5.0's global
+# feedback changed every node's prompt and re-billed branch B each time.
+name: efficiency-ab
+goal: |
+  Two independent deliverables in this workspace:
+  (A) Fix src/slugify.js so `npm test` passes. The tests are the spec - never
+      modify any file under test/.
+  (B) Write docs/USAGE.md documenting slugify() with at least three usage
+      examples that match the implementation's actual behavior.
+agents:
+  # Swap adapters/models for what `looprail doctor` shows on your machine.
+  # Keep worker and reviewer DIFFERENT models.
+  worker:   { adapter: claude-code, model: sonnet, permissions: safe }
+  reviewer: { adapter: claude-code, model: haiku, permissions: safe }
+graph:
+  fix:
+    role: executor
+    agent: worker
+    prompt: "Deliverable A only: fix src/slugify.js so the full test suite passes. Read test/slugify.test.js first - it is the spec. Never modify anything under test/."
+  tests:
+    role: tester
+    after: fix
+    run: "npm test"
+    expect: exit 0
+  fix-crit:
+    role: critic
+    agent: reviewer
+    of: fix
+    after: tests
+    prompt: "Fail if any file under test/ was modified, or if the implementation special-cases exact test inputs instead of implementing the real behavior."
+  docs:
+    role: executor
+    agent: worker
+    prompt: "Deliverable B only: write docs/USAGE.md documenting src/slugify.js - what it does, its options, and at least three examples with their exact outputs."
+  docs-crit:
+    role: critic
+    agent: reviewer
+    of: docs
+    after: docs
+    prompt: "Fail unless docs/USAGE.md exists and every example's claimed output matches what src/slugify.js actually produces."
+rails:
+  max_iterations: 4
+  max_cost_usd: 6
