@@ -69,3 +69,39 @@ describe('aggregateVerdicts', () => {
     expect(aggregateVerdicts([], { kind: 'weighted', threshold: 0.1 })).toBe('fail')
   })
 })
+
+
+// Robust parsing: real critics format the block imperfectly. Each of these
+// used to return null -> a wasted re-ask invocation; now they parse.
+test('parses a verdict wrapped in markdown bold', () => {
+  expect(parseVerdict('c', '**VERDICT: pass**')?.status).toBe('pass')
+})
+
+test('parses a verdict with a heading, blockquote, or list prefix', () => {
+  expect(parseVerdict('c', '## VERDICT: fail')?.status).toBe('fail')
+  expect(parseVerdict('c', '> VERDICT: pass')?.status).toBe('pass')
+  expect(parseVerdict('c', '- VERDICT: fail')?.status).toBe('fail')
+})
+
+test('parses a verdict with trailing text or punctuation on the line', () => {
+  expect(parseVerdict('c', 'VERDICT: pass.')?.status).toBe('pass')
+  expect(parseVerdict('c', 'VERDICT: fail - the diff dropped an assertion')?.status).toBe('fail')
+})
+
+test('takes the LAST verdict line when a critic reasons out loud first', () => {
+  const out = ['My initial verdict: pass seemed likely, but on review:', 'VERDICT: fail', 'EVIDENCE: found a weakened test'].join('\n')
+  const v = parseVerdict('c', out)
+  expect(v?.status).toBe('fail')
+  expect(v?.evidence).toBe('found a weakened test')
+})
+
+test('never matches a verdict mentioned mid-prose (line-start anchor holds)', () => {
+  expect(parseVerdict('c', 'the verdict: pass criterion is strict but no block here')).toBeNull()
+})
+
+test('parses bold SCORE and EVIDENCE, stripping trailing bold markers', () => {
+  const v = parseVerdict('c', ['**VERDICT: pass**', '**SCORE:** 0.9', '**EVIDENCE:** solid work**'].join('\n'))
+  expect(v?.status).toBe('pass')
+  expect(v?.score).toBe(0.9)
+  expect(v?.evidence).toBe('solid work')
+})
