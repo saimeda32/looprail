@@ -26,6 +26,12 @@ export type {
 } from './bench/types.js'
 export { aggregateConfig, percentile, redoIterations, wastedExecutorCostUsd } from './bench/metrics.js'
 export { runBench, type BenchDeps } from './bench/bench-runner.js'
+export type {
+  Engine, RouteEntry, RouteResult, RouteVariant, RoutingFile, RoutingFileEntry,
+} from './route/types.js'
+export { engineId, engineLabel, generateVariants } from './route/variants.js'
+export { runRoute, type RouteRunDeps } from './route/route-runner.js'
+export { buildRoutingFile, mixLabel, rankEntries } from './route/report.js'
 export { lintLoop, type LintFinding } from './config/lint.js'
 export {
   CliAdapter, defaultExec, lineBufferedTransform,
