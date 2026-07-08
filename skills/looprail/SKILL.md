@@ -51,6 +51,7 @@ no agent CLI, nothing touched.
 | See every run across projects | `looprail ui --all` (mission control, port 4748) |
 | Machine-readable result | `looprail run --json` (status/cost/journal path; exit 0 verified, 2 halted, 1 error) |
 | Audit trail of verdicts | `ledger: true` in the loopfile, then `looprail ledger --verify` (hash-chained, repo-committable) |
+| What has looprail cost me | `looprail spend` (per provider/model, from the journals; real vs estimated kept separate) |
 
 ## Choosing adapters and models per role
 

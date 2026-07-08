@@ -173,6 +173,7 @@ dollars, whichever comes first.
 | `looprail run [file]` | Run the loop with live progress and a cost report |
 | `looprail run --dry-run` | Print the execution plan (node order, per-node model, budget ceiling) and exit - invokes no agent, spends nothing |
 | `looprail ledger` | Inspect the repo's hash-chained evidence ledger of verdicts; `--verify` recomputes the chain and names any break |
+| `looprail spend` | Per-provider/model spend across every run, from the journals - real cost and estimates kept separate |
 | `looprail bench [file]` | A/B two or more named loop configs against the same task and report measured deltas (`benchmarks/`) |
 | `looprail route [file]` | Benchmark auto-generated adapter/model variants of your own loopfile and record the best mix in `.looprail/routing.json` |
 | `looprail run --ui` | Same, and open a live dashboard for this run |

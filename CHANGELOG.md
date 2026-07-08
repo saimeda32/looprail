@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **`looprail spend`** - per-provider/per-model spend across every run,
+  aggregated from looprail's own journals (`--days N` window, `--json`).
+  Real, adapter-reported dollars and pricing-derived estimates stay
+  separate columns. Deliberately NOT built by scraping other CLIs' local
+  session logs - those are machine-global, and a spend report that can
+  silently include your other sessions is worse than none. (The cost rail
+  already halts on real + estimated spend combined.)
+
 - **Spec intake (`init --from-spec <path>`)** - scaffold a self-planning
   loop from a written spec/PRD: the planner (generates: graph) maps EVERY
   requirement to implementing + verifying nodes and ends its plan with a
