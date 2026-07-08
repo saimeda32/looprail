@@ -797,6 +797,11 @@ the CLI: the step fails unless the run verified.
 
 ## How looprail compares
 
+A fact-checked comparison against the closest "verified done" tools
+(zeroshot, agentops, loki-mode, conductor, gastown) lives in
+[docs/COMPARISON.md](docs/COMPARISON.md) - dated, sourced, and honest
+about what each of them does better.
+
 These four tools get mentioned in the same breath as looprail often enough
 that they're worth comparing honestly - they're not all solving the same
 problem, and the differences matter more than a checkmark grid usually shows.
