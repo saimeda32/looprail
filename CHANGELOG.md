@@ -1,7 +1,18 @@
 # Changelog
 
-## Unreleased
+## 0.8.1
 
+- **CRITICAL FIX: installed `looprail` and `npx looprail` were silent
+  no-ops** in every prior release. The CLI's is-main guard compared
+  `import.meta.url` against the UNRESOLVED `process.argv[1]` - but every
+  real install invokes the CLI through a symlink (npm -g bin links, npx
+  cache `.bin` links), so the guard failed, the module loaded, nothing ran,
+  and the process exited 0 with no output. Only direct
+  `node dist/cli/index.js` invocations (how this repo tests itself) ever
+  worked, which is exactly why no test caught it. argv[1] is now
+  realpath-resolved, and a regression test executes the built entry through
+  an actual symlink the way installs do. If you installed an earlier
+  version and it "did nothing": update, it was this.
 - **Hallucinated-dependency rail (`verify_deps: true`)** - every package an
   iteration adds to `package.json`/`requirements.txt` is checked against
   its public registry. Nonexistent names fail the iteration (hallucinated

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { createRequire } from 'node:module'
+import { realpathSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { Command } from 'commander'
 import { registerBench } from './bench-cmd.js'
@@ -53,11 +54,26 @@ export function buildProgram(): Command {
   return program
 }
 
-const isMain =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
+// argv[1] MUST be realpath-resolved before comparing: every installed bin is
+// a SYMLINK to this file (npm -g links /opt/homebrew/bin/looprail ->
+// .../node_modules/looprail/dist/cli/index.js, and npx links from its cache's
+// .bin), while import.meta.url is always the symlink-resolved real path.
+// Comparing the unresolved link made every `looprail`/`npx looprail`
+// invocation a silent no-op (module loads, guard fails, exit 0) - only
+// direct `node dist/cli/index.js` ever worked. Caught live; pinned by
+// bin-entry.test.ts, which executes this file through a symlink.
+function isMainModule(): boolean {
+  const argv1 = process.argv[1]
+  if (argv1 === undefined) return false
+  if (import.meta.url === pathToFileURL(argv1).href) return true
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(argv1)).href
+  } catch {
+    return false
+  }
+}
 
-if (isMain) {
+if (isMainModule()) {
   buildProgram()
     .parseAsync(process.argv)
     .catch((e: unknown) => {

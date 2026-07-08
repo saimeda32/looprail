@@ -28,6 +28,19 @@ if [[ -f "$repo/dist/cli/index.js" ]]; then
   new_cmd="node $repo/dist/cli/index.js"
 fi
 
+# The old engine must be invoked as `node <real entry file>`, NOT via npx:
+# every release before 0.8.1 had an is-main guard that silently no-ops when
+# argv[1] is a bin symlink (which is exactly how npx runs it). Installing it
+# into a scratch prefix and running its entry file directly sidesteps the
+# bug the same way this repo's own dev invocations always did.
+old_prefix="$(mktemp -d "${TMPDIR:-/tmp}/lr-eff-oldpkg-XXXXXX")"
+(cd "$old_prefix" && npm install --silent --no-audit --no-fund looprail@0.5.0 >/dev/null)
+# pwd -P: macOS mktemp paths live under /var/folders, itself a symlink to
+# /private/var/folders - the same unresolved-symlink mismatch that breaks
+# the old guard. Hand it the fully resolved path.
+old_entry="$(cd "$old_prefix/node_modules/looprail/dist/cli" && pwd -P)/index.js"
+old_cmd="node $old_entry"
+
 run_one() { # $1 = label, $2 = looprail command
   local label="$1" cmd="$2"
   local ws; ws="$(mktemp -d "${TMPDIR:-/tmp}/lr-eff-$label-XXXXXX")"
@@ -62,7 +75,7 @@ run_one() { # $1 = label, $2 = looprail command
 
 echo ""
 echo "engine	status	iters	costUsd	billed-agent-invocations"
-old_row="$(run_one old "npx -y looprail@0.5.0")"
+old_row="$(run_one old "$old_cmd")"
 new_row="$(run_one new "$new_cmd")"
 echo "$old_row"
 echo "$new_row"
