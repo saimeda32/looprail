@@ -120,7 +120,13 @@ on different models + an independent judge), a
 [staged migration](examples/staged-migration) (inventory -> plan ->
 human-approved before any code changes -> migrate -> double verification),
 a [judge panel](examples/judge-panel) (three models compete, two judges
-score), and [multi-gate approval](examples/multi-gate-approval).
+score, probe mode skips the second judge on already-failed rounds),
+[implement-spec](examples/implement-spec) (a written PRD becomes a
+human-approved plan with requirement-coverage review before anything
+executes), and [multi-gate approval](examples/multi-gate-approval). The
+[fix-tests example](examples/fix-tests) ships the full anti-gaming stack:
+`protect: tests`, a blind critic reviewing the actual diff, and a
+hash-chained evidence ledger.
 
 ### Writing a Loopfile
 

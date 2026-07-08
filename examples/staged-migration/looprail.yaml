@@ -6,6 +6,11 @@ goal: |
   every existing test still passes, no public API changes beyond the
   migration itself, and no call site is left half-migrated.
 
+# migrations are where silent scope creep hurts most - the allowlist rail
+# fails any iteration that touches files outside the migration's own area.
+# EDIT these globs to your migration's real surface before running.
+scope: ["src/**", "migrations/**"]
+
 agents:
   worker:   { adapter: claude-code, model: sonnet, permissions: safe }
   planner:  { adapter: claude-code, model: opus, permissions: safe }

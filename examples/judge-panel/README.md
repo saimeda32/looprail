@@ -23,3 +23,10 @@ looprail run
 **Adapt it:** replace the `goal:` placeholder with your real decision (a
 caching strategy, a data model, an architecture choice) - the more concrete
 the decision, the more useful the panel's spread of proposals will be.
+
+## Probe mode
+
+The judge panel runs with `probe: true`: judge-a reads first, and if it
+already fails the round, judge-b is skipped - the aggregate is decided, so
+the second read would be pure spend. A passing round still requires both
+judges (the pass path is never thinned).

@@ -21,3 +21,10 @@ looprail run
   built, including your language/framework if you have one - the more
   concrete, the better the critic can judge against it.
 - Swap `run: npm test` for your stack's real test command.
+
+## Fresh-context builds
+
+The builder runs with `context: fresh` (the Ralph-loop pattern): each
+iteration rebuilds its prompt from goal/plan/feedback plus its own
+`.looprail/progress.md` notes instead of a growing transcript - long
+builds stop rotting.

@@ -8,6 +8,11 @@ goal: |
   deserialization or dynamic execution. No speculative findings - every
   claim must be reproducible from the code as written.
 
+# an audit that can't prove its own provenance isn't much of an audit:
+# every verdict lands in a hash-chained, committable ledger
+# (`looprail ledger --verify`).
+ledger: true
+
 agents:
   # auditor and lenses on DIFFERENT models on purpose: one model's blind
   # spots (patterns it was trained to consider "normal") are exactly what a

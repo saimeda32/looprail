@@ -32,3 +32,9 @@ exactly the anti-pattern this loop exists to prevent.
 This is an audit *report* flow - it changes no code. Chain a second loop
 (e.g. `fix-tests`-shaped, one finding per `looprail queue` item) to actually
 fix what the human approves.
+
+## Provenance
+
+`ledger: true` records every lens's verdict into a hash-chained,
+repo-committable ledger - an audit that can prove its own provenance.
+`looprail ledger --verify` recomputes the chain.

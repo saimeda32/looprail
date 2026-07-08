@@ -14,7 +14,10 @@ agents:
 
 graph:
   plan:  { role: planner, agent: worker }
-  build: { role: executor, agent: worker, after: plan,
+  # context: fresh - each iteration rebuilds the builder's prompt from
+  # goal/plan/feedback plus its own .looprail/progress.md notes instead of
+  # a growing transcript (the Ralph-loop pattern; long builds stop rotting).
+  build: { role: executor, agent: worker, after: plan, context: fresh,
            prompt: Build the app described in the goal above and write its own tests - there is no pre-existing test suite to run. }
   tests: { role: tester, after: build, run: npm test, expect: exit 0 }  # swap "npm test" for your stack's real test command if different, e.g. pytest, go test ./..., or cargo test
   crit:  { role: critic, agent: checker, of: build, after: tests,

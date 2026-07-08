@@ -8,6 +8,9 @@ goal: |
   or reduces complexity. To target a specific file instead, replace
   "the largest or most complex file under src/" above with its path.
 
+# behavior-preserving means the tests are the contract - structurally enforced
+protect: tests
+
 agents:
   worker:      { adapter: copilot-cli, model: claude-sonnet-5 }
   correctness: { adapter: copilot-cli, model: claude-sonnet-5 }  # independent reviewer - a different context catches what the worker's own review misses

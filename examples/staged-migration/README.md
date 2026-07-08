@@ -37,3 +37,9 @@ looprail ui --all        # mission control: the gate shows up here
 with migration-specific checks (e.g. "fail if any import of <OLD> remains
 anywhere"). For riskier migrations, add a second gate after `crit-done` so
 a human also signs off on the final diff before you merge it.
+
+## Scope rail
+
+`scope:` allowlists the migration's own surface - an iteration that touches
+anything outside it fails with a revert instruction, and a repeat halts.
+Edit the globs to your migration's real area before running.

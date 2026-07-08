@@ -3,6 +3,15 @@ goal: |
   Make the test suite pass. Done means: npm test exits 0 and a critic
   confirms no test was deleted, skipped, or weakened to force a pass.
 
+# The goal's "no test was weakened" clause, enforced structurally: any agent
+# edit to test files (or the framework configs whose patching is a documented
+# reward-hack) fails the iteration with a revert instruction; a repeat halts.
+protect: tests
+
+# Every verdict this run produces lands in .looprail/ledger.jsonl - a
+# hash-chained, committable audit trail (`looprail ledger --verify`).
+ledger: true
+
 agents:
   worker:  { adapter: copilot-cli, model: claude-sonnet-5 }
   checker: { adapter: copilot-cli, model: claude-sonnet-5 }  # independent reviewer - a different context catches what the worker's own review misses
@@ -10,8 +19,10 @@ agents:
 graph:
   fix:   { role: executor, agent: worker }
   tests: { role: tester, after: fix, run: npm test, expect: exit 0 }  # swap "npm test" for your stack's real test command if different, e.g. pytest, go test ./..., or cargo test
-  crit:  { role: critic, agent: checker, of: fix, after: fix,
-           prompt: Fail if any test was deleted, skipped, or weakened to force a pass. }
+  # blind: the critic reviews the ACTUAL workspace diff since run start -
+  # never the worker's own narrative about what it did (git workspaces).
+  crit:  { role: critic, agent: checker, of: fix, after: fix, blind: true,
+           prompt: "Review the workspace diff. Fail if the implementation special-cases exact test inputs instead of the real behavior. If you pass it but see real minor shortcomings, name them on a GAPS: line." }
 
 rails:
   max_iterations: 6

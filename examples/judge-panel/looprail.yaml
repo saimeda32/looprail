@@ -40,7 +40,10 @@ graph:
   # (reviewing a fan-out through a single `of:` slot is ambiguous - see
   # graph.ts). `after` has no such restriction: the panel expansion rewires
   # it to every expanded clone automatically.
-  score:   { role: judge, agent: judge-a, panel: [judge-a, judge-b], after: propose, threshold: 0.5,
+  # probe: judge-a runs first; if it already FAILS the round, judge-b is
+  # skipped - the aggregate is decided, so the second read is pure spend.
+  # A pass is never thinned: both judges must score a passing round.
+  score:   { role: judge, agent: judge-a, panel: [judge-a, judge-b], probe: true, after: propose, threshold: 0.5,
              rubric: Score how well this approach actually solves the stated goal, how feasible it is to implement with this codebase's real constraints, and how honestly it names its own tradeoffs. A vague or hedged proposal scores low even if technically plausible. }
   merge:   { role: synthesizer, agent: synth, after: [propose, score] }
 
