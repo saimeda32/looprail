@@ -94,12 +94,13 @@ weakened test or a hardcoded special case:
 
 ![looprail dashboard showing a real Claude Code fix, verified, with real cost and token counts](docs/assets/real-demo-verified.png)
 
-Verified in one iteration, $0.40 total, 18.6k tokens - and the critic's own
-report is honestly hedged (55% confidence on "exits 0," because its own
-sandboxed session couldn't run the command itself and it said so, relying
-on the tester node's real result instead of just asserting it). That
-critic's caution is worth calling out on purpose: a critic that always
-sounds certain is worth less than one that tells you when it isn't.
+Verified in one iteration, with the full cost and token accounting on
+screen - every run shows exactly what each node spent, per agent, as it
+happens. And the critic's own report is honestly hedged (55% confidence on
+"exits 0," because its own sandboxed session couldn't run the command
+itself and it said so, relying on the tester node's real result instead of
+just asserting it). That caution is the point: a critic that always sounds
+certain is worth less than one that tells you when it isn't.
 
 `init` picks a template for you (`fix-tests`, `research-report`, `refactor`,
 `content-pipeline`, `review-diff`, or `build-app`) and fills in whichever

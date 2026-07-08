@@ -23,6 +23,7 @@ import { addWorkspace, defaultRegistryPath } from '../workspace/registry.js'
 import { loadExpandedLoopDef } from './ui-cmd.js'
 import { resumeAction } from './resume-cmd.js'
 import { previewRun, renderPreview } from './dry-run.js'
+import { createVerifiedPr, preflightPr, type PrExec } from './pr.js'
 
 export function loadLoop(file: string | undefined, cwd: string): { def: LoopDef; path: string } {
   const path = resolve(cwd, file ?? 'looprail.yaml')
@@ -433,6 +434,10 @@ export interface ExecCtx {
   initialFeedback?: string | null
   initialPriorOutputs?: Record<string, string> | null
   skipPlanning?: boolean
+  // --pr: a VERIFIED run ships itself as a pull request whose body is the
+  // run's evidence (see cli/pr.ts). prExec is the git/gh seam for tests.
+  pr?: boolean
+  prExec?: PrExec
 }
 
 export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
@@ -496,6 +501,15 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
       ...(report.gaps.length > 0 ? { gaps: report.gaps } : {}),
       report: report.report,
     }))
+    if (ctx.pr && report.status === 'verified') {
+      try {
+        const pr = await createVerifiedPr(ctx.cwd, report, ctx.prExec)
+        ctx.io.out(JSON.stringify({ pr: pr.url, branch: pr.branch }))
+      } catch (e) {
+        ctx.io.out(JSON.stringify({ prError: e instanceof Error ? e.message : String(e) }))
+        return 1
+      }
+    }
     return report.status === 'verified' ? 0 : 2
   }
 
