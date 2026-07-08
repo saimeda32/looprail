@@ -532,6 +532,24 @@ violation halts the run. `protect:` and `scope:` compose: protect pins
 files that must not change at all, scope bounds where everything else may
 happen.
 
+### Hallucinated-dependency rail
+
+Roughly a fifth of agent-suggested package names don't exist - and
+attackers squat the recurring fake names (slopsquatting). `verify_deps:
+true` checks every package an iteration ADDS to `package.json` or
+`requirements.txt` against its public registry:
+
+- **Doesn't exist** → the iteration fails, naming each hallucinated
+  package, with a warning that a similarly-named existing package may be a
+  squatted lookalike.
+- **Exists but published < 90 days ago** → journaled as a squat signal
+  (`deps_check` event), never a fail on its own - new legitimate libraries
+  exist.
+- **Registry unreachable** → said out loud as unchecked, never silently
+  treated as verified.
+
+Only newly added names are probed; the run-start manifest is the baseline.
+
 ### Blind validation
 
 By default a critic reviews the target node's *output* - which for a coding

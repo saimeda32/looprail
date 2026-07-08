@@ -16,6 +16,7 @@ import { drainHumanFeedback } from '../journal/human-feedback.js'
 import type { AdapterRegistry } from '../adapters/registry.js'
 import { runIteration } from './scheduler.js'
 import { compareProtected, hasChanges, matchesAny, scopeVerdict, snapshotFiltered, tamperVerdict, type ProtectedChanges } from './protect.js'
+import { checkNewDeps, depsVerdict, liveRegistryProbe, parseManifests, type RegistryProbe } from './deps-rail.js'
 import type { EngineDeps } from './nodes.js'
 import {
   applyGraphEdits, parseGraphEditsFragment, parseGraphFragment, serializeGraphFragment,
@@ -36,6 +37,9 @@ export interface RunOptions {
   sleep?: (ms: number) => Promise<void>
   retries?: number
   onEvent?: (event: JournalEvent) => void  // live observer (CLI progress); mirrors the journal
+  // Registry existence probe for the verify_deps rail - tests inject a
+  // fake; real runs use the live npm/pypi probe.
+  registryProbe?: RegistryProbe
   // Set when this invocation continues a run that already executed some
   // iterations in an earlier process (dashboard "resume in place" and the
   // `resume` CLI command both reuse the source run's own runId/runDir and
@@ -547,6 +551,10 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   const guardBaseline = (def.protect || def.scope)
     ? await snapshotFiltered(guardDir, guardInclude)
     : undefined
+  // Hallucinated-dependency rail baseline: the manifests as the run found
+  // them - only packages ADDED during the run are ever probed.
+  const depsBaseline = def.verifyDeps ? parseManifests(guardDir) : undefined
+  const registryProbe = opts.registryProbe ?? liveRegistryProbe
   let consecutiveTampers = 0
   let consecutiveScopeCreep = 0
 
@@ -615,7 +623,22 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
         consecutiveScopeCreep = 0
       }
     }
-    const guardVerdicts = [...(tamper ? [tamper] : []), ...(scopeCreep ? [scopeCreep] : [])]
+    // verify_deps: probe each newly added manifest package against its
+    // registry. Only nonexistent names fail; young packages and unreachable
+    // registries are journaled signals, said out loud but never false fails.
+    let depsFail: ReturnType<typeof depsVerdict> = null
+    if (depsBaseline) {
+      const depsResult = await checkNewDeps(depsBaseline, parseManifests(guardDir), registryProbe)
+      if (depsResult.missing.length + depsResult.young.length + depsResult.unchecked.length > 0) {
+        emit('deps_check', { iteration: state.iteration, ...depsResult })
+      }
+      depsFail = depsVerdict(depsResult)
+    }
+    const guardVerdicts = [
+      ...(tamper ? [tamper] : []),
+      ...(scopeCreep ? [scopeCreep] : []),
+      ...(depsFail ? [depsFail] : []),
+    ]
     const verdicts = [
       ...outcomes.flatMap((o) => (o.verdict ? [o.verdict] : [])),
       ...guardVerdicts,

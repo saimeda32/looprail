@@ -483,3 +483,28 @@ rails: { max_iterations: 2, max_cost_usd: 1 }
 `)
   expect(def.nodes[0].context).toBe('fresh')
 })
+
+test('verify_deps parses as a boolean and rejects anything else', () => {
+  const def = parseLoopfile(`
+name: t
+goal: g
+verify_deps: true
+agents:
+  a: { adapter: mock }
+graph:
+  do: { role: executor, agent: a }
+  t:  { role: tester, after: do, run: "true", expect: exit 0 }
+rails: { max_iterations: 2, max_cost_usd: 1 }
+`)
+  expect(def.verifyDeps).toBe(true)
+  expect(() => parseLoopfile(`
+name: t
+goal: g
+verify_deps: yes please
+agents:
+  a: { adapter: mock }
+graph:
+  do: { role: executor, agent: a }
+rails: { max_iterations: 2, max_cost_usd: 1 }
+`)).toThrow(/verify_deps/)
+})

@@ -114,6 +114,9 @@ verify:
 - Add `scope: ["src/feature/**"]` when the task should stay inside a known
   area: changes outside the allowlist fail the iteration the same way -
   the structural answer to silent scope creep.
+- Add `verify_deps: true` when the agent may add dependencies: newly added
+  packages that don't exist in their registry fail the iteration
+  (hallucinated names are how slopsquatting attacks land).
 - For long-horizon builds, put `context: fresh` on the executor: each
   iteration rebuilds its prompt from goal/plan/feedback plus its own
   `.looprail/progress.md` notes instead of an ever-growing transcript

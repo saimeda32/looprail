@@ -71,6 +71,9 @@ export function parseLoopfile(text: string): LoopDef {
   const protect = parseProtect(raw.protect, problems)
   const scope = parseScope(raw.scope, problems)
   const ledger = parseLedger(raw.ledger, problems)
+  if (raw.verify_deps !== undefined && typeof raw.verify_deps !== 'boolean') {
+    problems.push('verify_deps must be true or false')
+  }
 
   if (problems.length > 0) throw new Error(`invalid loopfile:\n${problems.join('\n')}`)
 
@@ -91,6 +94,7 @@ export function parseLoopfile(text: string): LoopDef {
     ...protect,
     ...scope,
     ...ledger,
+    ...(raw.verify_deps === true ? { verifyDeps: true } : {}),
   }
 }
 

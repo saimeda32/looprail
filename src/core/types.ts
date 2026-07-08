@@ -201,6 +201,12 @@ export interface LoopDef {
   // consecutive violation halts. Enforced alongside protect with the same
   // snapshot machinery (engine/protect.ts).
   scope?: string[]
+  // Hallucinated-dependency rail (engine/deps-rail.ts): when an iteration
+  // ADDS packages to a manifest (package.json, requirements.txt), each new
+  // name is verified against its public registry. Nonexistent -> the
+  // iteration fails naming the hallucinated packages; very recently
+  // published -> journaled as a squat signal, never a fail on its own.
+  verifyDeps?: boolean
   // Evidence ledger (journal/ledger.ts): a hash-chained, repo-committable
   // record of every verdict. `ledger: true` in the loopfile writes
   // .looprail/ledger.jsonl in the workspace; a string is a custom path.
@@ -321,6 +327,11 @@ export interface JournalEvent {
         // Same shape for the scope rail: files OUTSIDE the scope: allowlist
         // changed. data: { iteration, modified, deleted, added }.
         | 'scope_violation'
+        // The deps rail's findings for an iteration: hallucinated (missing)
+        // packages, very-young packages (squat signal), and names the
+        // registry couldn't be asked about. data: { iteration, missing,
+        // young, unchecked }.
+        | 'deps_check'
         // Emitted when an agent CLI subprocess running inside a node blocks
         // mid-execution waiting for its OWN tool-permission answer (see
         // dashboard/permission-registry.ts) - distinct from a `role: gate`

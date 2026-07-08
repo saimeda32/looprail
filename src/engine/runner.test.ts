@@ -1203,3 +1203,54 @@ test('fresh-context executor reads its own progress notes instead of a prior-att
   expect(prompts[1]).toContain('NOTES-AFTER-1')       // notes from iteration 1 flow in
   expect(prompts[1]).not.toContain('TRANSCRIPT-1')    // the transcript never does
 })
+
+// verify_deps e2e: the executor adds a hallucinated package -> deterministic
+// fail naming it; correcting the manifest lets the run verify.
+test('verify_deps fails an iteration that adds a nonexistent package, then verifies after the fix', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lr-deps-e2e-'))
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ dependencies: { express: '^4' } }))
+  let call = 0
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    async invoke(req) {
+      if (req.prompt.includes('VERDICT:')) {
+        return { output: 'VERDICT: pass\nEVIDENCE: ok', costUsd: 0, tokens: 0, durationMs: 1 }
+      }
+      call += 1
+      if (call === 1) {
+        writeFileSync(join(dir, 'package.json'),
+          JSON.stringify({ dependencies: { express: '^4', 'totally-hallucinated-lib': '^1' } }))
+      } else {
+        writeFileSync(join(dir, 'package.json'),
+          JSON.stringify({ dependencies: { express: '^4', 'left-pad': '^1' } }))
+      }
+      return { output: `attempt ${call}`, costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  })
+  const def: LoopDef = {
+    name: 'deps-e2e', goal: 'add the dep',
+    agents: { a: { adapter: 'mock' } },
+    nodes: [
+      { id: 'do', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'do', after: ['do'] },
+    ],
+    rails: { maxIterations: 3, maxCostUsd: 5 },
+    verdictPolicy: { kind: 'all-pass' },
+    verifyDeps: true,
+  }
+  const probes: string[] = []
+  const report = await runLoop(def, {
+    registry: reg2(registry), cwd: dir,
+    registryProbe: async (_r, name) => {
+      probes.push(name)
+      return { exists: name !== 'totally-hallucinated-lib' }
+    },
+  })
+  expect(report.status).toBe('verified')
+  expect(report.iterations).toBe(2)
+  // express was in the baseline - never probed; only the additions were
+  expect(probes).not.toContain('express')
+  expect(probes).toContain('totally-hallucinated-lib')
+  expect(probes).toContain('left-pad')
+})

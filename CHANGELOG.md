@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **Hallucinated-dependency rail (`verify_deps: true`)** - every package an
+  iteration adds to `package.json`/`requirements.txt` is checked against
+  its public registry. Nonexistent names fail the iteration (hallucinated
+  or typo'd, with a squatted-lookalike warning); very recently published
+  packages are journaled as a squat signal; unreachable registries are
+  reported as unchecked, never silently passed. Only additions are probed.
+- Examples gallery wired through the 0.7/0.8 features (fix-tests ships the
+  full anti-gaming stack; new implement-spec example).
+
 ## 0.8.0
 
 - Token counts across the dashboards and `looprail spend` now use human
