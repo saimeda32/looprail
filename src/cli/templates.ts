@@ -26,8 +26,9 @@ export interface Template {
   // testCommand is the repo's detected real test command (see init-cmd.ts /
   // detect-test-command.ts) - templates with a tester node interpolate it;
   // absent, they fall back to `npm test` with a swap-it comment, exactly as
-  // before detection existed.
-  yaml: (adapters: Record<string, string>, models: Record<string, string | undefined>, testCommand?: string) => string
+  // before detection existed. specPath is only consumed by implement-spec
+  // (init --from-spec); every other template ignores it.
+  yaml: (adapters: Record<string, string>, models: Record<string, string | undefined>, testCommand?: string, specPath?: string) => string
 }
 
 const REVIEWER_COMMENT = '# independent reviewer - a different model catches what the worker\'s own model misses'
@@ -250,6 +251,63 @@ rails:
   max_cost_usd: 8
   stall_after: 2
   replan_limit: 1
+
+verdict: { policy: all-pass }
+`,
+  },
+
+  'implement-spec': {
+    description: 'implement a written spec/PRD: the planner maps every requirement to a node graph, a critic checks coverage, and you approve before anything executes',
+    agentRoles: [
+      { key: 'planner', label: 'planner (designs the graph from the spec)', recommendedTier: 'strong', kind: 'worker' },
+      { key: 'reviewer', label: 'reviewer (checks requirement coverage)', recommendedTier: 'medium', kind: 'reviewer' },
+    ],
+    // Rides the self-planning machinery (generates: graph + plan gate): the
+    // spec stays the source of truth ON DISK - both the planner and the
+    // coverage critic are told to read it themselves, and the coverage list
+    // in the plan is what the human sees at the gate. Requirement -> node
+    // traceability is enforced twice: the critic fails on uncovered
+    // requirements, and the human can reject at the gate.
+    yaml: (adapters, models, testCommand, specPath) => `name: implement-spec
+goal: |
+  Implement the spec at ${specPath ?? 'SPEC.md (edit this path)'}. Read it before anything
+  else - it is the source of truth. Done means every requirement in the
+  spec is implemented and verified by a real test or a critic.
+
+agents:
+  planner:  ${agentSpec(adapters, models, 'planner')}
+  reviewer: ${agentSpec(adapters, models, 'reviewer')}  ${REVIEWER_COMMENT}
+
+graph:
+  plan:
+    role: planner
+    agent: planner
+    generates: graph
+    prompt: |
+      Read the spec at ${specPath ?? 'SPEC.md'} and this repo's structure. Propose a graph
+      that implements EVERY requirement in the spec - executors for the
+      work, a real tester (${testCommand ?? 'npm test'}), and critics on the built work.
+      End the plan with a "Requirement coverage" list mapping each spec
+      requirement to the node(s) that implement it and the node that
+      verifies it, so the reviewer can check nothing was dropped.
+  review:
+    role: critic
+    agent: reviewer
+    of: plan
+    after: plan
+    prompt: |
+      Read the spec at ${specPath ?? 'SPEC.md'} yourself, then check the proposed graph
+      covers EVERY requirement. Fail with the exact list of uncovered or
+      unverified requirements if any is missing an implementing node or a
+      downstream verifier.
+  approve: { role: gate, after: review }
+
+rails:
+  max_iterations: 12
+  max_cost_usd: 20
+  max_wall_minutes: 90
+  replan_limit: 3
+  gate_timeout: 600
 
 verdict: { policy: all-pass }
 `,

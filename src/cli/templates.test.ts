@@ -65,9 +65,9 @@ describe('tierToModel', () => {
 })
 
 describe('template gallery', () => {
-  test('ships exactly the six advertised templates', () => {
+  test('ships exactly the seven advertised templates', () => {
     expect(Object.keys(TEMPLATES).sort()).toEqual(
-      ['build-app', 'content-pipeline', 'fix-tests', 'refactor', 'research-report', 'review-diff'])
+      ['build-app', 'content-pipeline', 'fix-tests', 'implement-spec', 'refactor', 'research-report', 'review-diff'])
   })
 
   test('no template ships a literal edit-me placeholder in its goal', () => {
@@ -153,6 +153,7 @@ describe('template gallery', () => {
     'content-pipeline': { worker: 'medium', editor: 'cheap', 'fact-editor': 'medium' },
     'review-diff': { worker: 'medium', reviewer: 'medium' },
     'build-app': { worker: 'medium', checker: 'medium' },
+    'implement-spec': { planner: 'strong', reviewer: 'medium' },
   }
 
   function agentLine(yaml: string, key: string): string {
@@ -181,10 +182,12 @@ describe('template gallery', () => {
     }
   })
 
-  test('only the "worker" agent key has kind "worker" - every other key is "reviewer"', () => {
+  test('worker-kind keys are exactly "worker"/"planner" - every other key is "reviewer"', () => {
+    // implement-spec's work-producing key is genuinely a planner (it designs
+    // the graph); everything else keeps the plain "worker" key.
     for (const template of Object.values(TEMPLATES)) {
       for (const role of template.agentRoles) {
-        expect(role.kind).toBe(role.key === 'worker' ? 'worker' : 'reviewer')
+        expect(role.kind).toBe(role.key === 'worker' || role.key === 'planner' ? 'worker' : 'reviewer')
       }
     }
   })
@@ -213,7 +216,10 @@ describe('template gallery', () => {
       const yaml = recommendedYaml(TEMPLATES[name], 'claude-code', 'codex')
       for (const [key, tier] of Object.entries(tiers)) {
         const line = agentLine(yaml, key)
-        if (key === 'worker') {
+        // worker-KIND keys ("worker", and implement-spec's "planner") ride
+        // the claude-code worker adapter and get a tier model; reviewer
+        // keys ride codex, which has no tier translation.
+        if (key === 'worker' || key === 'planner') {
           expect(line, `${name}.${key}`).toContain(`model: ${tierToModel('claude-code', tier)}`)
         } else {
           expect(line, `${name}.${key}`).not.toContain('model:')

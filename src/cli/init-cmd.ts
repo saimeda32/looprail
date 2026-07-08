@@ -51,6 +51,9 @@ export interface InitOpts {
   template?: string
   agent?: string
   reviewer?: string
+  // Path to a spec/PRD file - forces the implement-spec template and
+  // threads the path into its planner/critic prompts (spec intake).
+  fromSpec?: string
   yes?: boolean
   force?: boolean
 }
@@ -82,9 +85,28 @@ export async function initAction(opts: InitOpts, deps: InitDeps = {}): Promise<n
     return 1
   }
 
+  // --from-spec: the spec file must exist (a loop pointed at a missing spec
+  // would burn a planner invocation discovering that), and it forces the
+  // implement-spec template - picking any other template with a spec makes
+  // no sense.
+  let specPath: string | undefined
+  if (opts.fromSpec) {
+    if (!existsSync(resolve(opts.cwd, opts.fromSpec))) {
+      io.out(err(`--from-spec: no file at ${resolve(opts.cwd, opts.fromSpec)}`))
+      return 1
+    }
+    if (opts.template && opts.template !== 'implement-spec') {
+      io.out(err(`--from-spec always uses the implement-spec template - drop --template ${opts.template}`))
+      return 1
+    }
+    specPath = opts.fromSpec
+  }
+
   const templateNames = Object.keys(TEMPLATES)
   let templateName: string
-  if (opts.template) {
+  if (specPath) {
+    templateName = 'implement-spec'
+  } else if (opts.template) {
     templateName = opts.template
   } else if (opts.yes || !deps.ask) {
     templateName = templateNames[0]
@@ -160,7 +182,7 @@ export async function initAction(opts: InitOpts, deps: InitDeps = {}): Promise<n
     return 1
   }
 
-  writeFileSync(target, template.yaml(adapters, models, detectedTests?.command))
+  writeFileSync(target, template.yaml(adapters, models, detectedTests?.command, specPath))
   io.out(ok(`wrote ${target} (template: ${templateName}, worker: ${worker}, reviewer: ${reviewer})`))
   io.out('next: looprail run')
   return 0
@@ -171,6 +193,7 @@ export function registerInit(program: Command): void {
     .command('init')
     .description('scaffold a working looprail.yaml from the template gallery')
     .option('--template <name>', `one of: ${Object.keys(TEMPLATES).join(', ')}`)
+    .option('--from-spec <path>', 'scaffold a self-planning loop that implements this spec/PRD file, with requirement-coverage review and a plan-approval gate')
     .option('--agent <adapter>', `worker adapter to prefill - one of: ${KNOWN_ADAPTERS.join(', ')}`)
     .option('--reviewer <adapter>', 'reviewer adapter to prefill (defaults to a different detected adapter than --agent, when available)')
     .option('--yes', 'non-interactive: first available agent, first template')

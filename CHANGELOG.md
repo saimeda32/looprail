@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Spec intake (`init --from-spec <path>`)** - scaffold a self-planning
+  loop from a written spec/PRD: the planner (generates: graph) maps EVERY
+  requirement to implementing + verifying nodes and ends its plan with a
+  requirement-coverage list; an independent critic reads the spec itself
+  and fails on uncovered requirements; a gate puts the human on the plan
+  before anything executes. New `implement-spec` template (also in
+  `looprail templates`).
+
 - **Fresh-context iterations (`context: fresh`)** - Ralph-style loops as a
   per-node switch: an executor's prompt is rebuilt each iteration from
   goal, plan, current feedback, and its own `.looprail/progress.md` notes

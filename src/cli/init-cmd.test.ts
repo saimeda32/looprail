@@ -279,3 +279,42 @@ test('--reviewer pins a specific reviewer adapter, overriding auto-selection', a
   expect(yaml).not.toContain('adapter: codex')
   expect(lines.join('\n')).toContain('worker: claude-code, reviewer: aider - independent verification')
 })
+
+// Spec intake: init --from-spec scaffolds the self-planning implement-spec
+// loop with the spec path threaded through planner and coverage critic.
+test('--from-spec scaffolds implement-spec with the spec path and a plan gate', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-init-spec-'))
+  writeFileSync(join(cwd, 'PRD.md'), '# req 1: do the thing')
+  const { io } = capture()
+  const code = await initAction(
+    { cwd, fromSpec: 'PRD.md', agent: 'claude-code', yes: true },
+    { detect: detected(['claude-code']), io })
+  expect(code).toBe(0)
+  const yaml = readFileSync(join(cwd, 'looprail.yaml'), 'utf8')
+  expect(yaml).toContain('name: implement-spec')
+  expect(yaml).toContain('PRD.md')
+  expect(yaml).toContain('generates: graph')
+  expect(yaml).toContain('Requirement coverage')
+  expect(yaml).toContain('role: gate')
+})
+
+test('--from-spec fails fast when the spec file does not exist', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-init-spec2-'))
+  const { io, lines } = capture()
+  const code = await initAction(
+    { cwd, fromSpec: 'missing.md', yes: true },
+    { detect: detected(['claude-code']), io })
+  expect(code).toBe(1)
+  expect(lines.join('\n')).toContain('no file at')
+})
+
+test('--from-spec with a conflicting --template is rejected', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-init-spec3-'))
+  writeFileSync(join(cwd, 'PRD.md'), 'spec')
+  const { io, lines } = capture()
+  const code = await initAction(
+    { cwd, fromSpec: 'PRD.md', template: 'fix-tests', yes: true },
+    { detect: detected(['claude-code']), io })
+  expect(code).toBe(1)
+  expect(lines.join('\n')).toContain('implement-spec')
+})

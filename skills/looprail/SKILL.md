@@ -124,6 +124,14 @@ verify:
   still requires every clone to run and pass). Put the cheapest reviewer
   first in the list.
 
+## Spec-driven work
+
+When the user has a written spec/PRD, `looprail init --from-spec prd.md`
+scaffolds the implement-spec loop: the planner maps every requirement to
+implementing+verifying nodes with a coverage list, an independent critic
+re-reads the spec and fails on gaps, and the human approves the plan at a
+gate before anything executes.
+
 ## Self-planning (when no loopfile fits)
 
 A planner node with `generates: graph` designs the node graph itself from

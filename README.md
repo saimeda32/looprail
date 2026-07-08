@@ -169,6 +169,7 @@ dollars, whichever comes first.
 | `looprail demo` | Run a full verified loop on the built-in mock adapter - no API key, nothing installed |
 | `looprail templates` | List the built-in loop shapes (fix-tests, refactor, build-app, review-diff, …) and the agents each one wires |
 | `looprail init` | Detect installed agents and scaffold a `looprail.yaml` |
+| `looprail init --from-spec prd.md` | Scaffold a self-planning loop that implements a written spec, with requirement-coverage review and a plan-approval gate |
 | `looprail run [file]` | Run the loop with live progress and a cost report |
 | `looprail run --dry-run` | Print the execution plan (node order, per-node model, budget ceiling) and exit - invokes no agent, spends nothing |
 | `looprail ledger` | Inspect the repo's hash-chained evidence ledger of verdicts; `--verify` recomputes the chain and names any break |
