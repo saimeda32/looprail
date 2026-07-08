@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **`looprail run --pr`** - a VERIFIED run ships itself as a pull request
+  whose description is the run's evidence: verdict table, named gaps, cost,
+  and the git-derived files touched - proof, not agent prose. Preflighted
+  (git repo + gh login) before any spend; a halted run never ships.
+
 - **No-weaker-tests rail (`no_weaker_tests: true`)** - for loops where the
   agent writes its own tests: the suite may grow and move freely, but an
   iteration that makes it WEAKER (net assertions removed, skip markers

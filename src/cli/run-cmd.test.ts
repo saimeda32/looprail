@@ -1544,3 +1544,31 @@ ledger: true
   expect(entries.length).toBeGreaterThan(0)
   expect(entries.some((e) => e.node === 'crit' && e.verdict.status === 'pass')).toBe(true)
 })
+
+// --pr: a verified run ships itself as a PR with the evidence as the body.
+test('--pr preflight fails fast (before any spend) when the workspace has no git repo', async () => {
+  const { cwd, io, lines } = setup(FIXTURE)
+  const noGit = async (file: string) => {
+    if (file === 'git') throw new Error('not a repo')
+    return { stdout: '', stderr: '' }
+  }
+  const code = await runAction(undefined, { cwd, pr: true }, { io, prExec: noGit })
+  expect(code).toBe(1)
+  expect(lines.join('\n')).toContain('git repository')
+  expect(existsSync(runsRoot(cwd))).toBe(false) // preflight ran before anything spent
+})
+
+test('--pr on a verified run branches, pushes, and prints the PR url', async () => {
+  const { cwd, io, lines } = setup(FIXTURE)
+  const calls: string[][] = []
+  const prExec = async (file: string, args: string[]) => {
+    calls.push([file, ...args])
+    if (file === 'git' && args[0] === 'status') return { stdout: 'M x\n', stderr: '' }
+    if (file === 'gh' && args[0] === 'pr') return { stdout: 'https://github.com/o/r/pull/9\n', stderr: '' }
+    return { stdout: '', stderr: '' }
+  }
+  const code = await runAction(undefined, { cwd, pr: true }, { io, prExec })
+  expect(code).toBe(0)
+  expect(lines.join('\n')).toContain('pull/9')
+  expect(calls.some((c) => c[0] === 'git' && c[1] === 'push')).toBe(true)
+})

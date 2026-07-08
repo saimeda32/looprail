@@ -580,6 +580,15 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
   }
   ctx.io.out('')
   ctx.io.out(dim(`  journal: ${join(ctx.runDir, 'journal.jsonl')} · run id: ${report.runId}`))
+  if (ctx.pr && report.status === 'verified') {
+    try {
+      const pr = await createVerifiedPr(ctx.cwd, report, ctx.prExec)
+      ctx.io.out(ok(`  pr opened: ${pr.url} (branch ${pr.branch}) - the description is the run's evidence`))
+    } catch (e) {
+      ctx.io.out(err(`  the run verified, but opening the PR failed: ${e instanceof Error ? e.message : String(e)}`))
+      return 1
+    }
+  }
   return report.status === 'verified' ? 0 : 2
 }
 
@@ -596,6 +605,8 @@ export interface RunDeps {
   // Seam for the pre-run adapter availability check; defaults to the real
   // detectAgents. Tests inject a fixed roster.
   detect?: () => Promise<DetectedAgent[]>
+  // Seam for --pr's git/gh invocations (cli/pr.ts). Tests inject a recorder.
+  prExec?: PrExec
 }
 
 // Adapters that never need a CLI to be installed or logged in - excluded
@@ -761,6 +772,9 @@ export async function runAction(
     // Show the execution plan (node order, per-node adapter/model, budget
     // ceiling) and exit 0 without invoking any agent or spending anything.
     dryRun?: boolean
+    // Ship a VERIFIED run as a pull request whose body is the run's
+    // evidence (cli/pr.ts). Preflighted before any spend.
+    pr?: boolean
     // Internal (hidden --detached-child flag): this process IS the detached
     // child - use the runId its parent already announced, take gate answers
     // via the cross-process answer file, notify on completion.
@@ -819,6 +833,15 @@ export async function runAction(
   if (!deps.registry) {
     const preflight = await preflightAdapters(loaded.def, io, deps.detect ?? detectAgents)
     if (!preflight.ok) return 1
+  }
+  // --pr preflight BEFORE spending: a verified run that can't ship its PR
+  // wastes the whole point of asking for one.
+  if (opts.pr) {
+    const prProblem = await preflightPr(opts.cwd, deps.prExec)
+    if (prProblem) {
+      io.out(err(prProblem))
+      return 1
+    }
   }
   if (opts.detach) return detachRun(file, opts, io, deps)
   const runId = opts.detachedChild ?? `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
@@ -900,6 +923,8 @@ export async function runAction(
       runDir,
       io,
       json: !!opts.json,
+      pr: !!opts.pr,
+      prExec: deps.prExec,
       registry: deps.registry ?? createDefaultRegistry({ cwd: opts.cwd }),
       // A detached child's gate is answerable ONLY via the cross-process
       // answer file; a `--ui` run's gate from stdin or its own dashboard; a
@@ -953,6 +978,7 @@ export function registerRun(program: Command): void {
     .option('--ui', 'start the local dashboard before the run begins')
     .option('-d, --detach', 'run in the background: returns immediately; watch it and answer its gates from mission control (looprail ui --all)')
     .option('--dry-run', 'print the execution plan (node order, per-node model, budget) and exit - invokes no agent, spends nothing')
+    .option('--pr', 'when the run verifies, open a pull request whose description is the run evidence (needs git + gh)')
     .option('--port <n>', 'bind --ui to a fixed port (default: 4747; falls back to a free port automatically if that one is taken)', parsePort)
   // Internal plumbing for --detach's child process, never for humans: the
   // parent mints the runId and hands it down so it can print where to watch
@@ -960,7 +986,7 @@ export function registerRun(program: Command): void {
   cmd.addOption(new Option('--detached-child <runId>').hideHelp())
   cmd.action(async (
     file: string | undefined,
-    opts: { json?: boolean; yes?: boolean; ui?: boolean; port?: number; detach?: boolean; dryRun?: boolean; detachedChild?: string },
+    opts: { json?: boolean; yes?: boolean; ui?: boolean; port?: number; detach?: boolean; dryRun?: boolean; pr?: boolean; detachedChild?: string },
     command: Command,
   ) => {
     const { cwd } = command.optsWithGlobals<{ cwd: string }>()
