@@ -38,6 +38,7 @@ const VERDICT_FORMAT = [
   'VERDICT: pass|fail',
   'SCORE: <0..1, judges only>',
   'EVIDENCE: <one line citing the concrete reason>',
+  'GAPS: <only with a pass, only if real: minor shortcomings that do not justify failing, separated by ";">',
 ].join('\n')
 
 const ROLE_INSTRUCTIONS: Record<Role, string> = {

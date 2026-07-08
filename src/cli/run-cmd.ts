@@ -493,6 +493,7 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
       // absolute path so CI can upload the run's evidence trail as an
       // artifact without re-deriving the workspace hash
       journal: join(ctx.runDir, 'journal.jsonl'),
+      ...(report.gaps.length > 0 ? { gaps: report.gaps } : {}),
       report: report.report,
     }))
     return report.status === 'verified' ? 0 : 2
@@ -504,10 +505,18 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
   // line as a genuine failure: nothing went wrong, the work already done is
   // cached in the journal, and the single action needed is a resume.
   const isParked = report.status === 'halted' && report.reason.startsWith('parked')
+  // Graded pass: a verified run whose passing critics named gaps is said
+  // out loud - "verified" and "verified, with shortcomings" must never
+  // render identically (silence would read as a clean pass).
   ctx.io.out(report.status === 'verified'
-    ? ok(`verified - ${report.reason}`)
+    ? (report.gaps.length > 0
+        ? warn(`verified WITH ${report.gaps.length} named gap(s) - ${report.reason}`)
+        : ok(`verified - ${report.reason}`))
     : isParked ? warn(`parked - ${report.reason}`)
     : err(`halted - ${report.reason}`))
+  for (const g of report.gaps) {
+    ctx.io.out(warn(`  gap [${g.node}] ${g.gap}`))
+  }
   if (isParked) {
     ctx.io.out(dim(`  nothing failed - resume with \`looprail resume ${report.runId}\` (or from mission control) and the gate will ask again`))
   }

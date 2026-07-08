@@ -1473,3 +1473,47 @@ test('preflight leaves an adapter detection has never heard of alone (unknown !=
     async () => []) // detection knows nothing about it
   expect(res.ok).toBe(true)
 })
+
+// Graded verdicts: a verified run whose passing critic named gaps renders
+// them loudly - "verified" and "verified with shortcomings" never look alike.
+test('verified-with-gaps renders each named gap and marks the summary line', async () => {
+  const { cwd, io, lines } = setup(`
+name: graded
+goal: Ship it.
+agents:
+  worker:  { adapter: mock }
+  checker: { adapter: shell, command: "printf 'VERDICT: pass\\nEVIDENCE: works\\nGAPS: no retry on 503; docs missing\\n'" }
+graph:
+  do:   { role: executor, agent: worker }
+  crit: { role: critic, agent: checker, of: do, after: do }
+rails:
+  max_iterations: 2
+  max_cost_usd: 1
+`)
+  const code = await runAction(undefined, { cwd }, { io })
+  expect(code).toBe(0) // still verified - gaps grade the pass, they don't fail it
+  const text = lines.join('\n')
+  expect(text).toContain('verified WITH 2 named gap(s)')
+  expect(text).toContain('no retry on 503')
+  expect(text).toContain('docs missing')
+})
+
+test('verified-with-gaps --json carries the structured gaps list', async () => {
+  const { cwd, io, lines } = setup(`
+name: graded-json
+goal: Ship it.
+agents:
+  worker:  { adapter: mock }
+  checker: { adapter: shell, command: "printf 'VERDICT: pass\\nEVIDENCE: works\\nGAPS: one gap\\n'" }
+graph:
+  do:   { role: executor, agent: worker }
+  crit: { role: critic, agent: checker, of: do, after: do }
+rails:
+  max_iterations: 2
+  max_cost_usd: 1
+`)
+  const code = await runAction(undefined, { cwd, json: true }, { io })
+  expect(code).toBe(0)
+  const summary = JSON.parse(lines[lines.length - 1])
+  expect(summary.gaps).toEqual([{ node: 'crit', gap: 'one gap' }])
+})

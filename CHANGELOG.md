@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Graded verdicts (`GAPS:`)** - a passing critic can name real minor
+  shortcomings on a `GAPS:` line (";"-separated). The pass still passes,
+  but the run renders `verified WITH N named gap(s)` listing each one, and
+  `--json` carries the structured list - silence never reads as a clean
+  pass. Gaps on a fail are ignored (they are just failure evidence), and
+  "GAPS: none" is not a gap.
+
 - **Blind validation (`blind: true`)** - a critic with `of:` reviews the
   ACTUAL workspace diff since run start (via git, including mid-run agent
   commits and untracked files) instead of the worker's own narrative about

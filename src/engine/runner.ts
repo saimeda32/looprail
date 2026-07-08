@@ -377,7 +377,15 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     return {
       runId, status, reason,
       iterations: state.iteration, replans,
-      costUsd: guard.spentUsd, estimatedCostUsd: guard.estimatedSpentUsd, outcomes, report,
+      costUsd: guard.spentUsd, estimatedCostUsd: guard.estimatedSpentUsd, outcomes,
+      // Graded pass: every gap a PASSING verdict named in the final
+      // iteration. A verified run with gaps must render as "verified, with
+      // these named shortcomings" - never as a silent clean pass.
+      gaps: outcomes.flatMap((o) =>
+        o.verdict?.status === 'pass' && o.verdict.gaps
+          ? o.verdict.gaps.map((gap) => ({ node: o.nodeId, gap }))
+          : []),
+      report,
     }
   }
 

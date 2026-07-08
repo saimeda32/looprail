@@ -10,6 +10,11 @@ export interface Verdict {
   node: string
   status: VerdictStatus
   evidence: string
+  // Graded pass (loki-style receipts): a critic that passes the work but
+  // sees real minor shortcomings names each one on a GAPS: line. The pass
+  // still passes - but every gap is carried into the final report and the
+  // human-facing summary line, so silence never reads as a clean pass.
+  gaps?: string[]
   score?: number
   weight?: number  // stamped from NodeDef.weight by the scheduler (default 1)
 }
@@ -263,6 +268,10 @@ export interface RunReport {
   // must survive end to end.
   estimatedCostUsd: number
   outcomes: NodeOutcome[]
+  // Every gap named by a PASSING verdict across the run's last iteration -
+  // "verified" and "verified, with these named shortcomings" must render
+  // differently (see cli/run-cmd.ts).
+  gaps: Array<{ node: string; gap: string }>
   report: FinalReport
 }
 

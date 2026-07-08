@@ -105,3 +105,28 @@ test('parses bold SCORE and EVIDENCE, stripping trailing bold markers', () => {
   expect(v?.score).toBe(0.9)
   expect(v?.evidence).toBe('solid work')
 })
+
+// Graded verdicts: named gaps ride only on a PASS - "verified with gaps"
+// must never be constructible from a fail, and "GAPS: none" is not a gap.
+test('parses ;-separated gaps on a passing verdict', () => {
+  const v = parseVerdict('c', ['VERDICT: pass', 'EVIDENCE: solid overall', 'GAPS: no retry on 503; error message is vague'].join('\n'))
+  expect(v?.status).toBe('pass')
+  expect(v?.gaps).toEqual(['no retry on 503', 'error message is vague'])
+})
+
+test('gaps on a FAIL are ignored - they are just failure evidence', () => {
+  const v = parseVerdict('c', ['VERDICT: fail', 'EVIDENCE: broken', 'GAPS: minor stuff'].join('\n'))
+  expect(v?.status).toBe('fail')
+  expect(v?.gaps).toBeUndefined()
+})
+
+test('"GAPS: none" and empty segments produce no gaps field', () => {
+  expect(parseVerdict('c', 'VERDICT: pass\nEVIDENCE: ok\nGAPS: none')?.gaps).toBeUndefined()
+  expect(parseVerdict('c', 'VERDICT: pass\nEVIDENCE: ok\nGAPS: ; ;')?.gaps).toBeUndefined()
+  expect(parseVerdict('c', 'VERDICT: pass\nEVIDENCE: ok')?.gaps).toBeUndefined()
+})
+
+test('bold-prefixed GAPS line parses like the other verdict lines', () => {
+  const v = parseVerdict('c', '**VERDICT: pass**\n**EVIDENCE:** fine\n**GAPS:** missing docs**')
+  expect(v?.gaps).toEqual(['missing docs'])
+})

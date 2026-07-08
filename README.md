@@ -599,6 +599,21 @@ ranks variants verified-first, then by cost, and the winner's agent map is
 written to `.looprail/routing.json` (`--json` prints the same object) so other
 tooling can consume the recommendation.
 
+### Graded verdicts
+
+A critic that passes work while seeing real minor shortcomings names them:
+
+```
+VERDICT: pass
+EVIDENCE: core flow works end to end
+GAPS: no retry on 503; error copy is vague
+```
+
+The pass still passes - but the run reports `verified WITH 2 named
+gap(s)`, lists each one, and `--json` carries them structurally. "Verified"
+and "verified, with these shortcomings" never render identically, so a
+polite critic can't wave work through silently.
+
 ### Verdict policies
 
 How the checks combine into a pass or fail:
