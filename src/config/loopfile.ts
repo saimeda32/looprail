@@ -144,6 +144,7 @@ export function parseGraphNodes(graph: Record<string, Record<string, unknown>>):
       panel: n.panel as NodeDef['panel'],
       probe: n.probe as boolean | undefined,
       blind: n.blind as boolean | undefined,
+      context: n.context as NodeDef['context'],
       rounds: n.rounds as number | undefined,
       generates: n.generates as NodeDef['generates'],
       prompt: n.prompt as string | undefined,

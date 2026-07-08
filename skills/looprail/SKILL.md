@@ -113,6 +113,10 @@ verify:
 - Add `scope: ["src/feature/**"]` when the task should stay inside a known
   area: changes outside the allowlist fail the iteration the same way -
   the structural answer to silent scope creep.
+- For long-horizon builds, put `context: fresh` on the executor: each
+  iteration rebuilds its prompt from goal/plan/feedback plus its own
+  `.looprail/progress.md` notes instead of an ever-growing transcript
+  (the Ralph-loop pattern, per node).
 - `panel: 3` (or `panel: [a, b, c]`) fans a critic/judge out for diverse
   review. Add `probe: true` to cut panel cost on failing iterations: the
   first clone runs first, and if it FAILS the rest are skipped - the

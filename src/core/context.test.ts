@@ -167,7 +167,7 @@ test('blind critic sees the workspace diff and NOT the target output', () => {
   const ctx = composeContext(
     def, node, state,
     new Map([['do', outcome('do', 'I TOTALLY FIXED EVERYTHING, TRUST ME')]]),
-    '--- a/impl.js\n+++ b/impl.js\n-broken\n+fixed',
+    { blindDiff: '--- a/impl.js\n+++ b/impl.js\n-broken\n+fixed' },
   )
   expect(ctx).toContain('+fixed')
   expect(ctx).toContain('blind mode')
@@ -179,7 +179,7 @@ test('blind critic with no diff available gets an explicit unverified note, not 
   const ctx = composeContext(
     def, node, state,
     new Map([['do', outcome('do', 'I TOTALLY FIXED EVERYTHING, TRUST ME')]]),
-    '',
+    { blindDiff: '' },
   )
   expect(ctx).toContain('No workspace diff is available')
   expect(ctx).not.toContain('TRUST ME')
@@ -189,4 +189,32 @@ test('non-blind critic still sees the target output unchanged', () => {
   const node: NodeDef = { id: 'crit', role: 'critic', agent: 'a', of: 'do' }
   const ctx = composeContext(def, node, state, new Map([['do', outcome('do', 'THE ACTUAL WORK')]]))
   expect(ctx).toContain('THE ACTUAL WORK')
+})
+
+// Fresh-context (Ralph) mode: durable anchors + on-disk notes only - the
+// previous-attempt transcript never appears.
+test('fresh-context executor gets progress notes and instructions, never its previous attempt', () => {
+  const node: NodeDef = { id: 'do', role: 'executor', agent: 'a', context: 'fresh' }
+  const freshState: RunState = {
+    ...state,
+    feedbackBySource: [{ nodeId: 'do', evidence: 'test X fails' }],
+    priorOutputs: { do: 'MY GIANT PREVIOUS TRANSCRIPT' },
+  }
+  const ctx = composeContext(def, node, freshState, new Map(), { progressNotes: 'done: parser; next: renderer' })
+  expect(ctx).toContain('done: parser; next: renderer')
+  expect(ctx).toContain('fresh context')
+  expect(ctx).toContain('progress.md')
+  expect(ctx).not.toContain('GIANT PREVIOUS TRANSCRIPT')
+  expect(ctx).toContain('test X fails') // feedback still flows - it is a durable anchor
+})
+
+test('default (non-fresh) executor still gets its previous attempt', () => {
+  const node: NodeDef = { id: 'do', role: 'executor', agent: 'a' }
+  const s2: RunState = {
+    ...state,
+    feedbackBySource: [{ nodeId: 'do', evidence: 'fix it' }],
+    priorOutputs: { do: 'PRIOR WORK' },
+  }
+  const ctx = composeContext(def, node, s2, new Map())
+  expect(ctx).toContain('PRIOR WORK')
 })

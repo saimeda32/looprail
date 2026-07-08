@@ -171,5 +171,16 @@ export function lintLoop(def: LoopDef): LintFinding[] {
     }
   }
 
+  // L014: fresh-context mode only changes an executor/synthesizer's prompt
+  // assembly - set anywhere else it silently does nothing.
+  for (const n of def.nodes.filter((x) => x.context === 'fresh')) {
+    if (n.role !== 'executor' && n.role !== 'synthesizer') {
+      findings.push({
+        rule: 'L014', level: 'warn', node: n.id,
+        message: `node "${n.id}" sets context: fresh but is a ${n.role} - fresh context only applies to executors and synthesizers, so it has no effect here`,
+      })
+    }
+  }
+
   return findings
 }

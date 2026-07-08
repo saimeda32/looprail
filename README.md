@@ -542,6 +542,24 @@ diff is available and to treat claims as unverified - blind mode never
 silently falls back to the narrative. Lint rule L013 warns when `blind`
 is set somewhere it has no effect.
 
+### Fresh-context iterations (Ralph mode)
+
+On long runs, dragging a growing previous-attempt transcript through every
+prompt is how sessions rot: agents contradict earlier decisions and forget
+conventions. `context: fresh` on an executor rebuilds its prompt each
+iteration from the durable anchors only - goal, plan, current feedback,
+and the agent's own on-disk notes:
+
+```yaml
+build: { role: executor, agent: worker, context: fresh }
+```
+
+The agent is instructed to inspect the workspace for current state and to
+maintain `.looprail/progress.md` (what's done, what remains, what the next
+iteration must know) - the disk is the memory, the transcript is not.
+This is the "Ralph loop" pattern the community converged on for
+long-horizon agent work, as a per-node switch.
+
 ### Evidence ledger
 
 `ledger: true` in a loopfile records every verdict the run produces into a

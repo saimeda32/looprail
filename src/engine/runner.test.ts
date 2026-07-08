@@ -1162,3 +1162,44 @@ test('blind critic reviews the real workspace diff, not the executor narrative',
   expect(criticPrompt).toContain('ACTUALLY-FIXED-CODE')          // the real diff
   expect(criticPrompt).not.toContain('rewrote everything')       // never the narrative
 })
+
+// Fresh-context (Ralph) mode e2e: iteration 2's executor prompt carries the
+// on-disk progress notes the agent wrote in iteration 1 - and never the
+// iteration-1 output transcript.
+test('fresh-context executor reads its own progress notes instead of a prior-attempt transcript', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lr-ralph-'))
+  mkdirSync(join(dir, '.looprail'), { recursive: true })
+  const prompts: string[] = []
+  let call = 0
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    async invoke(req) {
+      if (req.prompt.includes('VERDICT:')) {
+        return {
+          output: call === 1 ? 'VERDICT: fail\nEVIDENCE: not done yet' : 'VERDICT: pass\nEVIDENCE: done',
+          costUsd: 0, tokens: 0, durationMs: 1,
+        }
+      }
+      call += 1
+      prompts.push(req.prompt)
+      // the agent maintains its own notes file - THIS is its memory
+      writeFileSync(join(dir, '.looprail', 'progress.md'), `NOTES-AFTER-${call}: parser done, renderer next`)
+      return { output: `TRANSCRIPT-${call}`, costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  })
+  const def: LoopDef = {
+    name: 'ralph-e2e', goal: 'build it',
+    agents: { a: { adapter: 'mock' } },
+    nodes: [
+      { id: 'do', role: 'executor', agent: 'a', context: 'fresh' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'do', after: ['do'] },
+    ],
+    rails: { maxIterations: 3, maxCostUsd: 5 },
+    verdictPolicy: { kind: 'all-pass' },
+  }
+  const report = await runLoop(def, { registry: reg2(registry), cwd: dir })
+  expect(report.status).toBe('verified')
+  expect(prompts[1]).toContain('NOTES-AFTER-1')       // notes from iteration 1 flow in
+  expect(prompts[1]).not.toContain('TRANSCRIPT-1')    // the transcript never does
+})

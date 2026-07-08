@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { execa } from 'execa'
 import type {
   Adapter, AgentDef, GateHandler, LoopDef, NodeDef, NodeOutcome, PermissionAnswerer,
@@ -33,6 +35,18 @@ export interface EngineDeps {
 }
 
 const VERIFYING = new Set(['critic', 'judge'])
+
+// The fresh-context node's persistent memory (see NodeDef.context): its own
+// notes file, maintained by the agent itself across iterations. Missing or
+// unreadable simply means no notes yet - never an error.
+function readProgressNotes(cwd?: string): string | undefined {
+  try {
+    const text = readFileSync(join(cwd ?? process.cwd(), '.looprail', 'progress.md'), 'utf8').trim()
+    return text.length > 0 ? text : undefined
+  } catch {
+    return undefined
+  }
+}
 
 // Infrastructure-shaped tester failures: the command could not RUN, as
 // opposed to the tests running and some asserting false. Conservative on
@@ -192,7 +206,10 @@ export async function executeNode(
     // computed fresh here so the prompt (and therefore the cache hash)
     // reflects the workspace as it stands THIS iteration.
     const blindDiff = node.blind && node.of ? deps.workspaceDiff?.() : undefined
-    prompt = composeContext(def, node, state, outcomes, blindDiff)
+    // Fresh-context nodes carry their own on-disk notes instead of an
+    // accumulated previous-attempt transcript (NodeDef.context).
+    const progressNotes = node.context === 'fresh' ? readProgressNotes(deps.cwd) : undefined
+    prompt = composeContext(def, node, state, outcomes, { blindDiff, progressNotes })
     key = deps.hash?.(node.id, prompt)
     if (key && deps.cache?.has(key)) {
       return { ...deps.cache.get(key)!, costUsd: 0, estimatedCostUsd: undefined, contextHash: key }

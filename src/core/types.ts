@@ -147,6 +147,14 @@ export interface NodeDef {
   // faked. Requires a git workspace; degrades to an explicit "no diff
   // available" note, never silently back to the narrative.
   blind?: boolean
+  // Fresh-context iterations (Ralph-style; executors/synthesizers): each
+  // iteration's prompt is rebuilt from the durable anchors only - goal,
+  // plan, current feedback, and the on-disk progress notes file
+  // (.looprail/progress.md, which the agent is instructed to maintain) -
+  // never the accumulated previous-attempt narrative. The workspace itself
+  // is the working memory; long runs stop dragging a growing, staling
+  // transcript through every prompt.
+  context?: 'fresh'
   rounds?: number           // planner-critic revision rounds (critics of planner)
   // When set on a planner node, its output is parsed as a loopfile-fragment
   // (a graph: list, optionally its own agents:/rails:) instead of prose, and

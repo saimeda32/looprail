@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Fresh-context iterations (`context: fresh`)** - Ralph-style loops as a
+  per-node switch: an executor's prompt is rebuilt each iteration from
+  goal, plan, current feedback, and its own `.looprail/progress.md` notes
+  (which it is instructed to maintain) - never the accumulated
+  previous-attempt transcript. Disk is the memory; long runs stop rotting.
+  Lint L014 warns where it has no effect.
+
 - **Evidence ledger (`ledger: true`)** - a hash-chained, repo-committable
   record of every verdict (node, role, agent/model, evidence, gaps, and a
   sha256 of the judged output) in `.looprail/ledger.jsonl`. Editing or

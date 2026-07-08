@@ -161,10 +161,11 @@ export function composeContext(
   node: NodeDef,
   state: RunState,
   outcomes: Map<string, NodeOutcome>,
-  // The actual workspace diff for a blind critic (see NodeDef.blind) -
-  // computed by the engine (engine/nodes.ts via EngineDeps.workspaceDiff)
-  // because this module is sync and does no IO.
-  blindDiff?: string,
+  // Engine-computed extras (engine/nodes.ts) - this module is sync and does
+  // no IO itself: the actual workspace diff for a blind critic
+  // (NodeDef.blind), and the on-disk progress notes for a fresh-context
+  // node (NodeDef.context === 'fresh').
+  extras: { blindDiff?: string; progressNotes?: string } = {},
 ): string {
   const parts: string[] = [`# Goal\n${def.goal}`]
   if (state.plan) parts.push(`# Current plan\n${state.plan}`)
@@ -187,7 +188,8 @@ export function composeContext(
   // node's prompt stays byte-identical - the prior-attempt section never
   // appears on a node that didn't fail. Only work-PRODUCING roles: a critic
   // or judge reviews the current work fresh; it has no attempt to revise.
-  if (scopedFeedback && (node.role === 'executor' || node.role === 'synthesizer')) {
+  if (scopedFeedback && (node.role === 'executor' || node.role === 'synthesizer')
+      && node.context !== 'fresh') {
     const prior = state.priorOutputs?.[node.id]
     if (prior) {
       parts.push(
@@ -205,8 +207,8 @@ export function composeContext(
       // code the critic reads directly. An empty/unavailable diff is said
       // out loud rather than silently falling back to the narrative, which
       // would quietly turn blind mode off.
-      parts.push(blindDiff
-        ? `# Work under review (actual workspace diff since run start - blind mode, the worker's own description is deliberately not shown)\n${blindDiff}`
+      parts.push(extras.blindDiff
+        ? `# Work under review (actual workspace diff since run start - blind mode, the worker's own description is deliberately not shown)\n${extras.blindDiff}`
         : `# Work under review (blind mode)\nNo workspace diff is available (no changes since run start, or not a git repository). If work was claimed, treat that claim as unverified.`)
     } else {
       const target = outcomes.get(node.of)
@@ -225,6 +227,21 @@ export function composeContext(
     parts.push(`Pass threshold: SCORE must be >= ${effectiveThreshold}.`)
   }
 
+  // Fresh-context mode: the durable anchors above (goal, plan, feedback)
+  // plus the on-disk progress notes ARE the whole context - the agent is
+  // told so explicitly, and told to maintain the notes file, because the
+  // next iteration's memory is exactly what it writes there and to the
+  // workspace. No accumulated transcript means no context rot on long runs.
+  if (node.context === 'fresh' && (node.role === 'executor' || node.role === 'synthesizer')) {
+    if (extras.progressNotes) {
+      parts.push(`# Progress notes (your own, from .looprail/progress.md)\n${extras.progressNotes}`)
+    }
+    parts.push(
+      '# Fresh context\nEach iteration you start with a fresh context: this prompt plus the workspace itself are your only memory. '
+      + 'Inspect the workspace to see the current state of the work before changing anything. '
+      + 'Before finishing, update .looprail/progress.md with (1) what is done, (2) what remains, (3) anything the next iteration must know.',
+    )
+  }
   parts.push(`# Your role\n${ROLE_INSTRUCTIONS[node.role]}`)
   if (node.generates === 'graph') {
     parts.push(GENERATES_GRAPH_FORMAT_INSTRUCTIONS)

@@ -203,3 +203,12 @@ test('L013 warns when blind is set on anything but a critic with of:', () => {
   const findings = lintLoop(def).filter((f) => f.rule === 'L013')
   expect(findings.map((f) => f.node).sort()).toEqual(['do', 'j'])
 })
+
+test('L014 warns when context: fresh is set on a non-executor', () => {
+  const def = make([
+    { id: 'do', role: 'executor', agent: 'big', context: 'fresh' },
+    { id: 'crit', role: 'critic', agent: 'small', of: 'do', after: ['do'], context: 'fresh' },
+  ])
+  const findings = lintLoop(def).filter((f) => f.rule === 'L014')
+  expect(findings.map((f) => f.node)).toEqual(['crit'])
+})
