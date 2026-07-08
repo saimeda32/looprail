@@ -83,3 +83,18 @@ describe('preflightPr', () => {
     expect(await preflightPr('/x', ok)).toBeNull()
   })
 })
+
+test('an EMPTY report summary never produces a blank PR title (GitHub rejects those)', async () => {
+  const calls: string[][] = []
+  const exec: PrExec = async (file, args) => {
+    calls.push([file, ...args])
+    if (file === 'git' && args[0] === 'status') return { stdout: 'M x\n', stderr: '' }
+    if (file === 'gh') return { stdout: 'https://github.com/o/r/pull/10\n', stderr: '' }
+    return { stdout: '', stderr: '' }
+  }
+  await createVerifiedPr('/repo', report({ report: { summary: '', claims: [], source: 'fallback' } }), exec)
+  const pr = calls.find((c) => c[0] === 'gh')!
+  const title = pr[pr.indexOf('--title') + 1]
+  expect(title.trim().length).toBeGreaterThan(0)
+  expect(title).toContain('run-abc')
+})

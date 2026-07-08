@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0
 
 - **`looprail run --pr`** - a VERIFIED run ships itself as a pull request
   whose description is the run's evidence: verdict table, named gaps, cost,

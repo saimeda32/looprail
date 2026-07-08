@@ -12,8 +12,16 @@ const execFileAsync = promisify(execFile)
 export type PrExec = (file: string, args: string[], opts?: { cwd?: string }) => Promise<{ stdout: string; stderr: string }>
 
 const defaultExec: PrExec = async (file, args, opts = {}) => {
-  const { stdout, stderr } = await execFileAsync(file, args, { cwd: opts.cwd, maxBuffer: 8 * 1024 * 1024 })
-  return { stdout, stderr }
+  try {
+    const { stdout, stderr } = await execFileAsync(file, args, { cwd: opts.cwd, maxBuffer: 8 * 1024 * 1024 })
+    return { stdout, stderr }
+  } catch (e) {
+    // execFile's error message is just "Command failed: ..." - the actual
+    // reason (auth, missing remote, branch protection) lives on stderr.
+    // A user staring at "git push failed" with no why cannot act on it.
+    const err = e as Error & { stderr?: string }
+    throw new Error(`${file} ${args.slice(0, 2).join(' ')} failed: ${(err.stderr ?? err.message).trim().slice(0, 400)}`)
+  }
 }
 
 // Preflight for --pr, run BEFORE any agent spends: a verified run that then
@@ -79,13 +87,17 @@ export async function createVerifiedPr(
     throw new Error(`refusing to open a PR for a ${report.status} run - only verified work ships`)
   }
   const branch = `looprail/${report.runId}`
+  // `??` alone is wrong here: a fallback-built report can carry an EMPTY
+  // summary string, which is not nullish - and GitHub rejects a blank PR
+  // title outright ("can't be blank"). Caught live in the battle test.
+  const title = (report.report.summary ?? '').split('\n')[0].trim().slice(0, 72)
+    || `looprail: verified run ${report.runId}`
   // Anything uncommitted (the usual case) gets committed on the new branch;
   // an agent that already committed mid-run just means nothing to add here.
   await exec('git', ['checkout', '-b', branch], { cwd })
   await exec('git', ['add', '-A'], { cwd })
   const status = await exec('git', ['status', '--porcelain'], { cwd })
   if (status.stdout.trim().length > 0) {
-    const title = `${report.report.summary?.split('\n')[0].slice(0, 68) ?? `looprail run ${report.runId}`}`
     await exec('git', ['commit', '-m', `${title}\n\nverified by looprail run ${report.runId}`], { cwd })
   } else {
     // no uncommitted changes AND no commits beyond the base would mean an
@@ -95,7 +107,7 @@ export async function createVerifiedPr(
   const created = await exec('gh', [
     'pr', 'create',
     '--head', branch,
-    '--title', report.report.summary?.split('\n')[0].slice(0, 72) ?? `looprail: verified run ${report.runId}`,
+    '--title', title,
     '--body', buildPrBody(report),
   ], { cwd })
   const url = created.stdout.trim().split('\n').pop() ?? ''
