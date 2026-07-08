@@ -1,5 +1,6 @@
 import { parse, stringify } from 'yaml'
 import type { AgentDef, LoopDef, NodeDef, Rails, Role, VerdictPolicy } from '../core/types.js'
+import { DEFAULT_TEST_GLOBS } from '../engine/protect.js'
 
 const VALID_ROLES: readonly Role[] = [
   'planner', 'critic', 'executor', 'tester', 'judge', 'gate', 'synthesizer',
@@ -65,6 +66,10 @@ export function parseLoopfile(text: string): LoopDef {
     problems.push('verdict.policy must be "all-pass", { quorum: N }, or { weighted: 0..1 }')
   }
 
+  // Parsed BEFORE the problems check below so a malformed protect value is a
+  // hard parse error - a typo'd protect field must never silently unprotect.
+  const protect = parseProtect(raw.protect, problems)
+
   if (problems.length > 0) throw new Error(`invalid loopfile:\n${problems.join('\n')}`)
 
   const nodes: NodeDef[] = parseGraphNodes(graph)
@@ -81,7 +86,21 @@ export function parseLoopfile(text: string): LoopDef {
     },
     verdictPolicy,
     ...(raw.concurrency !== undefined ? { concurrency: raw.concurrency as number } : {}),
+    ...protect,
   }
+}
+
+// `protect: tests` is the keyword form (the built-in test-shaped globs);
+// an explicit list is taken verbatim. Anything else is a parse problem, not
+// a silent no-op - a typo'd protect field must never silently unprotect.
+function parseProtect(raw: unknown, problems: string[]): { protect?: string[] } {
+  if (raw === undefined) return {}
+  if (raw === 'tests') return { protect: [...DEFAULT_TEST_GLOBS] }
+  if (Array.isArray(raw) && raw.length > 0 && raw.every((g) => typeof g === 'string')) {
+    return { protect: raw as string[] }
+  }
+  problems.push('protect must be the keyword "tests" or a non-empty list of glob strings')
+  return {}
 }
 
 export function parseGraphNodes(graph: Record<string, Record<string, unknown>>): NodeDef[] {

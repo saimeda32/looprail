@@ -168,6 +168,13 @@ export interface LoopDef {
   rails: Rails
   verdictPolicy: VerdictPolicy
   concurrency?: number
+  // Test-tamper guard: workspace globs whose files must return to their
+  // run-start state for the loop to verify. Any change fails the iteration
+  // with a revert instruction; a second consecutive violation halts. The
+  // loopfile keyword `protect: tests` expands to engine/protect.ts's
+  // DEFAULT_TEST_GLOBS. See docs/superpowers/specs/
+  // 2026-07-07-test-tamper-guard-design.md.
+  protect?: string[]
 }
 
 export interface NodeOutcome {
@@ -274,6 +281,9 @@ export interface JournalEvent {
   ts: number
   type: 'run_start' | 'node_start' | 'node_end' | 'node_skipped' | 'node_progress' | 'iteration_end'
         | 'replan' | 'verified' | 'halt'
+        // Emitted when the protect rail catches protected files changed
+        // during an iteration. data: { iteration, modified, deleted, added }.
+        | 'protect_violation'
         // Emitted when an agent CLI subprocess running inside a node blocks
         // mid-execution waiting for its OWN tool-permission answer (see
         // dashboard/permission-registry.ts) - distinct from a `role: gate`

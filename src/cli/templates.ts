@@ -66,6 +66,10 @@ goal: |
   Make the test suite pass. Done means: ${testCommand ?? 'npm test'} exits 0 and a critic
   confirms no test was deleted, skipped, or weakened to force a pass.
 
+# structural enforcement of the goal's "no test was weakened" clause: any
+# change to test files fails the iteration with a revert instruction
+protect: tests
+
 agents:
   worker:  ${agentSpec(adapters, models, 'worker')}
   checker: ${agentSpec(adapters, models, 'checker')}  ${REVIEWER_COMMENT}
@@ -143,6 +147,10 @@ goal: |
   quality critic confirms the refactor measurably improves readability
   or reduces complexity. To target a specific file instead, replace
   "the largest or most complex file under src/" above with its path.
+
+# a behavior-preserving refactor must not touch the behavior's spec: any
+# change to test files fails the iteration with a revert instruction
+protect: tests
 
 agents:
   worker:      ${agentSpec(adapters, models, 'worker')}

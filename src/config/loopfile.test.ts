@@ -383,3 +383,49 @@ rails:
   expect(crit.probe).toBe(true)
   expect(crit.panel).toBe(3)
 })
+
+// protect: the test-tamper guard field (see engine/protect.ts).
+test('protect: tests expands to the built-in test globs', () => {
+  const def = parseLoopfile(`
+name: t
+goal: g
+protect: tests
+agents:
+  a: { adapter: mock }
+graph:
+  do: { role: executor, agent: a }
+  t:  { role: tester, after: do, run: "npm test", expect: exit 0 }
+rails: { max_iterations: 2, max_cost_usd: 1 }
+`)
+  expect(def.protect).toContain('test/**')
+  expect(def.protect).toContain('**/*.test.*')
+  expect(def.protect).toContain('**/conftest.py')
+})
+
+test('protect: explicit glob list is taken verbatim', () => {
+  const def = parseLoopfile(`
+name: t
+goal: g
+protect: ["spec/**", "golden/*.json"]
+agents:
+  a: { adapter: mock }
+graph:
+  do: { role: executor, agent: a }
+  t:  { role: tester, after: do, run: "true", expect: exit 0 }
+rails: { max_iterations: 2, max_cost_usd: 1 }
+`)
+  expect(def.protect).toEqual(['spec/**', 'golden/*.json'])
+})
+
+test('a malformed protect value is a hard parse error, never a silent unprotect', () => {
+  expect(() => parseLoopfile(`
+name: t
+goal: g
+protect: 42
+agents:
+  a: { adapter: mock }
+graph:
+  do: { role: executor, agent: a }
+rails: { max_iterations: 2, max_cost_usd: 1 }
+`)).toThrow(/protect must be/)
+})

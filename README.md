@@ -479,6 +479,36 @@ re-running executor revises its previous attempt instead of regenerating the
 whole artifact from the goal. A proxy makes each call cheaper; looprail makes
 the loop send fewer, smaller calls - the two compound.
 
+### Protected files: the test-tamper guard
+
+The best-documented way agents game a verified loop is editing the tests
+instead of the code - deleting assertions, adding skip markers, patching
+`conftest.py` so "tests passed" stops meaning anything. Telling the agent
+not to (in a prompt, a CLAUDE.md, an AGENTS.md) demonstrably does not hold.
+`protect:` makes the rule structural:
+
+```yaml
+protect: tests   # or an explicit list: ["test/**", "golden/*.json"]
+```
+
+At run start, looprail hashes every file matching the globs (`tests`
+expands to the common test layouts plus the framework configs -
+`conftest.py`, `jest.config.*`, `vitest.config.*` - whose patching is a
+documented exploit). After each iteration it re-checks:
+
+- **First violation** - the iteration fails with a deterministic verdict
+  naming every modified/deleted/added protected file and an explicit
+  instruction to revert and change the implementation instead. The loop
+  self-corrects: agents that revert go on to verify normally.
+- **Second consecutive violation** - the run halts. An agent that rewrites
+  the tests again after an explicit revert instruction is not going to
+  stop, and the budget is better kept.
+
+Every violation is journaled as a `protect_violation` event, so the
+evidence trail shows exactly what was touched and when. No git required -
+the guard is snapshot-based and works in any directory. The `fix-tests`
+and `refactor` templates ship with `protect: tests` on by default.
+
 ### Rails
 
 Rails are the ceiling on a run. All of them are optional except the first two:

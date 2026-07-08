@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, vi } from 'vitest'
@@ -969,3 +969,82 @@ test('probe panel: failing iteration runs only the leader; the verifying iterati
   // 1 (probe leader, iteration 1) + 3 (full panel, iteration 2) - NOT 6
   expect(criticCalls).toBe(4)
 })
+
+// Test-tamper guard (protect rail): the executor "fixes" the suite by
+// editing the test file -> deterministic fail with a revert instruction;
+// a second consecutive violation halts the run.
+test('protect rail: modifying a protected file fails the iteration; reverting lets it verify', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lr-runner-protect-'))
+  mkdirSync(join(dir, 'test'), { recursive: true })
+  const testPath = join(dir, 'test', 'x.test.js')
+  writeFileSync(testPath, 'assert(realBehavior())')
+  let call = 0
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    async invoke(req) {
+      const critic = req.prompt.includes('VERDICT:')
+      if (critic) return { output: 'VERDICT: pass\nEVIDENCE: ok', costUsd: 0, tokens: 0, durationMs: 1 }
+      call += 1
+      // iteration 1: the executor cheats by gutting the test file
+      if (call === 1) writeFileSync(testPath, 'assert(true) // gutted')
+      // iteration 2: told to revert, it restores the original bytes
+      if (call === 2) writeFileSync(testPath, 'assert(realBehavior())')
+      return { output: `attempt ${call}`, costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  })
+  const def: LoopDef = {
+    name: 'protect-e2e', goal: 'fix it without touching tests',
+    agents: { a: { adapter: 'mock' } },
+    nodes: [
+      { id: 'fix', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'fix', after: ['fix'] },
+    ],
+    rails: { maxIterations: 4, maxCostUsd: 5 },
+    verdictPolicy: { kind: 'all-pass' },
+    protect: ['test/**'],
+  }
+  const report = await runLoop(def, { registry: reg2(registry), cwd: dir })
+  expect(report.status).toBe('verified')
+  expect(report.iterations).toBe(2)
+})
+
+test('protect rail: a second consecutive violation halts instead of burning budget', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lr-runner-protect2-'))
+  mkdirSync(join(dir, 'test'), { recursive: true })
+  writeFileSync(join(dir, 'test', 'x.test.js'), 'assert(realBehavior())')
+  let call = 0
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    async invoke(req) {
+      if (req.prompt.includes('VERDICT:')) {
+        return { output: 'VERDICT: pass\nEVIDENCE: ok', costUsd: 0, tokens: 0, durationMs: 1 }
+      }
+      call += 1
+      // never reverts - keeps rewriting the test file every iteration
+      writeFileSync(join(dir, 'test', 'x.test.js'), `assert(true) // gutted v${call}`)
+      return { output: `attempt ${call}`, costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  })
+  const def: LoopDef = {
+    name: 'protect-halt', goal: 'g',
+    agents: { a: { adapter: 'mock' } },
+    nodes: [
+      { id: 'fix', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'fix', after: ['fix'] },
+    ],
+    rails: { maxIterations: 6, maxCostUsd: 5 },
+    verdictPolicy: { kind: 'all-pass' },
+    protect: ['test/**'],
+  }
+  const report = await runLoop(def, { registry: reg2(registry), cwd: dir })
+  expect(report.status).toBe('halted')
+  expect(report.reason).toContain('protect')
+  expect(report.iterations).toBe(2) // not 6 - the rail stopped it early
+})
+
+// tiny local helper: runner tests' shared reg() is typed for MockAdapter
+function reg2(registry: ReturnType<typeof createRegistry>) {
+  return registry
+}

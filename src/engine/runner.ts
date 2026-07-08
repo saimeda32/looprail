@@ -13,6 +13,7 @@ import { JournalWriter } from '../journal/journal.js'
 import { drainHumanFeedback } from '../journal/human-feedback.js'
 import type { AdapterRegistry } from '../adapters/registry.js'
 import { runIteration } from './scheduler.js'
+import { compareProtected, hasChanges, snapshotProtected, tamperVerdict } from './protect.js'
 import type { EngineDeps } from './nodes.js'
 import {
   applyGraphEdits, parseGraphEditsFragment, parseGraphFragment, serializeGraphFragment,
@@ -502,6 +503,16 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     state.feedbackBySource = null
   }
 
+  // Test-tamper guard baseline (see engine/protect.ts): the run-start state
+  // of every protected file. Taken AFTER planning (planners produce text,
+  // not file edits) and re-taken naturally on resume - a human's edits
+  // between runs are legitimate; an agent's edits during the run are not.
+  const protectDir = opts.cwd ?? process.cwd()
+  const protectBaseline = def.protect
+    ? await snapshotProtected(protectDir, def.protect)
+    : undefined
+  let consecutiveTampers = 0
+
   while (true) {
     state.iteration += 1
     // One-shot: applies to this iteration's prompts only. A stale note from
@@ -532,7 +543,27 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
       if (o.output) priorOutputs[o.nodeId] = o.output
     }
     state.priorOutputs = priorOutputs
-    const verdicts = outcomes.flatMap((o) => (o.verdict ? [o.verdict] : []))
+    // Protect rail: any change to protected files this iteration is a
+    // deterministic fail - appended to the verdict set (it can only make
+    // the aggregate stricter) rather than pushed into `outcomes`, so the
+    // cache/priorOutputs/skipped bookkeeping above never sees a synthetic
+    // node. The baseline is never advanced: protected files must return to
+    // their run-start state for the loop to verify.
+    let tamper: ReturnType<typeof tamperVerdict> | undefined
+    if (def.protect && protectBaseline) {
+      const changes = compareProtected(protectBaseline, await snapshotProtected(protectDir, def.protect))
+      if (hasChanges(changes)) {
+        tamper = tamperVerdict(changes)
+        consecutiveTampers += 1
+        emit('protect_violation', { iteration: state.iteration, ...changes })
+      } else {
+        consecutiveTampers = 0
+      }
+    }
+    const verdicts = [
+      ...outcomes.flatMap((o) => (o.verdict ? [o.verdict] : [])),
+      ...(tamper ? [tamper] : []),
+    ]
     fingerprints.push(verdictFingerprint(verdicts))
     progressFingerprints.push(progressFingerprint(verdicts))
     emit('iteration_end', { iteration: state.iteration, costUsd: guard.spentUsd, estimatedCostUsd: guard.estimatedSpentUsd })
@@ -618,8 +649,22 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     if (planApprovalHalt) return await finish('halted', planApprovalHalt)
     if (planApprovalHandled) continue
 
+    // Second consecutive violation: the executor was explicitly told to
+    // revert and changed protected files again anyway - it isn't listening,
+    // so stop burning budget on it.
+    if (consecutiveTampers >= 2) {
+      return await finish('halted', 'protected files were modified again after an explicit revert instruction (protect rail) - see the protect_violation events in the journal')
+    }
+    // The tamper verdict rides in as a synthetic outcome so the router's
+    // aggregate (and its composed feedback) sees the deterministic fail.
+    const routedOutcomes = tamper
+      ? [...outcomes, {
+          nodeId: tamper.node, role: 'tester' as const, output: '',
+          verdict: tamper, costUsd: 0, tokens: 0, durationMs: 0,
+        }]
+      : outcomes
     const decision = routeIteration({
-      outcomes, policy: def.verdictPolicy, fingerprints, progressFingerprints,
+      outcomes: routedOutcomes, policy: def.verdictPolicy, fingerprints, progressFingerprints,
       rails: def.rails, replansUsed: replans, breach,
     })
 
@@ -638,9 +683,21 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     // fail gets none, keeps its prompt stable, and is served from cache
     // instead of needlessly re-running. The flat state.feedback above stays
     // the planner's view and the fallback for every non-iterate path.
-    state.feedbackBySource = outcomes
-      .filter((o) => o.verdict && o.verdict.status !== 'pass')
-      .map((o) => ({ nodeId: o.nodeId, evidence: o.verdict!.evidence }))
+    state.feedbackBySource = [
+      ...outcomes
+        .filter((o) => o.verdict && o.verdict.status !== 'pass')
+        .map((o) => ({ nodeId: o.nodeId, evidence: o.verdict!.evidence })),
+      // A tamper verdict's synthetic node id exists in no graph, so
+      // lineage-scoping would deliver it to nobody. Attribute the revert
+      // instruction to every EXECUTOR that ran this iteration instead -
+      // executors are the nodes that edit files, and a cached/skipped
+      // branch didn't touch anything.
+      ...(tamper
+        ? outcomes
+            .filter((o) => o.role === 'executor')
+            .map((o) => ({ nodeId: o.nodeId, evidence: tamper!.evidence }))
+        : []),
+    ]
     if (decision.action === 'replan') {
       replans += 1
       fingerprints.length = 0

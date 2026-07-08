@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Test-tamper guard (`protect:`)** - structural enforcement of
+  "never modify the tests". `protect: tests` (or an explicit glob list)
+  hashes protected files at run start; any change during the run fails the
+  iteration with a deterministic verdict naming the files and instructing a
+  revert, and a second consecutive violation halts the run. Journaled as
+  `protect_violation` events; snapshot-based, no git required. The
+  `fix-tests` and `refactor` templates now ship with it on. This targets
+  the documented reward-hacking exploits (deleted/weakened assertions,
+  conftest/jest-config patching) that prompt-level rules don't stop.
+
 - **Antigravity adapter (`adapter: antigravity`)** - Google retired the
   Gemini CLI for individual users on 2026-06-18; its successor `agy` is now a
   first-class adapter (print-mode text, chars/4 token estimates, pricing-table

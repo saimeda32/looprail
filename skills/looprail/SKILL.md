@@ -103,6 +103,10 @@ verify:
   BEFORE code changes is the cheapest place to say no. Gates time out into
   a PARKED, resumable state, never a failure.
 - Always set rails: `max_iterations`, `max_cost_usd`, `max_wall_minutes`.
+- Add `protect: tests` whenever existing tests define "done" (fix-tests,
+  refactor shapes): any agent edit to test files then fails the iteration
+  with a revert instruction, and a repeat halts the run - the structural
+  answer to test-gaming, far stronger than prompt rules.
 - `panel: 3` (or `panel: [a, b, c]`) fans a critic/judge out for diverse
   review. Add `probe: true` to cut panel cost on failing iterations: the
   first clone runs first, and if it FAILS the rest are skipped - the
