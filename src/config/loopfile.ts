@@ -69,6 +69,7 @@ export function parseLoopfile(text: string): LoopDef {
   // Parsed BEFORE the problems check below so a malformed protect value is a
   // hard parse error - a typo'd protect field must never silently unprotect.
   const protect = parseProtect(raw.protect, problems)
+  const scope = parseScope(raw.scope, problems)
 
   if (problems.length > 0) throw new Error(`invalid loopfile:\n${problems.join('\n')}`)
 
@@ -87,6 +88,7 @@ export function parseLoopfile(text: string): LoopDef {
     verdictPolicy,
     ...(raw.concurrency !== undefined ? { concurrency: raw.concurrency as number } : {}),
     ...protect,
+    ...scope,
   }
 }
 
@@ -100,6 +102,17 @@ function parseProtect(raw: unknown, problems: string[]): { protect?: string[] } 
     return { protect: raw as string[] }
   }
   problems.push('protect must be the keyword "tests" or a non-empty list of glob strings')
+  return {}
+}
+
+// scope: is allowlist globs only - there is no keyword form, because unlike
+// "tests" there is no universal answer to "what may this task touch".
+function parseScope(raw: unknown, problems: string[]): { scope?: string[] } {
+  if (raw === undefined) return {}
+  if (Array.isArray(raw) && raw.length > 0 && raw.every((g) => typeof g === 'string')) {
+    return { scope: raw as string[] }
+  }
+  problems.push('scope must be a non-empty list of glob strings (the files the run is allowed to change)')
   return {}
 }
 

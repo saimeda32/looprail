@@ -175,6 +175,12 @@ export interface LoopDef {
   // DEFAULT_TEST_GLOBS. See docs/superpowers/specs/
   // 2026-07-07-test-tamper-guard-design.md.
   protect?: string[]
+  // Scope rail: an ALLOWLIST of globs the run may touch. Any change to a
+  // file OUTSIDE these globs fails the iteration with a revert instruction
+  // (silent scope creep is a top practitioner complaint); a second
+  // consecutive violation halts. Enforced alongside protect with the same
+  // snapshot machinery (engine/protect.ts).
+  scope?: string[]
 }
 
 export interface NodeOutcome {
@@ -284,6 +290,9 @@ export interface JournalEvent {
         // Emitted when the protect rail catches protected files changed
         // during an iteration. data: { iteration, modified, deleted, added }.
         | 'protect_violation'
+        // Same shape for the scope rail: files OUTSIDE the scope: allowlist
+        // changed. data: { iteration, modified, deleted, added }.
+        | 'scope_violation'
         // Emitted when an agent CLI subprocess running inside a node blocks
         // mid-execution waiting for its OWN tool-permission answer (see
         // dashboard/permission-registry.ts) - distinct from a `role: gate`

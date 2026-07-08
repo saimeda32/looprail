@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import {
-  DEFAULT_TEST_GLOBS, compareProtected, matchesAny, snapshotProtected, tamperVerdict,
+  DEFAULT_TEST_GLOBS, compareProtected, matchesAny, scopeVerdict, snapshotFiltered, snapshotProtected, tamperVerdict,
 } from './protect.js'
 
 function ws(files: Record<string, string>): string {
@@ -82,5 +82,24 @@ describe('tamperVerdict', () => {
     expect(v.evidence).toContain('test/a.test.js')
     expect(v.evidence).toContain('test/b.test.js')
     expect(v.evidence.toLowerCase()).toContain('revert')
+  })
+})
+
+// Scope rail: the inverse of protect - `scope:` globs are an allowlist, and
+// any change OUTSIDE them is the violation.
+describe('snapshotFiltered + scope', () => {
+  test('snapshotFiltered takes an arbitrary include predicate', async () => {
+    const dir = ws({ 'src/a.js': '1', 'docs/b.md': '2', 'test/c.test.js': '3' })
+    const snap = await snapshotFiltered(dir, (p) => !matchesAny(p, ['src/**']))
+    expect(Object.keys(snap).sort()).toEqual(['docs/b.md', 'test/c.test.js'])
+  })
+
+  test('scopeVerdict is a fail attributed to __scope__ naming out-of-scope files', () => {
+    const v = scopeVerdict({ modified: ['README.md'], deleted: [], added: ['random.txt'] })
+    expect(v.node).toBe('__scope__')
+    expect(v.status).toBe('fail')
+    expect(v.evidence).toContain('README.md')
+    expect(v.evidence).toContain('random.txt')
+    expect(v.evidence.toLowerCase()).toContain('scope')
   })
 })

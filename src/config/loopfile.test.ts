@@ -429,3 +429,28 @@ graph:
 rails: { max_iterations: 2, max_cost_usd: 1 }
 `)).toThrow(/protect must be/)
 })
+
+test('scope: explicit allowlist parses; malformed scope is a hard error', () => {
+  const def = parseLoopfile(`
+name: t
+goal: g
+scope: ["src/**"]
+agents:
+  a: { adapter: mock }
+graph:
+  do: { role: executor, agent: a }
+  t:  { role: tester, after: do, run: "true", expect: exit 0 }
+rails: { max_iterations: 2, max_cost_usd: 1 }
+`)
+  expect(def.scope).toEqual(['src/**'])
+  expect(() => parseLoopfile(`
+name: t
+goal: g
+scope: everything
+agents:
+  a: { adapter: mock }
+graph:
+  do: { role: executor, agent: a }
+rails: { max_iterations: 2, max_cost_usd: 1 }
+`)).toThrow(/scope must be/)
+})

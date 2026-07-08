@@ -72,21 +72,30 @@ async function walk(root: string, dir: string, acc: string[]): Promise<void> {
   }
 }
 
-// Relative-posix-path -> sha256 of content, for every workspace file
-// matching the protect globs. Hash-based (not mtime) so a touch that
-// changes nothing is not a violation, and no git is required.
-export async function snapshotProtected(
-  cwd: string, globs: string[],
+// Relative-posix-path -> sha256 of content, for every workspace file the
+// predicate includes. Hash-based (not mtime) so a touch that changes
+// nothing is not a violation, and no git is required. The predicate form
+// exists because the two rails filter in opposite directions: protect
+// snapshots files MATCHING its globs, scope snapshots files OUTSIDE its
+// globs - and a run using both shares one walk via a combined predicate.
+export async function snapshotFiltered(
+  cwd: string, include: (path: string) => boolean,
 ): Promise<Record<string, string>> {
   const files: string[] = []
   await walk(cwd, cwd, files)
   const snapshot: Record<string, string> = {}
   for (const f of files.sort()) {
-    if (!matchesAny(f, globs)) continue
+    if (!include(f)) continue
     const content = await fs.readFile(join(cwd, f))
     snapshot[f] = createHash('sha256').update(content).digest('hex')
   }
   return snapshot
+}
+
+export async function snapshotProtected(
+  cwd: string, globs: string[],
+): Promise<Record<string, string>> {
+  return snapshotFiltered(cwd, (f) => matchesAny(f, globs))
 }
 
 export interface ProtectedChanges {
@@ -132,5 +141,26 @@ export function tamperVerdict(changes: ProtectedChanges): Verdict {
     node: '__protect__',
     status: 'fail',
     evidence: `protected files were changed (${detail}) - revert them to their original state and change the implementation instead; the protected files are the spec`,
+  }
+}
+
+// The scope rail's counterpart: `scope:` globs are an ALLOWLIST of what the
+// task may touch, and any change outside them is silent scope creep - the
+// "asked for a modal fix, got 12 files including unrelated CSS" failure
+// practitioners report weekly. Same consequence ladder as protect
+// (deterministic fail + revert instruction, halt on a consecutive repeat),
+// enforced in runner.ts.
+export function scopeVerdict(changes: ProtectedChanges): Verdict {
+  const describe = (label: string, files: string[]) =>
+    files.length > 0 ? `${label}: ${files.join(', ')}` : ''
+  const detail = [
+    describe('modified', changes.modified),
+    describe('deleted', changes.deleted),
+    describe('added', changes.added),
+  ].filter(Boolean).join('; ')
+  return {
+    node: '__scope__',
+    status: 'fail',
+    evidence: `files outside the declared scope were changed (${detail}) - revert them; only files matching the loopfile's scope: globs may be touched`,
   }
 }

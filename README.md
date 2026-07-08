@@ -509,6 +509,20 @@ evidence trail shows exactly what was touched and when. No git required -
 the guard is snapshot-based and works in any directory. The `fix-tests`
 and `refactor` templates ship with `protect: tests` on by default.
 
+The same machinery also runs in reverse. `scope:` is an allowlist - the
+answer to silent scope creep ("asked for a modal fix, got 12 files
+including unrelated CSS"):
+
+```yaml
+scope: ["src/billing/**", "docs/billing.md"]   # the run may touch ONLY these
+```
+
+Any change outside the scope globs fails the iteration with a revert
+instruction (journaled as `scope_violation`), and a second consecutive
+violation halts the run. `protect:` and `scope:` compose: protect pins
+files that must not change at all, scope bounds where everything else may
+happen.
+
 ### Rails
 
 Rails are the ceiling on a run. All of them are optional except the first two:

@@ -13,7 +13,7 @@ import { JournalWriter } from '../journal/journal.js'
 import { drainHumanFeedback } from '../journal/human-feedback.js'
 import type { AdapterRegistry } from '../adapters/registry.js'
 import { runIteration } from './scheduler.js'
-import { compareProtected, hasChanges, snapshotProtected, tamperVerdict } from './protect.js'
+import { compareProtected, hasChanges, matchesAny, scopeVerdict, snapshotFiltered, tamperVerdict, type ProtectedChanges } from './protect.js'
 import type { EngineDeps } from './nodes.js'
 import {
   applyGraphEdits, parseGraphEditsFragment, parseGraphFragment, serializeGraphFragment,
@@ -503,15 +503,22 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     state.feedbackBySource = null
   }
 
-  // Test-tamper guard baseline (see engine/protect.ts): the run-start state
-  // of every protected file. Taken AFTER planning (planners produce text,
-  // not file edits) and re-taken naturally on resume - a human's edits
-  // between runs are legitimate; an agent's edits during the run are not.
-  const protectDir = opts.cwd ?? process.cwd()
-  const protectBaseline = def.protect
-    ? await snapshotProtected(protectDir, def.protect)
+  // File-guard baselines (see engine/protect.ts): the run-start state of
+  // every file either rail watches - protect: watches files MATCHING its
+  // globs, scope: watches files OUTSIDE its allowlist - sharing one
+  // filesystem walk via a combined predicate. Taken AFTER planning
+  // (planners produce text, not file edits) and re-taken naturally on
+  // resume - a human's edits between runs are legitimate; an agent's edits
+  // during the run are not.
+  const guardDir = opts.cwd ?? process.cwd()
+  const inProtect = (p: string): boolean => def.protect !== undefined && matchesAny(p, def.protect)
+  const outOfScope = (p: string): boolean => def.scope !== undefined && !matchesAny(p, def.scope)
+  const guardInclude = (p: string): boolean => inProtect(p) || outOfScope(p)
+  const guardBaseline = (def.protect || def.scope)
+    ? await snapshotFiltered(guardDir, guardInclude)
     : undefined
   let consecutiveTampers = 0
+  let consecutiveScopeCreep = 0
 
   while (true) {
     state.iteration += 1
@@ -543,26 +550,45 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
       if (o.output) priorOutputs[o.nodeId] = o.output
     }
     state.priorOutputs = priorOutputs
-    // Protect rail: any change to protected files this iteration is a
+    // File guards: any change to a watched file this iteration is a
     // deterministic fail - appended to the verdict set (it can only make
     // the aggregate stricter) rather than pushed into `outcomes`, so the
     // cache/priorOutputs/skipped bookkeeping above never sees a synthetic
-    // node. The baseline is never advanced: protected files must return to
+    // node. Baselines are never advanced: watched files must return to
     // their run-start state for the loop to verify.
     let tamper: ReturnType<typeof tamperVerdict> | undefined
-    if (def.protect && protectBaseline) {
-      const changes = compareProtected(protectBaseline, await snapshotProtected(protectDir, def.protect))
-      if (hasChanges(changes)) {
-        tamper = tamperVerdict(changes)
+    let scopeCreep: ReturnType<typeof scopeVerdict> | undefined
+    if (guardBaseline) {
+      const changes = compareProtected(guardBaseline, await snapshotFiltered(guardDir, guardInclude))
+      const pick = (test: (p: string) => boolean): ProtectedChanges => ({
+        modified: changes.modified.filter(test),
+        deleted: changes.deleted.filter(test),
+        added: changes.added.filter(test),
+      })
+      const tamperChanges = pick(inProtect)
+      // A file can trip both rails (a protected test file that is also
+      // outside scope) - it is reported under protect, the sharper rule,
+      // rather than double-counted.
+      const scopeChanges = pick((p) => outOfScope(p) && !inProtect(p))
+      if (hasChanges(tamperChanges)) {
+        tamper = tamperVerdict(tamperChanges)
         consecutiveTampers += 1
-        emit('protect_violation', { iteration: state.iteration, ...changes })
+        emit('protect_violation', { iteration: state.iteration, ...tamperChanges })
       } else {
         consecutiveTampers = 0
       }
+      if (hasChanges(scopeChanges)) {
+        scopeCreep = scopeVerdict(scopeChanges)
+        consecutiveScopeCreep += 1
+        emit('scope_violation', { iteration: state.iteration, ...scopeChanges })
+      } else {
+        consecutiveScopeCreep = 0
+      }
     }
+    const guardVerdicts = [...(tamper ? [tamper] : []), ...(scopeCreep ? [scopeCreep] : [])]
     const verdicts = [
       ...outcomes.flatMap((o) => (o.verdict ? [o.verdict] : [])),
-      ...(tamper ? [tamper] : []),
+      ...guardVerdicts,
     ]
     fingerprints.push(verdictFingerprint(verdicts))
     progressFingerprints.push(progressFingerprint(verdicts))
@@ -649,19 +675,22 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     if (planApprovalHalt) return await finish('halted', planApprovalHalt)
     if (planApprovalHandled) continue
 
-    // Second consecutive violation: the executor was explicitly told to
-    // revert and changed protected files again anyway - it isn't listening,
-    // so stop burning budget on it.
+    // Second consecutive violation of either rail: the executor was
+    // explicitly told to revert and changed watched files again anyway -
+    // it isn't listening, so stop burning budget on it.
     if (consecutiveTampers >= 2) {
       return await finish('halted', 'protected files were modified again after an explicit revert instruction (protect rail) - see the protect_violation events in the journal')
     }
-    // The tamper verdict rides in as a synthetic outcome so the router's
-    // aggregate (and its composed feedback) sees the deterministic fail.
-    const routedOutcomes = tamper
-      ? [...outcomes, {
-          nodeId: tamper.node, role: 'tester' as const, output: '',
-          verdict: tamper, costUsd: 0, tokens: 0, durationMs: 0,
-        }]
+    if (consecutiveScopeCreep >= 2) {
+      return await finish('halted', 'files outside the declared scope were changed again after an explicit revert instruction (scope rail) - see the scope_violation events in the journal')
+    }
+    // Guard verdicts ride in as synthetic outcomes so the router's
+    // aggregate (and its composed feedback) sees the deterministic fails.
+    const routedOutcomes = guardVerdicts.length > 0
+      ? [...outcomes, ...guardVerdicts.map((v) => ({
+          nodeId: v.node, role: 'tester' as const, output: '',
+          verdict: v, costUsd: 0, tokens: 0, durationMs: 0,
+        }))]
       : outcomes
     const decision = routeIteration({
       outcomes: routedOutcomes, policy: def.verdictPolicy, fingerprints, progressFingerprints,
@@ -687,16 +716,15 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
       ...outcomes
         .filter((o) => o.verdict && o.verdict.status !== 'pass')
         .map((o) => ({ nodeId: o.nodeId, evidence: o.verdict!.evidence })),
-      // A tamper verdict's synthetic node id exists in no graph, so
+      // A guard verdict's synthetic node id exists in no graph, so
       // lineage-scoping would deliver it to nobody. Attribute the revert
       // instruction to every EXECUTOR that ran this iteration instead -
       // executors are the nodes that edit files, and a cached/skipped
       // branch didn't touch anything.
-      ...(tamper
-        ? outcomes
-            .filter((o) => o.role === 'executor')
-            .map((o) => ({ nodeId: o.nodeId, evidence: tamper!.evidence }))
-        : []),
+      ...guardVerdicts.flatMap((v) =>
+        outcomes
+          .filter((o) => o.role === 'executor')
+          .map((o) => ({ nodeId: o.nodeId, evidence: v.evidence }))),
     ]
     if (decision.action === 'replan') {
       replans += 1

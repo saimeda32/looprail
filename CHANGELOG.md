@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Scope rail (`scope:`)** - an allowlist of globs the run may touch; any
+  change outside it fails the iteration with a revert instruction
+  (journaled as `scope_violation`), and a second consecutive violation
+  halts. The structural answer to silent scope creep. Composes with
+  `protect:` (protect wins when a file trips both), sharing one snapshot
+  walk.
 - **Test-tamper guard (`protect:`)** - structural enforcement of
   "never modify the tests". `protect: tests` (or an explicit glob list)
   hashes protected files at run start; any change during the run fails the

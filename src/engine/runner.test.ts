@@ -1048,3 +1048,75 @@ test('protect rail: a second consecutive violation halts instead of burning budg
 function reg2(registry: ReturnType<typeof createRegistry>) {
   return registry
 }
+
+// Scope rail: the allowlist inverse of protect - touching files OUTSIDE
+// scope: fails the iteration; reverting lets it verify.
+test('scope rail: out-of-scope changes fail the iteration; reverting lets it verify', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lr-runner-scope-'))
+  mkdirSync(join(dir, 'src'), { recursive: true })
+  writeFileSync(join(dir, 'src', 'impl.js'), 'original')
+  writeFileSync(join(dir, 'README.md'), 'readme v1')
+  let call = 0
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    async invoke(req) {
+      if (req.prompt.includes('VERDICT:')) {
+        return { output: 'VERDICT: pass\nEVIDENCE: ok', costUsd: 0, tokens: 0, durationMs: 1 }
+      }
+      call += 1
+      writeFileSync(join(dir, 'src', 'impl.js'), `edit ${call}`) // in scope - always fine
+      if (call === 1) writeFileSync(join(dir, 'README.md'), 'sneaky rewrite') // scope creep
+      if (call === 2) writeFileSync(join(dir, 'README.md'), 'readme v1') // reverted
+      return { output: `attempt ${call}`, costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  })
+  const def: LoopDef = {
+    name: 'scope-e2e', goal: 'edit only src',
+    agents: { a: { adapter: 'mock' } },
+    nodes: [
+      { id: 'fix', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'fix', after: ['fix'] },
+    ],
+    rails: { maxIterations: 4, maxCostUsd: 5 },
+    verdictPolicy: { kind: 'all-pass' },
+    scope: ['src/**'],
+  }
+  const report = await runLoop(def, { registry: reg2(registry), cwd: dir })
+  expect(report.status).toBe('verified')
+  expect(report.iterations).toBe(2)
+})
+
+test('scope rail: repeated out-of-scope changes halt the run', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lr-runner-scope2-'))
+  mkdirSync(join(dir, 'src'), { recursive: true })
+  writeFileSync(join(dir, 'README.md'), 'readme v1')
+  let call = 0
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    async invoke(req) {
+      if (req.prompt.includes('VERDICT:')) {
+        return { output: 'VERDICT: pass\nEVIDENCE: ok', costUsd: 0, tokens: 0, durationMs: 1 }
+      }
+      call += 1
+      writeFileSync(join(dir, 'README.md'), `sneaky rewrite v${call}`)
+      return { output: `attempt ${call}`, costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  })
+  const def: LoopDef = {
+    name: 'scope-halt', goal: 'g',
+    agents: { a: { adapter: 'mock' } },
+    nodes: [
+      { id: 'fix', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'fix', after: ['fix'] },
+    ],
+    rails: { maxIterations: 6, maxCostUsd: 5 },
+    verdictPolicy: { kind: 'all-pass' },
+    scope: ['src/**'],
+  }
+  const report = await runLoop(def, { registry: reg2(registry), cwd: dir })
+  expect(report.status).toBe('halted')
+  expect(report.reason).toContain('scope')
+  expect(report.iterations).toBe(2)
+})
