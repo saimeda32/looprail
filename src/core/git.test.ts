@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
-import { filesTouched } from './git.js'
+import { filesTouched, gitHead, workspaceDiff } from './git.js'
 
 const initRepo = (): string => {
   const dir = mkdtempSync(join(tmpdir(), 'looprail-git-test-'))
@@ -71,6 +71,59 @@ test('resolves a rename to its new path only', () => {
     execFileSync('git', ['mv', 'old-name.txt', 'new-name.txt'], { cwd: dir })
     execFileSync('git', ['add', '-A'], { cwd: dir })
     expect(filesTouched(dir)).toEqual(['new-name.txt'])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// workspaceDiff: the blind-validation critic's ground truth - the actual
+// changes since a recorded ref, never the executor's narrative about them.
+test('workspaceDiff shows tracked changes, agent commits, and untracked file contents since the ref', () => {
+  const dir = initRepo()
+  try {
+    writeFileSync(join(dir, 'impl.js'), 'original line')
+    execFileSync('git', ['add', '.'], { cwd: dir })
+    execFileSync('git', ['commit', '-q', '-m', 'seed'], { cwd: dir })
+    const ref = gitHead(dir)!
+    // uncommitted edit
+    writeFileSync(join(dir, 'impl.js'), 'changed line')
+    // an agent that COMMITS its work must not escape the diff
+    writeFileSync(join(dir, 'committed.js'), 'sneaky committed change')
+    execFileSync('git', ['add', 'committed.js'], { cwd: dir })
+    execFileSync('git', ['commit', '-q', '-m', 'agent commit'], { cwd: dir })
+    // brand-new untracked file
+    writeFileSync(join(dir, 'brand-new.js'), 'fresh content')
+    const diff = workspaceDiff(dir, ref)
+    expect(diff).toContain('changed line')
+    expect(diff).toContain('sneaky committed change')
+    expect(diff).toContain('brand-new.js')
+    expect(diff).toContain('fresh content')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('workspaceDiff truncates past the cap with an explicit marker', () => {
+  const dir = initRepo()
+  try {
+    writeFileSync(join(dir, 'a.txt'), 'x')
+    execFileSync('git', ['add', '.'], { cwd: dir })
+    execFileSync('git', ['commit', '-q', '-m', 'seed'], { cwd: dir })
+    const ref = gitHead(dir)!
+    writeFileSync(join(dir, 'a.txt'), 'y'.repeat(5000))
+    const diff = workspaceDiff(dir, ref, 500)
+    expect(diff.length).toBeLessThan(700)
+    expect(diff).toContain('truncated')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('gitHead and workspaceDiff degrade to null/empty outside a git repo', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'looprail-nongit2-'))
+  try {
+    expect(gitHead(dir)).toBeNull()
+    expect(workspaceDiff(dir, 'HEAD')).toBe('')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

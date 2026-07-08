@@ -8,7 +8,7 @@ import { RailsGuard } from '../core/rails.js'
 import { routeIteration } from '../core/router.js'
 import { progressFingerprint, verdictFingerprint } from '../core/fingerprint.js'
 import { buildFallbackReport, buildReportPrompt, parseReport, pickReportingAgentKey } from '../core/report.js'
-import { filesTouched } from '../core/git.js'
+import { filesTouched, gitHead, workspaceDiff } from '../core/git.js'
 import { JournalWriter } from '../journal/journal.js'
 import { drainHumanFeedback } from '../journal/human-feedback.js'
 import type { AdapterRegistry } from '../adapters/registry.js'
@@ -156,9 +156,15 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   // human input must always re-run); only agent nodes participate. A
   // resume-provided cache is reused as-is so nothing regresses there.
   const cache = opts.cache ?? new Map<string, NodeOutcome>()
+  // Blind critics diff against the commit the run STARTED from, so an agent
+  // that commits mid-run stays visible in the review diff. Recorded once;
+  // null outside git, in which case blind mode degrades to an explicit
+  // "no diff available" note (core/context.ts).
+  const runStartHead = gitHead(opts.cwd ?? process.cwd())
   const deps: EngineDeps = {
     registry: opts.registry, gate: opts.gate, cwd: opts.cwd,
     cache, hash: contextHash,
+    workspaceDiff: () => (runStartHead ? workspaceDiff(opts.cwd ?? process.cwd(), runStartHead) : ''),
     sleep: opts.sleep, retries: opts.retries,
     // With a wall rail, an in-flight node inherits (at most) the remaining wall
     // budget as its timeout, so a hung node can't run past the wall deadline.

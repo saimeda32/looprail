@@ -193,3 +193,13 @@ test('a probe panel under all-pass produces no probe findings', () => {
   expect(found).not.toContain('L011')
   expect(found).not.toContain('L012')
 })
+
+test('L013 warns when blind is set on anything but a critic with of:', () => {
+  const def = make([
+    { id: 'do', role: 'executor', agent: 'big', blind: true },
+    { id: 'crit', role: 'critic', agent: 'small', of: 'do', after: ['do'], blind: true },
+    { id: 'j', role: 'judge', agent: 'small', after: ['crit'], blind: true },
+  ])
+  const findings = lintLoop(def).filter((f) => f.rule === 'L013')
+  expect(findings.map((f) => f.node).sort()).toEqual(['do', 'j'])
+})

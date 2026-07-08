@@ -454,3 +454,18 @@ graph:
 rails: { max_iterations: 2, max_cost_usd: 1 }
 `)).toThrow(/scope must be/)
 })
+
+test('parses blind: true on a critic node', () => {
+  const def = parseLoopfile(`
+name: t
+goal: g
+agents:
+  a: { adapter: mock }
+graph:
+  do:   { role: executor, agent: a }
+  crit: { role: critic, agent: a, of: do, after: do, blind: true }
+  t:    { role: tester, after: do, run: "true", expect: exit 0 }
+rails: { max_iterations: 2, max_cost_usd: 1 }
+`)
+  expect(def.nodes.find((n) => n.id === 'crit')?.blind).toBe(true)
+})

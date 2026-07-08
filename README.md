@@ -523,6 +523,24 @@ violation halts the run. `protect:` and `scope:` compose: protect pins
 files that must not change at all, scope bounds where everything else may
 happen.
 
+### Blind validation
+
+By default a critic reviews the target node's *output* - which for a coding
+executor is its own narrative about what it did. A lying or hallucinating
+worker fools that critic. `blind: true` swaps the review target for the
+**actual workspace diff since run start**:
+
+```yaml
+crit: { role: critic, agent: reviewer, of: build, after: tests, blind: true }
+```
+
+The critic never sees the worker's story - only what really changed on
+disk (including commits the agent made mid-run, and new untracked files).
+Needs a git workspace; without one the critic is told explicitly that no
+diff is available and to treat claims as unverified - blind mode never
+silently falls back to the narrative. Lint rule L013 warns when `blind`
+is set somewhere it has no effect.
+
 ### Rails
 
 Rails are the ceiling on a run. All of them are optional except the first two:

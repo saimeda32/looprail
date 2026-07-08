@@ -132,6 +132,7 @@ export function parseGraphNodes(graph: Record<string, Record<string, unknown>>):
       of: n.of as string | undefined,
       panel: n.panel as NodeDef['panel'],
       probe: n.probe as boolean | undefined,
+      blind: n.blind as boolean | undefined,
       rounds: n.rounds as number | undefined,
       generates: n.generates as NodeDef['generates'],
       prompt: n.prompt as string | undefined,

@@ -1120,3 +1120,45 @@ test('scope rail: repeated out-of-scope changes halt the run', async () => {
   expect(report.reason).toContain('scope')
   expect(report.iterations).toBe(2)
 })
+
+// Blind validation e2e in a real git workspace: the critic's prompt carries
+// the actual diff (including the executor's real edit), never the
+// executor's narrative.
+test('blind critic reviews the real workspace diff, not the executor narrative', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const dir = mkdtempSync(join(tmpdir(), 'lr-blind-'))
+  execFileSync('git', ['init', '-q'], { cwd: dir })
+  execFileSync('git', ['config', 'user.email', 't@e.com'], { cwd: dir })
+  execFileSync('git', ['config', 'user.name', 'T'], { cwd: dir })
+  writeFileSync(join(dir, 'impl.js'), 'broken code')
+  execFileSync('git', ['add', '.'], { cwd: dir })
+  execFileSync('git', ['commit', '-q', '-m', 'seed'], { cwd: dir })
+  const prompts: string[] = []
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    async invoke(req) {
+      if (req.prompt.includes('VERDICT:')) {
+        prompts.push(req.prompt)
+        return { output: 'VERDICT: pass\nEVIDENCE: diff reviewed', costUsd: 0, tokens: 0, durationMs: 1 }
+      }
+      writeFileSync(join(dir, 'impl.js'), 'ACTUALLY-FIXED-CODE')
+      return { output: 'NARRATIVE: I rewrote everything brilliantly', costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  })
+  const def: LoopDef = {
+    name: 'blind-e2e', goal: 'fix impl',
+    agents: { a: { adapter: 'mock' } },
+    nodes: [
+      { id: 'fix', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'fix', after: ['fix'], blind: true },
+    ],
+    rails: { maxIterations: 2, maxCostUsd: 5 },
+    verdictPolicy: { kind: 'all-pass' },
+  }
+  const report = await runLoop(def, { registry: reg2(registry), cwd: dir })
+  expect(report.status).toBe('verified')
+  const criticPrompt = prompts[0]
+  expect(criticPrompt).toContain('ACTUALLY-FIXED-CODE')          // the real diff
+  expect(criticPrompt).not.toContain('rewrote everything')       // never the narrative
+})

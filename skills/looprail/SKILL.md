@@ -98,7 +98,9 @@ verify:
   never trust an agent's self-report that tests pass.
 - The critic should be a DIFFERENT model/adapter than the worker
   (cross-model verification), prompted adversarially ("fail if any test
-  was deleted, skipped, or weakened").
+  was deleted, skipped, or weakened"). Add `blind: true` on code-review
+  critics so they review the actual workspace diff instead of the
+  worker's own claims (git workspaces).
 - Put a `role: gate` node wherever the user should approve - a plan gate
   BEFORE code changes is the cheapest place to say no. Gates time out into
   a PARKED, resumable state, never a failure.

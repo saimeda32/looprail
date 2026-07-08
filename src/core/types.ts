@@ -135,6 +135,13 @@ export interface NodeDef {
   // Internal - set by expandPanels on probe followers: the leader clone's id.
   // The scheduler checks the leader's verdict at dispatch time.
   probeOf?: string
+  // Blind validation (critics with `of:` only): the critic reviews the
+  // ACTUAL workspace diff since run start instead of the target node's own
+  // output - a worker's narrative about its work is exactly the thing a
+  // lying or hallucinating model fabricates, while the diff cannot be
+  // faked. Requires a git workspace; degrades to an explicit "no diff
+  // available" note, never silently back to the narrative.
+  blind?: boolean
   rounds?: number           // planner-critic revision rounds (critics of planner)
   // When set on a planner node, its output is parsed as a loopfile-fragment
   // (a graph: list, optionally its own agents:/rails:) instead of prose, and

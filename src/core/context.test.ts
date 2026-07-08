@@ -158,3 +158,35 @@ test('a node with NO scoped feedback gets no prior-attempt section (stays cache-
   expect(ctx).not.toContain('# Your previous attempt')
   expect(ctx).not.toContain('Feedback from last iteration')
 })
+
+// Blind validation: the critic reviews the actual diff, never the worker's
+// narrative - and an unavailable diff is said out loud, not silently
+// swapped back to the narrative.
+test('blind critic sees the workspace diff and NOT the target output', () => {
+  const node: NodeDef = { id: 'crit', role: 'critic', agent: 'a', of: 'do', blind: true }
+  const ctx = composeContext(
+    def, node, state,
+    new Map([['do', outcome('do', 'I TOTALLY FIXED EVERYTHING, TRUST ME')]]),
+    '--- a/impl.js\n+++ b/impl.js\n-broken\n+fixed',
+  )
+  expect(ctx).toContain('+fixed')
+  expect(ctx).toContain('blind mode')
+  expect(ctx).not.toContain('TRUST ME')
+})
+
+test('blind critic with no diff available gets an explicit unverified note, not the narrative', () => {
+  const node: NodeDef = { id: 'crit', role: 'critic', agent: 'a', of: 'do', blind: true }
+  const ctx = composeContext(
+    def, node, state,
+    new Map([['do', outcome('do', 'I TOTALLY FIXED EVERYTHING, TRUST ME')]]),
+    '',
+  )
+  expect(ctx).toContain('No workspace diff is available')
+  expect(ctx).not.toContain('TRUST ME')
+})
+
+test('non-blind critic still sees the target output unchanged', () => {
+  const node: NodeDef = { id: 'crit', role: 'critic', agent: 'a', of: 'do' }
+  const ctx = composeContext(def, node, state, new Map([['do', outcome('do', 'THE ACTUAL WORK')]]))
+  expect(ctx).toContain('THE ACTUAL WORK')
+})

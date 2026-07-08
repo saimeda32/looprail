@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Blind validation (`blind: true`)** - a critic with `of:` reviews the
+  ACTUAL workspace diff since run start (via git, including mid-run agent
+  commits and untracked files) instead of the worker's own narrative about
+  its work. An unavailable diff is stated explicitly, never silently
+  swapped back to the narrative. Lint L013 warns where blind has no
+  effect.
+
 - **Scope rail (`scope:`)** - an allowlist of globs the run may touch; any
   change outside it fails the iteration with a revert instruction
   (journaled as `scope_violation`), and a second consecutive violation

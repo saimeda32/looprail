@@ -14,6 +14,10 @@ export interface EngineDeps {
   cwd?: string
   cache?: Map<string, NodeOutcome>
   hash?: (nodeId: string, prompt: string) => string
+  // Ground truth for blind critics (NodeDef.blind): returns the actual
+  // workspace diff since run start. Wired by runner.ts to core/git.ts's
+  // workspaceDiff against the run-start HEAD; tests inject a fixed string.
+  workspaceDiff?: () => string
   sleep?: (ms: number) => Promise<void>  // retry backoff clock (tests inject instant)
   retries?: number                       // adapter retry budget (default 2)
   // Clamps a node's timeout to the remaining wall-clock budget when a wall rail
@@ -184,7 +188,11 @@ export async function executeNode(
     agentDef = def.agents[agentKey]
     if (!agentDef) throw new Error(`unknown agent "${node.agent}" - check the loop's agents map`)
     adapter = deps.registry.get(agentDef.adapter)
-    prompt = composeContext(def, node, state, outcomes)
+    // A blind critic reviews the actual diff, not the target's narrative -
+    // computed fresh here so the prompt (and therefore the cache hash)
+    // reflects the workspace as it stands THIS iteration.
+    const blindDiff = node.blind && node.of ? deps.workspaceDiff?.() : undefined
+    prompt = composeContext(def, node, state, outcomes, blindDiff)
     key = deps.hash?.(node.id, prompt)
     if (key && deps.cache?.has(key)) {
       return { ...deps.cache.get(key)!, costUsd: 0, estimatedCostUsd: undefined, contextHash: key }

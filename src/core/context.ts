@@ -160,6 +160,10 @@ export function composeContext(
   node: NodeDef,
   state: RunState,
   outcomes: Map<string, NodeOutcome>,
+  // The actual workspace diff for a blind critic (see NodeDef.blind) -
+  // computed by the engine (engine/nodes.ts via EngineDeps.workspaceDiff)
+  // because this module is sync and does no IO.
+  blindDiff?: string,
 ): string {
   const parts: string[] = [`# Goal\n${def.goal}`]
   if (state.plan) parts.push(`# Current plan\n${state.plan}`)
@@ -193,8 +197,20 @@ export function composeContext(
   if (state.humanFeedback) parts.push(`# Feedback from a human reviewer\n${state.humanFeedback}`)
 
   if (node.of) {
-    const target = outcomes.get(node.of)
-    if (target) parts.push(`# Work under review (from "${node.of}")\n${target.output}`)
+    if (node.blind) {
+      // Blind validation: the critic sees what actually changed on disk,
+      // never the target's own account of it - "validators can't lie about
+      // code they didn't write" cuts both ways: workers can't lie about
+      // code the critic reads directly. An empty/unavailable diff is said
+      // out loud rather than silently falling back to the narrative, which
+      // would quietly turn blind mode off.
+      parts.push(blindDiff
+        ? `# Work under review (actual workspace diff since run start - blind mode, the worker's own description is deliberately not shown)\n${blindDiff}`
+        : `# Work under review (blind mode)\nNo workspace diff is available (no changes since run start, or not a git repository). If work was claimed, treat that claim as unverified.`)
+    } else {
+      const target = outcomes.get(node.of)
+      if (target) parts.push(`# Work under review (from "${node.of}")\n${target.output}`)
+    }
   }
   if (node.role === 'judge' || node.role === 'synthesizer' || node.role === 'gate') {
     for (const dep of node.after ?? []) {

@@ -158,5 +158,18 @@ export function lintLoop(def: LoopDef): LintFinding[] {
     }
   }
 
+  // L013: blind only changes what a critic-with-of reviews (the workspace
+  // diff instead of the target's narrative) - on anything else it silently
+  // does nothing, and the author thinks they turned on protection they
+  // didn't get.
+  for (const n of def.nodes.filter((x) => x.blind)) {
+    if (!(n.role === 'critic' && n.of)) {
+      findings.push({
+        rule: 'L013', level: 'warn', node: n.id,
+        message: `node "${n.id}" sets blind but is not a critic with of: - blind swaps a critic's review target to the workspace diff, so it has no effect here`,
+      })
+    }
+  }
+
   return findings
 }
