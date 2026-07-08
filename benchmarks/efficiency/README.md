@@ -55,3 +55,17 @@ that spent money.
 Caveats worth stating: model outputs vary run to run, so treat a single
 pass as an anecdote and 3-5 passes as a result; and both engines pay npx
 download time on first use, which affects wall-clock but never cost.
+
+## Result log
+
+**2026-07-08, 3 passes (claude-code sonnet worker / haiku reviewer):**
+every pass verified on the FIRST iteration on both engines - the seeded
+task's edge cases weren't hard enough to make a frontier worker miss, so
+the optimization never had an iteration to save. Costs (old vs new:
+$1.25/$1.52, $1.36/$0.75) differ only by generation-length variance with
+identical invocation counts (4 vs 4), which is noise, not the cache.
+
+Honest conclusion: no publishable dollar delta from this data. The
+cache/lineage savings are unit-proven (see the engine test suite); pricing
+them in dollars needs a workload that reliably iterates - either a harder
+seed or a weaker worker model. Do not quote a cost number from these runs.
