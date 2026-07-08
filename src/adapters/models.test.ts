@@ -113,7 +113,7 @@ test('listAdapterModels reports live models for every enumerable CLI', async () 
   const { exec, timeouts } = allLiveExec()
   const listings = await listAdapterModels(exec)
   expect(listings.map((l) => l.adapter)).toEqual([
-    'claude-code', 'codex', 'aider', 'copilot-cli', 'shell (ollama)',
+    'claude-code', 'codex', 'aider', 'copilot-cli', 'antigravity', 'shell (ollama)',
   ])
   expect(listings.every((l) => l.available)).toBe(true)
 

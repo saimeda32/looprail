@@ -74,6 +74,18 @@ const PRESET_FLAGS: Record<string, Record<PermissionPreset, string[]>> = {
     standard: [],
     full: [],
   },
+  // antigravity (`agy`): NOT live-verified - no install was available on
+  // this machine (see antigravity.ts's header for the sourcing). --sandbox
+  // ("runs with terminal restrictions") and --dangerously-skip-permissions
+  // are its two documented levers. standard is deliberately empty: the
+  // CLI's own default approval policy stands, and print mode is expected to
+  // policy-deny rather than hang (gemini-lineage behavior) - re-verify
+  // against a real `agy --help` when one is available.
+  antigravity: {
+    safe: ['--sandbox'],
+    standard: [],
+    full: ['--dangerously-skip-permissions'],
+  },
 }
 
 // Absent config must reproduce each adapter's real behavior from before this

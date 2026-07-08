@@ -17,7 +17,7 @@ const onlyClaude: ExecFn = async (file, args) => {
 
 test('detects installed agents with versions; marks the rest missing with fix hints', async () => {
   const agents = await detectAgents(onlyClaude)
-  expect(agents.map((a) => a.adapter)).toEqual(['claude-code', 'codex', 'aider', 'copilot-cli', 'gemini', 'opencode', 'ollama'])
+  expect(agents.map((a) => a.adapter)).toEqual(['claude-code', 'codex', 'aider', 'copilot-cli', 'gemini', 'antigravity', 'opencode', 'ollama'])
   expect(agents.find((a) => a.name === 'claude')).toMatchObject({
     available: true, version: '1.0.35 (Claude Code)',
   })
@@ -26,7 +26,7 @@ test('detects installed agents with versions; marks the rest missing with fix hi
   expect(codex.fixHint).toContain('codex')
   const gemini = agents.find((a) => a.name === 'gemini')!
   expect(gemini.available).toBe(false)
-  expect(gemini.fixHint).toContain('@google/gemini-cli')
+  expect(gemini.fixHint).toContain('antigravity') // gemini CLI retired for individuals June 2026
   const opencode = agents.find((a) => a.name === 'opencode')!
   expect(opencode.available).toBe(false)
   expect(opencode.fixHint).toContain('opencode auth login')

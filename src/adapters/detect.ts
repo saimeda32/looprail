@@ -28,7 +28,11 @@ const KNOWN = [
   },
   {
     name: 'gemini', adapter: 'gemini', command: 'gemini',
-    fixHint: 'npm i -g @google/gemini-cli, then run `gemini` once to log in (or set GEMINI_API_KEY)',
+    fixHint: 'RETIRED for individual users (June 2026) - use adapter "antigravity" instead; enterprise gemini installs still work',
+  },
+  {
+    name: 'agy', adapter: 'antigravity', command: 'agy',
+    fixHint: 'install: curl -fsSL https://antigravity.google/cli/install.sh | bash, then run `agy` once to log in',
   },
   {
     name: 'opencode', adapter: 'opencode', command: 'opencode',

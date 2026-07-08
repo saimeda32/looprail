@@ -126,6 +126,13 @@ const COPILOT_STATIC_MODELS = [
   'kimi-k2.7-code',
 ]
 
+// Antigravity CLI (`agy`): NOT live-verified - no install was available on
+// this machine (see antigravity.ts's header). Names come from Google's own
+// launch coverage (Gemini 3.5 Flash / 3.1 Pro plus hosted Claude and
+// GPT-OSS variants, plan-gated); the exact `-m` ids may drift, so this is
+// a degraded fallback by design - re-snapshot from a real `agy` install.
+const ANTIGRAVITY_STATIC_MODELS = ['gemini-3.1-pro', 'gemini-3.5-flash']
+
 // Tiny flagship slice of aider's catalog (aider 0.86.2, 2026-07) for when
 // every live query fails; the real catalog is thousands of ids and only the
 // live query can be trusted, so this rots by design.
@@ -220,6 +227,19 @@ const PROVIDERS: ModelProvider[] = [
       return {
         models: asStatic(COPILOT_STATIC_MODELS),
         note: '`copilot help config` failed - showing a static snapshot (copilot 1.0.68)',
+      }
+    },
+  },
+  {
+    // Antigravity (`agy`) has no verified model-listing command yet (no
+    // install was observable on this machine) - static snapshot only until
+    // a real `agy --help` shows a catalog query worth trusting.
+    adapter: 'antigravity', binary: 'agy',
+    fixHint: 'install: curl -fsSL https://antigravity.google/cli/install.sh | bash, then run `agy` once to log in',
+    async listModels() {
+      return {
+        models: asStatic(ANTIGRAVITY_STATIC_MODELS),
+        note: 'static snapshot - antigravity has no verified model-listing command yet',
       }
     },
   },

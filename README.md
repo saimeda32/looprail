@@ -19,7 +19,7 @@ agent CLI through that loop and stops when the checks pass or a budget runs
 out.
 
 It works with the agent CLIs you already have installed and logged into:
-Claude Code, Codex, Gemini CLI, aider, GitHub Copilot, opencode, local models
+Claude Code, Codex, Antigravity (Gemini), aider, GitHub Copilot, opencode, local models
 via ollama, or any shell command. No API keys go into looprail. If `claude`
 works in your terminal, looprail works.
 
@@ -385,7 +385,8 @@ where it doesn't (claude has no enumeration command):
 | `codex` | OpenAI Codex CLI (`codex`) | `npm i -g @openai/codex`, then `codex login` | |
 | `copilot-cli` | GitHub Copilot CLI (`gh`) | Install the GitHub CLI, then `gh auth login` and `gh extension install github/gh-copilot` | model strings use dots (`claude-opus-4.8`), not the dashed form some other adapters use |
 | `aider` | [aider](https://aider.chat) | Install aider, set your provider's API key env var | reports no real dollar cost - looprail estimates one from its token counts instead |
-| `gemini` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`) | `npm i -g @google/gemini-cli`, then run `gemini` once to log in (or set `GEMINI_API_KEY`) | reports no dollar cost - looprail estimates one from its token counts |
+| `gemini` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`) | RETIRED for individual users (June 2026) - enterprise installs still work; individuals should use `antigravity` | reports no dollar cost - looprail estimates one from its token counts |
+| `antigravity` | [Antigravity CLI](https://github.com/google-antigravity/antigravity-cli) (`agy`) - Google's Gemini CLI successor | `curl -fsSL https://antigravity.google/cli/install.sh \| bash`, then run `agy` once to log in | plain-text print mode: token counts are chars/4 estimates, cost is estimated from the pricing table |
 | `opencode` | [opencode](https://opencode.ai) (`opencode`) | `npm i -g opencode-ai`, then `opencode auth login` | `model:` takes the `provider/model` form (e.g. `anthropic/claude-sonnet-4-5`) |
 | `ollama` | [Ollama](https://ollama.com) local models (`ollama`) | install from ollama.com, then `ollama pull <model>` - no login | `model:` is required (e.g. `llama3`); cost is genuinely $0, token counts are chars/4 estimates |
 | `shell` | any command you give it | nothing - it's your command | for a script or anything else with a CLI |

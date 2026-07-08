@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Antigravity adapter (`adapter: antigravity`)** - Google retired the
+  Gemini CLI for individual users on 2026-06-18; its successor `agy` is now a
+  first-class adapter (print-mode text, chars/4 token estimates, pricing-table
+  cost estimate, `--sandbox`/`--dangerously-skip-permissions` permission
+  presets). The gemini adapter stays for enterprise installs; `looprail
+  doctor` now says so.
+
 ## 0.7.0
 
 - **Probe panels (`probe: true`)** - adaptive panel depth that never weakens
