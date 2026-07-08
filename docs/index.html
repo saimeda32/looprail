@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>looprail — coding agents, verified done</title>
+<meta name="description" content="Run Claude Code, Codex, Copilot and other agent CLIs in a loop until real tests and an independent cross-model critic pass. Test-tamper guards, cost rails, tamper-evident verdict ledgers. MIT.">
+<style>
+  :root{
+    --bg:#0b0e13; --panel:#11151d; --panel2:#161b26; --line:#232a38;
+    --ink:#dfe5ee; --dim:#8b95a7; --faint:#5b6474;
+    --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; --acc:#4ade80;
+    --mono:ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased}
+  a{color:var(--ok);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:940px;margin:0 auto;padding:0 24px}
+  header{padding:20px 0;border-bottom:1px solid var(--line)}
+  header .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px}
+  .logo{font-family:var(--mono);font-weight:700;font-size:18px;letter-spacing:.5px}
+  .logo b{color:var(--ok)}
+  nav{display:flex;gap:20px;font-size:14px;color:var(--dim)}
+  nav a{color:var(--dim)}
+  nav a:hover{color:var(--ink);text-decoration:none}
+  .hero{padding:64px 0 40px;text-align:left}
+  .hero h1{font-size:clamp(28px,5vw,44px);line-height:1.15;font-weight:800;letter-spacing:-.5px;max-width:21ch}
+  .hero h1 em{font-style:normal;color:var(--ok)}
+  .hero p.lead{margin-top:18px;font-size:18px;color:var(--dim);max-width:62ch}
+  .cta{margin-top:28px;display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+  .btn{display:inline-block;padding:10px 20px;border-radius:6px;font-weight:600;font-size:15px}
+  .btn.primary{background:var(--ok);color:#08110b}
+  .btn.primary:hover{filter:brightness(1.08);text-decoration:none}
+  .btn.ghost{border:1px solid var(--line);color:var(--ink)}
+  .btn.ghost:hover{border-color:var(--dim);text-decoration:none}
+  .trynow{font-family:var(--mono);font-size:14px;color:var(--dim)}
+  .trynow code{color:var(--ink);background:var(--panel2);padding:3px 9px;border-radius:5px;border:1px solid var(--line)}
+  .term{margin:52px 0 8px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.4)}
+  .term-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--panel2);border-bottom:1px solid var(--line)}
+  .dot{width:11px;height:11px;border-radius:50%;background:#2c3444}
+  .term-title{margin-left:8px;font-family:var(--mono);font-size:12px;color:var(--faint)}
+  .term pre{padding:18px 20px;font-family:var(--mono);font-size:13.5px;line-height:1.75;overflow-x:auto;color:var(--dim)}
+  .term .c{color:var(--ink)} .term .g{color:var(--ok)} .term .y{color:var(--warn)} .term .r{color:var(--bad)} .term .f{color:var(--faint)}
+  .cap{font-size:13px;color:var(--faint);margin-bottom:56px}
+  section{padding:44px 0;border-top:1px solid var(--line)}
+  h2{font-size:24px;font-weight:750;letter-spacing:-.3px;margin-bottom:8px}
+  .sub{color:var(--dim);max-width:64ch;margin-bottom:28px}
+  .loopline{display:flex;flex-wrap:wrap;gap:0;align-items:center;font-family:var(--mono);font-size:14px;margin:10px 0 6px}
+  .loopline .step{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px 14px;color:var(--ink);white-space:nowrap;margin:6px 0}
+  .loopline .arrow{color:var(--faint);padding:0 10px}
+  .loopline .step.v{border-color:rgba(74,222,128,.45);color:var(--ok)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px 18px 16px}
+  .card h3{font-family:var(--mono);font-size:14px;color:var(--ok);font-weight:600;margin-bottom:8px}
+  .card p{font-size:14px;color:var(--dim)}
+  .card p b{color:var(--ink);font-weight:600}
+  .qs{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:4px 0}
+  .qs pre{padding:16px 20px;font-family:var(--mono);font-size:14px;line-height:2;overflow-x:auto;color:var(--ink)}
+  .qs .f{color:var(--faint)}
+  .why{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media (max-width:720px){.why{grid-template-columns:1fr}}
+  .why .card p{font-size:14.5px}
+  footer{border-top:1px solid var(--line);padding:32px 0 44px;color:var(--faint);font-size:13.5px}
+  footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+  .foot-links{display:flex;gap:18px}
+  .foot-links a{color:var(--dim)}
+  @media (prefers-reduced-motion:no-preference){
+    .hero h1,.hero p.lead,.cta,.term{animation:rise .5s ease-out both}
+    .term{animation-delay:.12s}
+    @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  }
+  :focus-visible{outline:2px solid var(--ok);outline-offset:2px}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="logo">loop<b>rail</b></div>
+    <nav>
+      <a href="#rails">rails</a>
+      <a href="#quickstart">quickstart</a>
+      <a href="https://github.com/saimeda32/looprail/blob/main/docs/COMPARISON.md">compare</a>
+      <a href="https://github.com/saimeda32/looprail">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="hero">
+    <h1>Your coding agent says it's done. <em>Make it prove it.</em></h1>
+    <p class="lead">looprail runs the agent CLIs you already have — Claude Code, Codex, Copilot, Gemini, aider, opencode, local models — in a loop that only exits when real tests pass <b>and</b> a critic on a different model agrees. With hard dollar rails, so it can't run away either.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/saimeda32/looprail">View on GitHub</a>
+      <span class="trynow">try it offline, no keys: <code>npx looprail demo</code></span>
+    </div>
+  </div>
+
+  <div class="term" role="img" aria-label="Terminal transcript of a looprail run catching a test edit, forcing a revert, and verifying">
+    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="term-title">looprail run</span></div>
+<pre>
+<span class="f">$</span> <span class="c">looprail run</span>
+<span class="c">run run-mrbgowc6 - fix-tests</span>
+  <span class="f">▸ iter 1 · executor fix</span>
+    <span class="c">done fix ($0.49)</span>
+  <span class="r">✗ protect rail: test/slugify.test.js was modified — revert it and
+    change the implementation instead; the protected files are the spec</span>
+  <span class="f">▸ iter 2 · executor fix</span>
+    <span class="c">done fix ($0.51)</span>
+    <span class="g">pass tests</span>  <span class="f">npm test → exit 0, 8/8</span>
+    <span class="g">pass crit</span>   <span class="f">copilot (blind: reviews the diff, not the story)</span>
+<span class="g">verified</span> <span class="y">WITH 1 named gap</span> <span class="f">- all verifiers passed</span>
+  <span class="y">gap [crit] diacritic regex uses a literal range; \p{Diacritic} reads better</span>
+  <span class="f">iterations: 2 · total cost: $1.07 · ledger: 4 entries, chain intact</span>
+</pre>
+  </div>
+  <p class="cap">A real shape: the agent tried to "fix" the suite by editing a test. The rail caught it, told it to revert, and it fixed the code instead.</p>
+</div>
+
+<section id="loop">
+  <div class="wrap">
+    <h2>The loop is the product</h2>
+    <p class="sub">Prompt-level rules ("never modify the tests") demonstrably don't hold — production reward-hacking studies show agents deleting assertions, patching pytest configs, and special-casing test inputs. looprail's answer is structural: anchor every check to something the model can't fake.</p>
+    <div class="loopline">
+      <span class="step">executor does the work</span><span class="arrow">→</span>
+      <span class="step">real command runs the tests</span><span class="arrow">→</span>
+      <span class="step">critic on a different model reviews</span><span class="arrow">→</span>
+      <span class="step v">verified — or iterate with feedback</span>
+    </div>
+  </div>
+</section>
+
+<section id="rails">
+  <div class="wrap">
+    <h2>Rails the agent can't argue with</h2>
+    <p class="sub">Every rail is deterministic — file hashes, exit codes, registry responses, diffs. No rail needs its own model call, so no rail can be gamed the way a prompt can.</p>
+    <div class="grid">
+      <div class="card"><h3>protect: tests</h3><p>Test files are hashed at run start. Any edit fails the iteration with a revert instruction; a repeat <b>halts the run</b>. Covers the documented exploits — deleted assertions, conftest and jest-config patching.</p></div>
+      <div class="card"><h3>blind: true</h3><p>The critic reviews the <b>actual git diff</b> since run start — never the worker's own description of what it did. A model can lie about its work; it can't lie about the diff.</p></div>
+      <div class="card"><h3>scope: [globs]</h3><p>An allowlist of what the task may touch. Asked for a modal fix and got twelve files? Out-of-scope changes fail the iteration with a revert instruction.</p></div>
+      <div class="card"><h3>verify_deps: true</h3><p>Every package the agent adds is checked against its registry. Hallucinated names <b>fail the iteration</b>; freshly published lookalikes get flagged as a squat signal.</p></div>
+      <div class="card"><h3>ledger: true</h3><p>Every verdict lands in a <b>hash-chained, committable</b> file: who judged what, on which model, with a digest of the judged output. Rewrite history and the chain breaks — verifiably.</p></div>
+      <div class="card"><h3>rails: max_cost_usd</h3><p>Hard ceilings on iterations, dollars, and wall-clock. Checked <b>before</b> each node starts, counting real and estimated spend — a loop halts the moment it would go over, not one expensive step later.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="quickstart">
+  <div class="wrap">
+    <h2>Quickstart</h2>
+    <p class="sub">No API keys of its own — adapters reuse each CLI's existing login.</p>
+    <div class="qs">
+<pre>
+<span class="f"># see the whole loop first - offline, nothing installed, ~5 seconds</span>
+npx looprail demo
+
+<span class="f"># then in your project</span>
+npm install -g looprail
+looprail init          <span class="f"># detects your agent CLIs + your real test command</span>
+looprail run --dry-run <span class="f"># preview nodes, models, budget - spends nothing</span>
+looprail run           <span class="f"># exit 0 only when it's actually done</span>
+</pre>
+    </div>
+  </div>
+</section>
+
+<section id="more">
+  <div class="wrap">
+    <h2>Built for the long run</h2>
+    <div class="why">
+      <div class="card"><h3>cross-provider by construction</h3><p>Self-review is barely better than a coin flip, and judges prefer output that looks like their own. The strongest critic is on a <b>different provider</b> than the worker — something no single vendor's orchestration can offer about itself. <a href="https://github.com/saimeda32/looprail/blob/main/docs/COMPARISON.md">How it compares →</a></p></div>
+      <div class="card"><h3>unattended without fear</h3><p>Queue goals overnight; gates park instead of failing and notify you. Resume never re-bills finished work. Rate-limited provider? The agent's <b>fallback chain</b> hops to another one. Watch everything from one dashboard.</p></div>
+      <div class="card"><h3>long loops that don't rot</h3><p><b>context: fresh</b> rebuilds the executor's prompt each iteration from goal, plan, feedback, and its own on-disk notes — never a growing transcript. Disk is the memory.</p></div>
+      <div class="card"><h3>spec in, verified build out</h3><p><b>init --from-spec prd.md</b>: the planner maps every requirement to implementing and verifying nodes, an independent critic re-reads the spec and fails on gaps, and you approve the plan at a gate before anything executes.</p></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>MIT licensed. Built in the open.</div>
+    <div class="foot-links">
+      <a href="https://github.com/saimeda32/looprail">GitHub</a>
+      <a href="https://www.npmjs.com/package/looprail">npm</a>
+      <a href="https://github.com/saimeda32/looprail/blob/main/docs/COMPARISON.md">Comparison</a>
+      <a href="https://github.com/saimeda32/looprail/blob/main/CHANGELOG.md">Changelog</a>
+    </div>
+  </div>
+</footer>
+</body>
+</html>
