@@ -20,7 +20,7 @@ const defaultExec: PrExec = async (file, args, opts = {}) => {
     // reason (auth, missing remote, branch protection) lives on stderr.
     // A user staring at "git push failed" with no why cannot act on it.
     const err = e as Error & { stderr?: string }
-    throw new Error(`${file} ${args.slice(0, 2).join(' ')} failed: ${(err.stderr ?? err.message).trim().slice(0, 400)}`)
+    throw new Error(`${file} ${args.slice(0, 2).join(' ')} failed: ${(err.stderr ?? err.message).trim().slice(0, 400)}`, { cause: e })
   }
 }
 
