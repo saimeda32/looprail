@@ -70,6 +70,7 @@ export function parseLoopfile(text: string): LoopDef {
   // hard parse error - a typo'd protect field must never silently unprotect.
   const protect = parseProtect(raw.protect, problems)
   const scope = parseScope(raw.scope, problems)
+  const ledger = parseLedger(raw.ledger, problems)
 
   if (problems.length > 0) throw new Error(`invalid loopfile:\n${problems.join('\n')}`)
 
@@ -89,6 +90,7 @@ export function parseLoopfile(text: string): LoopDef {
     ...(raw.concurrency !== undefined ? { concurrency: raw.concurrency as number } : {}),
     ...protect,
     ...scope,
+    ...ledger,
   }
 }
 
@@ -113,6 +115,15 @@ function parseScope(raw: unknown, problems: string[]): { scope?: string[] } {
     return { scope: raw as string[] }
   }
   problems.push('scope must be a non-empty list of glob strings (the files the run is allowed to change)')
+  return {}
+}
+
+// ledger: true -> the conventional in-repo path; a string is a custom path.
+function parseLedger(raw: unknown, problems: string[]): { ledger?: string } {
+  if (raw === undefined || raw === false) return {}
+  if (raw === true) return { ledger: '.looprail/ledger.jsonl' }
+  if (typeof raw === 'string' && raw.trim().length > 0) return { ledger: raw }
+  problems.push('ledger must be true or a file path string')
   return {}
 }
 

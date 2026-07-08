@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Evidence ledger (`ledger: true`)** - a hash-chained, repo-committable
+  record of every verdict (node, role, agent/model, evidence, gaps, and a
+  sha256 of the judged output) in `.looprail/ledger.jsonl`. Editing or
+  deleting any historical entry breaks every hash after it; `looprail
+  ledger --verify` recomputes the chain and names the break. Best-effort:
+  a run never fails because its audit artifact could not be written.
+
 - **Graded verdicts (`GAPS:`)** - a passing critic can name real minor
   shortcomings on a `GAPS:` line (";"-separated). The pass still passes,
   but the run renders `verified WITH N named gap(s)` listing each one, and

@@ -7,6 +7,7 @@ import { registerDemo } from './demo-cmd.js'
 import { registerDoctor } from './doctor-cmd.js'
 import { registerExplain } from './explain-cmd.js'
 import { registerInit } from './init-cmd.js'
+import { registerLedger } from './ledger-cmd.js'
 import { registerLint } from './lint-cmd.js'
 import { registerQueue } from './queue-cmd.js'
 import { registerReplay } from './replay-cmd.js'
@@ -34,6 +35,7 @@ export function buildProgram(): Command {
   registerInit(program)
   registerTemplates(program)
   registerLint(program)
+  registerLedger(program)
   registerRun(program)
   registerQueue(program)
   registerBench(program)

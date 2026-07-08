@@ -50,6 +50,7 @@ no agent CLI, nothing touched.
 | Continue a parked/halted run | `looprail resume <runId>` (prior work cached, never re-billed) |
 | See every run across projects | `looprail ui --all` (mission control, port 4748) |
 | Machine-readable result | `looprail run --json` (status/cost/journal path; exit 0 verified, 2 halted, 1 error) |
+| Audit trail of verdicts | `ledger: true` in the loopfile, then `looprail ledger --verify` (hash-chained, repo-committable) |
 
 ## Choosing adapters and models per role
 

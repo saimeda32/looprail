@@ -1517,3 +1517,30 @@ rails:
   const summary = JSON.parse(lines[lines.length - 1])
   expect(summary.gaps).toEqual([{ node: 'crit', gap: 'one gap' }])
 })
+
+// Evidence ledger: ledger: true chains every verdict into a repo-committable
+// audit file that verifies end to end.
+test('ledger: true writes a verifiable hash chain of the run verdicts', async () => {
+  const { cwd, io } = setup(`
+name: ledgered
+goal: Say DONE.
+agents:
+  worker:  { adapter: mock }
+  checker: { adapter: mock }
+graph:
+  do:   { role: executor, agent: worker }
+  crit: { role: critic, agent: checker, of: do, after: do }
+rails:
+  max_iterations: 2
+  max_cost_usd: 1
+ledger: true
+`)
+  const code = await runAction(undefined, { cwd }, { io })
+  expect(code).toBe(0)
+  const { verifyLedger, readLedger } = await import('../journal/ledger.js')
+  const path = join(cwd, '.looprail', 'ledger.jsonl')
+  expect(verifyLedger(path).ok).toBe(true)
+  const entries = readLedger(path)
+  expect(entries.length).toBeGreaterThan(0)
+  expect(entries.some((e) => e.node === 'crit' && e.verdict.status === 'pass')).toBe(true)
+})

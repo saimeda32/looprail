@@ -193,6 +193,10 @@ export interface LoopDef {
   // consecutive violation halts. Enforced alongside protect with the same
   // snapshot machinery (engine/protect.ts).
   scope?: string[]
+  // Evidence ledger (journal/ledger.ts): a hash-chained, repo-committable
+  // record of every verdict. `ledger: true` in the loopfile writes
+  // .looprail/ledger.jsonl in the workspace; a string is a custom path.
+  ledger?: string
 }
 
 export interface NodeOutcome {

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { resolve } from 'node:path'
 import type {
   FinalReport, GateHandler, JournalEvent, LoopDef, NodeDef, NodeOutcome, PermissionRequest, RunReport,
 } from '../core/types.js'
@@ -10,6 +11,7 @@ import { progressFingerprint, verdictFingerprint } from '../core/fingerprint.js'
 import { buildFallbackReport, buildReportPrompt, parseReport, pickReportingAgentKey } from '../core/report.js'
 import { filesTouched, gitHead, workspaceDiff } from '../core/git.js'
 import { JournalWriter } from '../journal/journal.js'
+import { appendLedgerEntry } from '../journal/ledger.js'
 import { drainHumanFeedback } from '../journal/human-feedback.js'
 import type { AdapterRegistry } from '../adapters/registry.js'
 import { runIteration } from './scheduler.js'
@@ -525,6 +527,20 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   // resume - a human's edits between runs are legitimate; an agent's edits
   // during the run are not.
   const guardDir = opts.cwd ?? process.cwd()
+  // Evidence ledger (journal/ledger.ts): appended after every iteration so
+  // the chain records verdicts in the order they landed, guard verdicts
+  // included. Best-effort by design - a run must never fail because its
+  // audit artifact could not be written.
+  const ledgerPath = def.ledger ? resolve(guardDir, def.ledger) : undefined
+  const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex')
+  const ledgerAppend = (entry: Parameters<typeof appendLedgerEntry>[1]): void => {
+    if (!ledgerPath) return
+    try {
+      appendLedgerEntry(ledgerPath, entry)
+    } catch {
+      // swallowed - see comment above
+    }
+  }
   const inProtect = (p: string): boolean => def.protect !== undefined && matchesAny(p, def.protect)
   const outOfScope = (p: string): boolean => def.scope !== undefined && !matchesAny(p, def.scope)
   const guardInclude = (p: string): boolean => inProtect(p) || outOfScope(p)
@@ -604,6 +620,28 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
       ...outcomes.flatMap((o) => (o.verdict ? [o.verdict] : [])),
       ...guardVerdicts,
     ]
+    for (const o of outcomes) {
+      if (!o.verdict) continue
+      ledgerAppend({
+        runId, iteration: state.iteration, node: o.nodeId, role: o.role,
+        verdict: {
+          status: o.verdict.status, evidence: o.verdict.evidence,
+          ...(o.verdict.score !== undefined ? { score: o.verdict.score } : {}),
+          ...(o.verdict.gaps ? { gaps: o.verdict.gaps } : {}),
+        },
+        outputSha256: sha256(o.output),
+        ...(o.agent ? { agent: o.agent } : {}),
+        ...(o.adapter ? { adapter: o.adapter } : {}),
+        ...(o.model ? { model: o.model } : {}),
+      })
+    }
+    for (const v of guardVerdicts) {
+      ledgerAppend({
+        runId, iteration: state.iteration, node: v.node, role: 'guard',
+        verdict: { status: v.status, evidence: v.evidence },
+        outputSha256: sha256(''),
+      })
+    }
     fingerprints.push(verdictFingerprint(verdicts))
     progressFingerprints.push(progressFingerprint(verdicts))
     emit('iteration_end', { iteration: state.iteration, costUsd: guard.spentUsd, estimatedCostUsd: guard.estimatedSpentUsd })

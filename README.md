@@ -171,6 +171,7 @@ dollars, whichever comes first.
 | `looprail init` | Detect installed agents and scaffold a `looprail.yaml` |
 | `looprail run [file]` | Run the loop with live progress and a cost report |
 | `looprail run --dry-run` | Print the execution plan (node order, per-node model, budget ceiling) and exit - invokes no agent, spends nothing |
+| `looprail ledger` | Inspect the repo's hash-chained evidence ledger of verdicts; `--verify` recomputes the chain and names any break |
 | `looprail bench [file]` | A/B two or more named loop configs against the same task and report measured deltas (`benchmarks/`) |
 | `looprail route [file]` | Benchmark auto-generated adapter/model variants of your own loopfile and record the best mix in `.looprail/routing.json` |
 | `looprail run --ui` | Same, and open a live dashboard for this run |
@@ -540,6 +541,18 @@ Needs a git workspace; without one the critic is told explicitly that no
 diff is available and to treat claims as unverified - blind mode never
 silently falls back to the narrative. Lint rule L013 warns when `blind`
 is set somewhere it has no effect.
+
+### Evidence ledger
+
+`ledger: true` in a loopfile records every verdict the run produces into a
+hash-chained, repo-committable audit file (`.looprail/ledger.jsonl` by
+default; a string value picks a custom path): who judged what, on which
+model, with what evidence, and a sha256 of the exact output that was
+judged. Each entry's hash covers the previous entry's hash, so editing or
+deleting history breaks every hash after it - `looprail ledger --verify`
+recomputes the chain and names the exact break. Commit the file and the
+repo carries its own provenance trail: "this change was verified by
+<model> on <date>", checkable by anyone with the repo.
 
 ### Rails
 
