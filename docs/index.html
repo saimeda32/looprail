@@ -5,81 +5,162 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>looprail — coding agents, verified done</title>
 <meta name="description" content="Run Claude Code, Codex, Copilot and other agent CLIs in a loop until real tests and an independent cross-model critic pass. Test-tamper guards, cost rails, tamper-evident verdict ledgers. MIT.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230b0e13'/><path d='M8 20V12a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v8a4 4 0 0 1-4 4h-5' fill='none' stroke='%234ade80' stroke-width='3' stroke-linecap='round'/></svg>">
 <style>
   :root{
-    --bg:#0b0e13; --panel:#11151d; --panel2:#161b26; --line:#232a38;
-    --ink:#dfe5ee; --dim:#8b95a7; --faint:#5b6474;
-    --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; --acc:#4ade80;
+    --bg:#0b0e13; --panel:#11151d; --panel2:#161b26; --line:#232a38; --line2:#2c3444;
+    --ink:#e3e9f2; --dim:#8b95a7; --faint:#5b6474;
+    --ok:#4ade80; --warn:#fbbf24; --bad:#f87171;
+    --ok-dim:rgba(74,222,128,.45); --ok-glow:rgba(74,222,128,.08);
     --mono:ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace;
     --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth}
-  body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden}
   a{color:var(--ok);text-decoration:none}
   a:hover{text-decoration:underline}
-  .wrap{max-width:940px;margin:0 auto;padding:0 24px}
-  header{padding:20px 0;border-bottom:1px solid var(--line)}
-  header .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px}
-  .logo{font-family:var(--mono);font-weight:700;font-size:18px;letter-spacing:.5px}
+  :focus-visible{outline:2px solid var(--ok);outline-offset:2px;border-radius:2px}
+  .wrap{max-width:980px;margin:0 auto;padding:0 22px}
+
+  /* top rail: the thin green line the tool is named for */
+  .toprail{height:2px;background:linear-gradient(90deg,transparent,var(--ok-dim) 30%,var(--ok-dim) 70%,transparent);position:relative;overflow:hidden}
+  .toprail::after{content:"";position:absolute;top:0;left:-15%;width:15%;height:100%;background:linear-gradient(90deg,transparent,var(--ok),transparent);opacity:0}
+
+  header{padding:18px 0;border-bottom:1px solid var(--line)}
+  header .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  .logo{font-family:var(--mono);font-weight:700;font-size:18px;letter-spacing:.5px;color:var(--ink)}
   .logo b{color:var(--ok)}
-  nav{display:flex;gap:20px;font-size:14px;color:var(--dim)}
+  nav{display:flex;gap:18px;font-size:14px;flex-wrap:wrap}
   nav a{color:var(--dim)}
   nav a:hover{color:var(--ink);text-decoration:none}
-  .hero{padding:64px 0 40px;text-align:left}
-  .hero h1{font-size:clamp(28px,5vw,44px);line-height:1.15;font-weight:800;letter-spacing:-.5px;max-width:21ch}
+
+  /* hero */
+  .hero-zone{position:relative;isolation:isolate}
+  .hero-zone::before{content:"";position:absolute;inset:0;z-index:-1;
+    background-image:radial-gradient(circle at 1px 1px, rgba(139,149,167,.13) 1px, transparent 1.6px);
+    background-size:26px 26px;
+    -webkit-mask-image:radial-gradient(90% 75% at 50% 12%, #000 10%, transparent 75%);
+    mask-image:radial-gradient(90% 75% at 50% 12%, #000 10%, transparent 75%)}
+  .hero-zone::after{content:"";position:absolute;inset:0;z-index:-2;
+    background:radial-gradient(620px 320px at 72% -6%, var(--ok-glow), transparent 70%)}
+  .hero{padding:68px 0 34px}
+  .hero h1{font-size:clamp(30px,5.4vw,50px);line-height:1.1;font-weight:800;letter-spacing:-1.1px;max-width:21ch}
   .hero h1 em{font-style:normal;color:var(--ok)}
-  .hero p.lead{margin-top:18px;font-size:18px;color:var(--dim);max-width:62ch}
+  .hero p.lead{margin-top:20px;font-size:17.5px;color:var(--dim);max-width:62ch}
+  .hero p.lead b{color:var(--ink);font-weight:600}
   .cta{margin-top:28px;display:flex;gap:14px;flex-wrap:wrap;align-items:center}
-  .btn{display:inline-block;padding:10px 20px;border-radius:6px;font-weight:600;font-size:15px}
+  .btn{display:inline-block;padding:11px 22px;border-radius:6px;font-weight:600;font-size:15px}
   .btn.primary{background:var(--ok);color:#08110b}
   .btn.primary:hover{filter:brightness(1.08);text-decoration:none}
-  .btn.ghost{border:1px solid var(--line);color:var(--ink)}
-  .btn.ghost:hover{border-color:var(--dim);text-decoration:none}
   .trynow{font-family:var(--mono);font-size:14px;color:var(--dim)}
-  .trynow code{color:var(--ink);background:var(--panel2);padding:3px 9px;border-radius:5px;border:1px solid var(--line)}
-  .term{margin:52px 0 8px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.4)}
+  .trynow code{color:var(--ink);background:var(--panel2);padding:4px 10px;border-radius:5px;border:1px solid var(--line)}
+  .stats{margin-top:30px;display:flex;flex-wrap:wrap;gap:8px 0;font-family:var(--mono);font-size:12.5px;color:var(--faint);align-items:center}
+  .stats span{white-space:nowrap}
+  .stats i{font-style:normal;display:inline-block;width:14px;height:2px;background:var(--ok-dim);margin:0 12px;vertical-align:middle}
+  .stats b{color:var(--dim);font-weight:600}
+
+  /* tabs + terminal */
+  .demo{padding:20px 0 8px}
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:-1px;position:relative;z-index:1}
+  .tabs button{font-family:var(--mono);font-size:13px;color:var(--dim);background:var(--panel2);
+    border:1px solid var(--line);border-bottom-color:var(--line);border-radius:7px 7px 0 0;
+    padding:8px 14px 9px;cursor:pointer}
+  .tabs button:hover{color:var(--ink)}
+  .tabs button[aria-selected="true"]{color:var(--ok);background:var(--panel);border-bottom-color:var(--panel);
+    box-shadow:inset 0 2px 0 var(--ok)}
+  .term{background:var(--panel);border:1px solid var(--line);border-radius:0 10px 10px 10px;overflow:hidden;
+    box-shadow:0 24px 60px rgba(0,0,0,.45)}
   .term-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--panel2);border-bottom:1px solid var(--line)}
-  .dot{width:11px;height:11px;border-radius:50%;background:#2c3444}
-  .term-title{margin-left:8px;font-family:var(--mono);font-size:12px;color:var(--faint)}
-  .term pre{padding:18px 20px;font-family:var(--mono);font-size:13.5px;line-height:1.75;overflow-x:auto;color:var(--dim)}
+  .dot{width:11px;height:11px;border-radius:50%;background:var(--line2);flex:none}
+  .term-title{margin-left:8px;font-family:var(--mono);font-size:12px;color:var(--faint);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .skip{font-family:var(--mono);font-size:12px;color:var(--faint);background:none;border:1px solid var(--line);
+    border-radius:5px;padding:3px 10px;cursor:pointer}
+  .skip:hover{color:var(--ink);border-color:var(--line2)}
+  .term pre{padding:18px 20px 20px;font-family:var(--mono);font-size:13.5px;line-height:1.75;overflow-x:auto;
+    color:var(--dim);min-height:23.5em;white-space:pre;cursor:default}
   .term .c{color:var(--ink)} .term .g{color:var(--ok)} .term .y{color:var(--warn)} .term .r{color:var(--bad)} .term .f{color:var(--faint)}
-  .cap{font-size:13px;color:var(--faint);margin-bottom:56px}
-  section{padding:44px 0;border-top:1px solid var(--line)}
-  h2{font-size:24px;font-weight:750;letter-spacing:-.3px;margin-bottom:8px}
-  .sub{color:var(--dim);max-width:64ch;margin-bottom:28px}
-  .loopline{display:flex;flex-wrap:wrap;gap:0;align-items:center;font-family:var(--mono);font-size:14px;margin:10px 0 6px}
-  .loopline .step{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px 14px;color:var(--ink);white-space:nowrap;margin:6px 0}
-  .loopline .arrow{color:var(--faint);padding:0 10px}
-  .loopline .step.v{border-color:rgba(74,222,128,.45);color:var(--ok)}
+  .cursor{display:inline-block;width:.6em;height:1.05em;background:var(--ok);vertical-align:text-bottom;margin-left:1px}
+  .cap{font-size:13.5px;color:var(--faint);margin:12px 0 52px;max-width:72ch}
+  .cap b{color:var(--dim);font-weight:600}
+
+  /* sections */
+  section{padding:48px 0;border-top:1px solid var(--line)}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--ok);
+    display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  .eyebrow::before{content:"";width:20px;height:2px;background:var(--ok-dim);flex:none}
+  h2{font-size:clamp(21px,3.2vw,26px);font-weight:750;letter-spacing:-.4px;margin-bottom:8px}
+  .sub{color:var(--dim);max-width:66ch;margin-bottom:26px}
+  .sub b{color:var(--ink);font-weight:600}
+
+  /* loop diagram */
+  .diagram{overflow-x:auto;padding:6px 0 2px}
+  .diagram svg{display:block;min-width:620px;width:100%;max-width:820px;margin:0 auto;height:auto}
+  .lnode rect{fill:var(--panel2);stroke:var(--line2);stroke-width:1.2;transition:stroke .35s,fill .35s}
+  .lnode text{fill:var(--dim);font-family:var(--mono);font-size:13.5px;transition:fill .35s}
+  .lnode.lit rect{stroke:var(--ok);fill:#12201a}
+  .lnode.lit text{fill:var(--ok)}
+  .larrow{stroke:var(--line2);stroke-width:1.6;fill:none;transition:stroke .35s}
+  .larrow.lit{stroke:var(--ok)}
+  .lret{stroke:var(--line2);stroke-width:1.4;fill:none;stroke-dasharray:5 5;transition:stroke .35s}
+  .lret.lit{stroke:var(--warn)}
+  .lretlabel{fill:var(--faint);font-family:var(--mono);font-size:12px;transition:fill .35s}
+  .lretlabel.lit{fill:var(--warn)}
+  @media (prefers-reduced-motion:reduce){
+    .lnode rect,.lnode text,.larrow,.lret,.lretlabel{transition:none}
+  }
+
+  /* cards */
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px 18px 16px}
-  .card h3{font-family:var(--mono);font-size:14px;color:var(--ok);font-weight:600;margin-bottom:8px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px 18px 16px;position:relative;overflow:hidden}
+  .card::before{content:"";position:absolute;top:0;left:18px;width:20px;height:2px;background:var(--ok-dim);
+    transition:width .25s ease}
+  .card:hover::before{width:52px}
+  .card:hover{border-color:var(--line2)}
+  .card h3{font-family:var(--mono);font-size:14px;color:var(--ok);font-weight:600;margin:6px 0 8px}
   .card p{font-size:14px;color:var(--dim)}
   .card p b{color:var(--ink);font-weight:600}
+
+  /* quickstart */
   .qs{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:4px 0}
   .qs pre{padding:16px 20px;font-family:var(--mono);font-size:14px;line-height:2;overflow-x:auto;color:var(--ink)}
   .qs .f{color:var(--faint)}
+
   .why{display:grid;grid-template-columns:1fr 1fr;gap:14px}
   @media (max-width:720px){.why{grid-template-columns:1fr}}
   .why .card p{font-size:14.5px}
+
   footer{border-top:1px solid var(--line);padding:32px 0 44px;color:var(--faint);font-size:13.5px}
   footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
-  .foot-links{display:flex;gap:18px}
+  .foot-links{display:flex;gap:18px;flex-wrap:wrap}
   .foot-links a{color:var(--dim)}
-  @media (prefers-reduced-motion:no-preference){
-    .hero h1,.hero p.lead,.cta,.term{animation:rise .5s ease-out both}
-    .term{animation-delay:.12s}
-    @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+  @media (max-width:420px){
+    .term pre{font-size:12.5px;padding:14px 14px 16px}
+    .tabs button{padding:7px 10px;font-size:12px}
+    .stats i{margin:0 8px}
   }
-  :focus-visible{outline:2px solid var(--ok);outline-offset:2px}
+
+  @media (prefers-reduced-motion:no-preference){
+    .hero h1,.hero p.lead,.cta,.stats{animation:rise .5s ease-out both}
+    .cta{animation-delay:.08s}.stats{animation-delay:.14s}
+    @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+    .toprail::after{opacity:1;animation:railpulse 7s linear infinite}
+    @keyframes railpulse{from{left:-15%}to{left:115%}}
+    .cursor{animation:blink 1s steps(1) infinite}
+    @keyframes blink{50%{opacity:0}}
+    .card{transition:border-color .2s,transform .2s}
+    .card:hover{transform:translateY(-2px)}
+  }
 </style>
 </head>
 <body>
+<div class="toprail" aria-hidden="true"></div>
 <header>
   <div class="wrap">
     <div class="logo">loop<b>rail</b></div>
-    <nav>
+    <nav aria-label="Site">
+      <a href="#demo">demo</a>
       <a href="#rails">rails</a>
       <a href="#quickstart">quickstart</a>
       <a href="https://github.com/saimeda32/looprail/blob/main/docs/COMPARISON.md">compare</a>
@@ -88,69 +169,97 @@
   </div>
 </header>
 
-<div class="wrap">
-  <div class="hero">
-    <h1>Your coding agent says it's done. <em>Make it prove it.</em></h1>
-    <p class="lead">looprail runs the agent CLIs you already have — Claude Code, Codex, Copilot, Gemini, aider, opencode, local models — in a loop that only exits when real tests pass <b>and</b> a critic on a different model agrees. With hard dollar rails, so it can't run away either.</p>
-    <div class="cta">
-      <a class="btn primary" href="https://github.com/saimeda32/looprail">View on GitHub</a>
-      <span class="trynow">try it offline, no keys: <code>npx looprail demo</code></span>
+<div class="hero-zone">
+  <div class="wrap">
+    <div class="hero">
+      <h1>Your coding agent says it's done. <em>Make it prove it.</em></h1>
+      <p class="lead">looprail runs the agent CLIs you already have (Claude Code, Codex, Copilot, Gemini, aider, opencode, local models) in a loop that only exits when real tests pass <b>and</b> a critic on a different model agrees. With hard dollar rails, so it can't run away either.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/saimeda32/looprail">View on GitHub</a>
+        <span class="trynow">try it offline, no keys: <code>npx looprail demo</code></span>
+      </div>
+      <p class="stats"><span><b>8</b> agent adapters</span><i></i><span><b>1,250+</b> tests</span><i></i><span>MIT</span><i></i><span><b>$0</b> API keys, reuses your CLI logins</span></p>
+    </div>
+
+    <div class="demo" id="demo">
+      <div class="tabs" role="tablist" aria-label="Demo scenarios">
+        <button role="tab" id="tab-0" aria-selected="true" aria-controls="term-panel">catch a cheat</button>
+        <button role="tab" id="tab-1" aria-selected="false" aria-controls="term-panel" tabindex="-1">blind review</button>
+        <button role="tab" id="tab-2" aria-selected="false" aria-controls="term-panel" tabindex="-1">hallucinated dependency</button>
+        <button role="tab" id="tab-3" aria-selected="false" aria-controls="term-panel" tabindex="-1">overnight queue</button>
+      </div>
+      <div class="term" id="term-panel" role="tabpanel" aria-labelledby="tab-0">
+        <div class="term-bar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="term-title" id="term-title">looprail run</span>
+          <button class="skip" id="skip-btn" type="button" aria-label="Show the full transcript now">skip ›</button>
+        </div>
+        <pre id="term-pre"></pre>
+      </div>
+      <p class="cap" id="term-cap"></p>
     </div>
   </div>
-
-  <div class="term" role="img" aria-label="Terminal transcript of a looprail run catching a test edit, forcing a revert, and verifying">
-    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="term-title">looprail run</span></div>
-<pre>
-<span class="f">$</span> <span class="c">looprail run</span>
-<span class="c">run run-mrbgowc6 - fix-tests</span>
-  <span class="f">▸ iter 1 · executor fix</span>
-    <span class="c">done fix ($0.49)</span>
-  <span class="r">✗ protect rail: test/slugify.test.js was modified — revert it and
-    change the implementation instead; the protected files are the spec</span>
-  <span class="f">▸ iter 2 · executor fix</span>
-    <span class="c">done fix ($0.51)</span>
-    <span class="g">pass tests</span>  <span class="f">npm test → exit 0, 8/8</span>
-    <span class="g">pass crit</span>   <span class="f">copilot (blind: reviews the diff, not the story)</span>
-<span class="g">verified</span> <span class="y">WITH 1 named gap</span> <span class="f">- all verifiers passed</span>
-  <span class="y">gap [crit] diacritic regex uses a literal range; \p{Diacritic} reads better</span>
-  <span class="f">iterations: 2 · total cost: $1.07 · ledger: 4 entries, chain intact</span>
-</pre>
-  </div>
-  <p class="cap">A real shape: the agent tried to "fix" the suite by editing a test. The rail caught it, told it to revert, and it fixed the code instead.</p>
 </div>
 
 <section id="loop">
   <div class="wrap">
+    <p class="eyebrow">the loop</p>
     <h2>The loop is the product</h2>
-    <p class="sub">Prompt-level rules ("never modify the tests") demonstrably don't hold — production reward-hacking studies show agents deleting assertions, patching pytest configs, and special-casing test inputs. looprail's answer is structural: anchor every check to something the model can't fake.</p>
-    <div class="loopline">
-      <span class="step">executor does the work</span><span class="arrow">→</span>
-      <span class="step">real command runs the tests</span><span class="arrow">→</span>
-      <span class="step">critic on a different model reviews</span><span class="arrow">→</span>
-      <span class="step v">verified — or iterate with feedback</span>
+    <p class="sub">Prompt-level rules ("never modify the tests") demonstrably don't hold. Production reward-hacking studies show agents deleting assertions, patching pytest configs, and special-casing test inputs. looprail's answer is structural: anchor every check to something the model can't fake.</p>
+    <div class="diagram">
+      <svg viewBox="0 0 680 196" role="img" aria-label="The verify loop: executor does the work, real tests run, a critic on a different model reviews the diff, then verified. If anything fails, feedback goes back to the executor and the loop iterates.">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="currentColor" style="fill:context-stroke"></path>
+          </marker>
+        </defs>
+        <g class="lnode" id="n-exec">
+          <rect x="16" y="46" width="126" height="46" rx="7"></rect>
+          <text x="79" y="74" text-anchor="middle">executor</text>
+        </g>
+        <path class="larrow" id="a1" d="M142 69 H190" marker-end="url(#ah)"></path>
+        <g class="lnode" id="n-test">
+          <rect x="194" y="46" width="130" height="46" rx="7"></rect>
+          <text x="259" y="74" text-anchor="middle">real tests</text>
+        </g>
+        <path class="larrow" id="a2" d="M324 69 H372" marker-end="url(#ah)"></path>
+        <g class="lnode" id="n-crit">
+          <rect x="376" y="46" width="130" height="46" rx="7"></rect>
+          <text x="441" y="74" text-anchor="middle">blind critic</text>
+        </g>
+        <path class="larrow" id="a3" d="M506 69 H554" marker-end="url(#ah)"></path>
+        <g class="lnode" id="n-ver">
+          <rect x="558" y="46" width="110" height="46" rx="7"></rect>
+          <text x="613" y="74" text-anchor="middle">verified</text>
+        </g>
+        <path class="lret" id="it-path" d="M441 92 V148 H79 V98" marker-end="url(#ah)"></path>
+        <text class="lretlabel" id="it-label" x="260" y="168" text-anchor="middle">fail → iterate with feedback</text>
+      </svg>
     </div>
   </div>
 </section>
 
 <section id="rails">
   <div class="wrap">
+    <p class="eyebrow">rails</p>
     <h2>Rails the agent can't argue with</h2>
-    <p class="sub">Every rail is deterministic — file hashes, exit codes, registry responses, diffs. No rail needs its own model call, so no rail can be gamed the way a prompt can.</p>
+    <p class="sub">Every rail is deterministic: file hashes, exit codes, registry responses, diffs. No rail needs its own model call, so no rail can be gamed the way a prompt can.</p>
     <div class="grid">
-      <div class="card"><h3>protect: tests</h3><p>Test files are hashed at run start. Any edit fails the iteration with a revert instruction; a repeat <b>halts the run</b>. Covers the documented exploits — deleted assertions, conftest and jest-config patching.</p></div>
-      <div class="card"><h3>blind: true</h3><p>The critic reviews the <b>actual git diff</b> since run start — never the worker's own description of what it did. A model can lie about its work; it can't lie about the diff.</p></div>
+      <div class="card"><h3>protect: tests</h3><p>Test files are hashed at run start. Any edit fails the iteration with a revert instruction; a repeat <b>halts the run</b>. Covers the documented exploits, from deleted assertions to conftest and jest-config patching.</p></div>
+      <div class="card"><h3>blind: true</h3><p>The critic reviews the <b>actual git diff</b> since run start, never the worker's own description of what it did. A model can lie about its work; it can't lie about the diff.</p></div>
       <div class="card"><h3>scope: [globs]</h3><p>An allowlist of what the task may touch. Asked for a modal fix and got twelve files? Out-of-scope changes fail the iteration with a revert instruction.</p></div>
       <div class="card"><h3>verify_deps: true</h3><p>Every package the agent adds is checked against its registry. Hallucinated names <b>fail the iteration</b>; freshly published lookalikes get flagged as a squat signal.</p></div>
-      <div class="card"><h3>ledger: true</h3><p>Every verdict lands in a <b>hash-chained, committable</b> file: who judged what, on which model, with a digest of the judged output. Rewrite history and the chain breaks — verifiably.</p></div>
-      <div class="card"><h3>rails: max_cost_usd</h3><p>Hard ceilings on iterations, dollars, and wall-clock. Checked <b>before</b> each node starts, counting real and estimated spend — a loop halts the moment it would go over, not one expensive step later.</p></div>
+      <div class="card"><h3>ledger: true</h3><p>Every verdict lands in a <b>hash-chained, committable</b> file: who judged what, on which model, with a digest of the judged output. Rewrite history and the chain breaks, verifiably.</p></div>
+      <div class="card"><h3>rails: max_cost_usd</h3><p>Hard ceilings on iterations, dollars, and wall-clock. Checked <b>before</b> each node starts, counting real and estimated spend. A loop halts the moment it would go over, not one expensive step later.</p></div>
     </div>
   </div>
 </section>
 
 <section id="quickstart">
   <div class="wrap">
+    <p class="eyebrow">quickstart</p>
     <h2>Quickstart</h2>
-    <p class="sub">No API keys of its own — adapters reuse each CLI's existing login.</p>
+    <p class="sub">No API keys of its own. Adapters reuse each CLI's existing login.</p>
     <div class="qs">
 <pre>
 <span class="f"># see the whole loop first - offline, nothing installed, ~5 seconds</span>
@@ -168,11 +277,12 @@ looprail run           <span class="f"># exit 0 only when it's actually done</sp
 
 <section id="more">
   <div class="wrap">
+    <p class="eyebrow">long run</p>
     <h2>Built for the long run</h2>
     <div class="why">
-      <div class="card"><h3>cross-provider by construction</h3><p>Self-review is barely better than a coin flip, and judges prefer output that looks like their own. The strongest critic is on a <b>different provider</b> than the worker — something no single vendor's orchestration can offer about itself. <a href="https://github.com/saimeda32/looprail/blob/main/docs/COMPARISON.md">How it compares →</a></p></div>
+      <div class="card"><h3>cross-provider by construction</h3><p>Self-review is barely better than a coin flip, and judges prefer output that looks like their own. The strongest critic is on a <b>different provider</b> than the worker, something no single vendor's orchestration can offer about itself. <a href="https://github.com/saimeda32/looprail/blob/main/docs/COMPARISON.md">How it compares →</a></p></div>
       <div class="card"><h3>unattended without fear</h3><p>Queue goals overnight; gates park instead of failing and notify you. Resume never re-bills finished work. Rate-limited provider? The agent's <b>fallback chain</b> hops to another one. Watch everything from one dashboard.</p></div>
-      <div class="card"><h3>long loops that don't rot</h3><p><b>context: fresh</b> rebuilds the executor's prompt each iteration from goal, plan, feedback, and its own on-disk notes — never a growing transcript. Disk is the memory.</p></div>
+      <div class="card"><h3>long loops that don't rot</h3><p><b>context: fresh</b> rebuilds the executor's prompt each iteration from goal, plan, feedback, and its own on-disk notes, never a growing transcript. Disk is the memory.</p></div>
       <div class="card"><h3>spec in, verified build out</h3><p><b>init --from-spec prd.md</b>: the planner maps every requirement to implementing and verifying nodes, an independent critic re-reads the spec and fails on gaps, and you approve the plan at a gate before anything executes.</p></div>
     </div>
   </div>
@@ -189,5 +299,261 @@ looprail run           <span class="f"># exit 0 only when it's actually done</sp
     </div>
   </div>
 </footer>
+
+<script>
+(function(){
+  'use strict';
+  var RM = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------- terminal demo ---------- */
+  // each line is a list of [class, text] segments; class "" = default dim
+  var SCEN = [
+    {
+      label:'catch a cheat', title:'looprail run · fix-tests',
+      cap:'The agent tried to "fix" the suite by editing a test. The protect rail caught the hash change, told it to revert, and it fixed the code instead.',
+      lines:[
+        [['f','$ '],['c','looprail run']],
+        [['c','run run-mrbgowc6 · fix-tests']],
+        [['f','  ▸ iter 1 · executor fix']],
+        [['c','    done fix ($0.49)']],
+        [['r','  ✗ protect rail: test/slugify.test.js was modified - revert it and']],
+        [['r','    change the implementation instead; the protected files are the spec']],
+        [['f','  ▸ iter 2 · executor fix']],
+        [['c','    done fix ($0.51)']],
+        [['g','    pass tests'],['f','   npm test → exit 0, 8/8']],
+        [['g','    pass crit'],['f','    copilot (blind: reviews the diff, not the story)']],
+        [['g','verified'],['y',' WITH 1 named gap'],['f',' · all verifiers passed']],
+        [['y','  gap [crit] diacritic regex uses a literal range; \\p{Diacritic} reads better']],
+        [['f','  iterations: 2 · total cost: $1.07 · ledger: 4 entries, chain intact']]
+      ]
+    },
+    {
+      label:'blind review', title:'looprail run · refactor-clamp',
+      cap:'The story said done. The critic never reads the story: it reads the diff since run start, on a different model than the one that wrote it.',
+      lines:[
+        [['f','$ '],['c','looprail run']],
+        [['c','run run-k2vd81p · refactor-clamp']],
+        [['f','  ▸ iter 1 · executor refactor']],
+        [['c','    done refactor ($0.38)']],
+        [['f','    executor says: "refactor complete, all edge cases handled"']],
+        [['g','    pass tests'],['f','   npm test → exit 0, 11/11']],
+        [['r','  ✗ fail crit    gemini (blind): clamp() drops the negative-zero case']],
+        [['r','    the old code handled - narrative said edge cases were covered;']],
+        [['r','    the diff says otherwise']],
+        [['f','  ▸ iter 2 · executor refactor']],
+        [['c','    done refactor ($0.41) · Object.is branch restored, test added']],
+        [['g','    pass tests'],['f','   npm test → exit 0, 12/12']],
+        [['g','verified'],['f',' · all verifiers passed']],
+        [['f','  iterations: 2 · total cost: $0.79 · ledger: 5 entries, chain intact']]
+      ]
+    },
+    {
+      label:'hallucinated dependency', title:'looprail run · stable-json-hashes',
+      cap:'One registry lookup per new dependency. Hallucinated names fail the iteration before anything installs; suspicious lookalikes get named.',
+      lines:[
+        [['f','$ '],['c','looprail run']],
+        [['c','run run-9tqe4snd · stable-json-hashes']],
+        [['f','  ▸ iter 1 · executor build']],
+        [['c','    done build ($0.44) · added "fast-json-stableify" to package.json']],
+        [['r','  ✗ verify_deps rail: fast-json-stableify does not exist in the npm registry']],
+        [['y','    near-name "fastjson-stableify" appeared 6 days ago with 2 downloads;']],
+        [['y','    likely a squatted lookalike. use a package that actually exists.']],
+        [['f','  ▸ iter 2 · executor build']],
+        [['c','    done build ($0.36) · fast-json-stable-stringify (12 yrs, 40M weekly)']],
+        [['g','    pass tests'],['f','   npm test → exit 0, 9/9']],
+        [['g','    pass crit'],['f','    claude (blind)']],
+        [['g','verified'],['f',' · all verifiers passed']],
+        [['f','  iterations: 2 · total cost: $0.80 · ledger: 4 entries, chain intact']]
+      ]
+    },
+    {
+      label:'overnight queue', title:'looprail queue goals.yaml',
+      cap:'Queue goals before bed. Gates park instead of failing, resume never re-bills finished work, and the morning starts with a triage table.',
+      lines:[
+        [['f','$ '],['c','looprail queue goals.yaml']],
+        [['c','queued 3 goals · rails: max_cost_usd 6.00 · started 23:14']],
+        [['f','  running unattended - gates park, they don’t fail']],
+        [],
+        [['c','morning triage · 07:02']],
+        [['g','  [1/3] fix-flaky-retry      verified'],['f','   2 iters · $1.21']],
+        [['g','  [2/3] paginate-audit-log   verified'],['f','   1 iter  · $0.88']],
+        [['y','  [3/3] rotate-signing-keys  parked'],['f','     gate: awaiting approval · resumable']],
+        [['f','  total cost: $4.12 of $6.00 · ledgers: 3 chains intact']],
+        [['c','  looprail resume run-x84'],['f','   approves the gate and picks up where it parked']]
+      ]
+    }
+  ];
+
+  var pre = document.getElementById('term-pre');
+  var cap = document.getElementById('term-cap');
+  var title = document.getElementById('term-title');
+  var panel = document.getElementById('term-panel');
+  var skipBtn = document.getElementById('skip-btn');
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabs [role="tab"]'));
+
+  var cur = 0;            // active scenario
+  var li = 0, si = 0, ci = 0; // line / segment / char position
+  var typing = false;
+  var timer = null, advTimer = null;
+  var userActed = false;
+  var curLineEl = null, curSpanEl = null;
+  var cursorEl = document.createElement('span');
+  cursorEl.className = 'cursor';
+  cursorEl.setAttribute('aria-hidden','true');
+
+  function newLine(){
+    var d = document.createElement('div');
+    pre.appendChild(d);
+    curLineEl = d; curSpanEl = null;
+    return d;
+  }
+  function newSpan(cls){
+    var s = document.createElement('span');
+    if (cls) s.className = cls;
+    curLineEl.appendChild(s);
+    curSpanEl = s;
+    return s;
+  }
+  function renderFull(idx){
+    pre.textContent = '';
+    SCEN[idx].lines.forEach(function(line){
+      var d = document.createElement('div');
+      if (!line.length) d.innerHTML = '&nbsp;';
+      line.forEach(function(seg){
+        var s = document.createElement('span');
+        if (seg[0]) s.className = seg[0];
+        s.textContent = seg[1];
+        d.appendChild(s);
+      });
+      pre.appendChild(d);
+    });
+  }
+  function setMeta(idx){
+    title.textContent = SCEN[idx].title;
+    cap.innerHTML = '<b>' + SCEN[idx].label + '</b> · ' + SCEN[idx].cap;
+  }
+  function stopTimers(){
+    if (timer){ clearTimeout(timer); timer = null; }
+    if (advTimer){ clearTimeout(advTimer); advTimer = null; }
+  }
+  function finishScenario(){
+    typing = false;
+    if (cursorEl.parentNode) cursorEl.parentNode.removeChild(cursorEl);
+    if (!userActed && !RM){
+      advTimer = setTimeout(function(){
+        selectTab((cur + 1) % SCEN.length, false);
+      }, 4200);
+    }
+  }
+  function tick(){
+    var lines = SCEN[cur].lines;
+    if (li >= lines.length){ finishScenario(); return; }
+    var line = lines[li];
+    if (si === 0 && ci === 0){
+      newLine();
+      if (!line.length){
+        curLineEl.innerHTML = '&nbsp;';
+        li++; timer = setTimeout(tick, 120); return;
+      }
+    }
+    if (si >= line.length){
+      li++; si = 0; ci = 0;
+      timer = setTimeout(tick, 130);
+      return;
+    }
+    var seg = line[si];
+    if (ci === 0) newSpan(seg[0]);
+    curSpanEl.textContent += seg[1].charAt(ci);
+    curLineEl.appendChild(cursorEl);
+    ci++;
+    if (ci >= seg[1].length){ si++; ci = 0; }
+    timer = setTimeout(tick, 18 + Math.random() * 16);
+  }
+  function skipToEnd(){
+    if (!typing) return;
+    stopTimers();
+    renderFull(cur);
+    finishScenario();
+  }
+  function startScenario(idx){
+    stopTimers();
+    cur = idx; li = 0; si = 0; ci = 0;
+    setMeta(idx);
+    if (RM){ typing = false; renderFull(idx); return; }
+    pre.textContent = '';
+    typing = true;
+    tick();
+  }
+  function selectTab(idx, fromUser){
+    if (fromUser){ userActed = true; stopTimers(); }
+    tabs.forEach(function(t, i){
+      t.setAttribute('aria-selected', i === idx ? 'true' : 'false');
+      t.tabIndex = i === idx ? 0 : -1;
+    });
+    panel.setAttribute('aria-labelledby', 'tab-' + idx);
+    startScenario(idx);
+  }
+  tabs.forEach(function(t, i){
+    t.addEventListener('click', function(){ selectTab(i, true); });
+  });
+  document.querySelector('.tabs').addEventListener('keydown', function(e){
+    var dir = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+    if (!dir) return;
+    e.preventDefault();
+    var next = (cur + dir + SCEN.length) % SCEN.length;
+    selectTab(next, true);
+    tabs[next].focus();
+  });
+  skipBtn.addEventListener('click', function(){ userActed = true; skipToEnd(); });
+  pre.addEventListener('click', function(){ userActed = true; skipToEnd(); });
+
+  setMeta(0);
+  if (RM){
+    renderFull(0);
+  } else if ('IntersectionObserver' in window){
+    var seen = false;
+    var io = new IntersectionObserver(function(entries){
+      if (!seen && entries[0].isIntersecting){
+        seen = true; io.disconnect();
+        startScenario(0);
+      }
+    }, {threshold:.25});
+    io.observe(panel);
+  } else {
+    startScenario(0);
+  }
+
+  /* ---------- loop diagram ---------- */
+  var ids = ['n-exec','a1','n-test','a2','n-crit','a3','n-ver','it-path','it-label'];
+  var el = {};
+  ids.forEach(function(id){ el[id] = document.getElementById(id); });
+  function light(list){
+    ids.forEach(function(id){
+      el[id].classList.toggle('lit', list.indexOf(id) !== -1);
+    });
+  }
+  if (RM){
+    light(['n-exec','a1','n-test','a2','n-crit','a3','n-ver']);
+  } else {
+    var steps = [
+      {lit:['n-exec'], dur:850},
+      {lit:['n-exec','a1','n-test'], dur:850},
+      {lit:['n-exec','a1','n-test','a2','n-crit'], dur:850},
+      {lit:['n-crit','it-path','it-label'], dur:1200},
+      {lit:['n-exec'], dur:850},
+      {lit:['n-exec','a1','n-test'], dur:850},
+      {lit:['n-exec','a1','n-test','a2','n-crit'], dur:850},
+      {lit:['n-exec','a1','n-test','a2','n-crit','a3','n-ver'], dur:2400}
+    ];
+    var step = 0;
+    (function loopStep(){
+      light(steps[step].lit);
+      var d = steps[step].dur;
+      step = (step + 1) % steps.length;
+      setTimeout(loopStep, d);
+    })();
+  }
+})();
+</script>
 </body>
 </html>
