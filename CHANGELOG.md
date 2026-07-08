@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.8.0
+
+- Token counts across the dashboards and `looprail spend` now use human
+  units all the way up (624k, 1.1M, 2.4B) - never "1085.5k".
 
 - **`looprail spend`** - per-provider/per-model spend across every run,
   aggregated from looprail's own journals (`--days N` window, `--json`).

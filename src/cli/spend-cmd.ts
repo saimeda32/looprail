@@ -14,6 +14,15 @@ import { defaultIo, dim, heading, ok, renderTable, type CliIo } from './ui.js'
 // that can silently include someone else's usage is worse than none. The
 // journals record exactly what looprail invoked, and nothing else.
 
+// "623936" reads as noise; "624k" reads as a number. Same unit ladder the
+// dashboards use (k/M/B, one decimal under 10 of a unit).
+export function formatTokens(n: number): string {
+  if (n >= 1e9) return (n / 1e9 >= 10 ? Math.round(n / 1e9) : Number((n / 1e9).toFixed(1))) + 'B'
+  if (n >= 1e6) return (n / 1e6 >= 10 ? Math.round(n / 1e6) : Number((n / 1e6).toFixed(1))) + 'M'
+  if (n >= 1000) return (n / 1000 >= 10 ? Math.round(n / 1000) : Number((n / 1000).toFixed(1))) + 'k'
+  return String(n)
+}
+
 export interface SpendRow {
   adapter: string
   model: string
@@ -103,7 +112,7 @@ export function spendAction(
       r.adapter, r.model, String(r.invocations),
       r.costUsd > 0 ? `$${r.costUsd.toFixed(2)}` : '-',
       r.estimatedCostUsd > 0 ? `~$${r.estimatedCostUsd.toFixed(2)}` : '-',
-      String(r.tokens),
+      formatTokens(r.tokens),
     ]),
   ))
   io.out(ok(`  total: $${report.totalCostUsd.toFixed(2)} real` +

@@ -292,7 +292,13 @@ export function buildMissionControlPage(): string {
   }
 
   function formatTokens(n) {
-    return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+    // Human units all the way up - "1085.5k" is not a number anyone says.
+    // One decimal below 10 of a unit (1.1M), none above (85M), matching how
+    // people actually read these.
+    if (n >= 1e9) return (n / 1e9 >= 10 ? Math.round(n / 1e9) : (n / 1e9).toFixed(1)) + 'B';
+    if (n >= 1e6) return (n / 1e6 >= 10 ? Math.round(n / 1e6) : (n / 1e6).toFixed(1)) + 'M';
+    if (n >= 1000) return (n / 1000 >= 10 ? Math.round(n / 1000) : (n / 1000).toFixed(1)) + 'k';
+    return String(n);
   }
 
   // Mirrors formatTokens' placement/style: a small ES5 pure formatter, no

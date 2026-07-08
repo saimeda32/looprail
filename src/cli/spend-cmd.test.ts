@@ -51,3 +51,13 @@ test('renders a friendly empty state and a totals line', () => {
   expect(spendAction({}, { io: { out: (l) => lines.push(l) }, runsDir: empty, now: () => NOW })).toBe(0)
   expect(lines.join('\n')).toContain('no agent spend')
 })
+
+test('formatTokens rolls through k/M/B like a human says them', async () => {
+  const { formatTokens } = await import('./spend-cmd.js')
+  expect(formatTokens(999)).toBe('999')
+  expect(formatTokens(1500)).toBe('1.5k')
+  expect(formatTokens(623936)).toBe('624k')
+  expect(formatTokens(1085500)).toBe('1.1M')   // never "1085.5k"
+  expect(formatTokens(85_000_000)).toBe('85M')
+  expect(formatTokens(2_400_000_000)).toBe('2.4B')
+})

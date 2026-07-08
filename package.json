@@ -1,6 +1,6 @@
 {
   "name": "looprail",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Run your coding agent in a loop until the work is verified done, not until the model stops talking",
   "license": "MIT",
   "type": "module",
