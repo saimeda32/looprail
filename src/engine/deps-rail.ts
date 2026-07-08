@@ -55,7 +55,7 @@ export function parseManifests(cwd: string): Map<Registry, Set<string>> {
     for (const raw of readFileSync(reqPath, 'utf8').split('\n')) {
       const line = raw.trim()
       if (!line || line.startsWith('#') || line.startsWith('-')) continue
-      const name = line.split(/[=<>!~\[; ]/)[0].trim().toLowerCase()
+      const name = line.split(/[=<>!~[; ]/)[0].trim().toLowerCase()
       if (name) names.add(name)
     }
     if (names.size > 0) out.set('pypi', names)
