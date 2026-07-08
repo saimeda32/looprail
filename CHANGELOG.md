@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **No-weaker-tests rail (`no_weaker_tests: true`)** - for loops where the
+  agent writes its own tests: the suite may grow and move freely, but an
+  iteration that makes it WEAKER (net assertions removed, skip markers
+  added) fails with the suspect files named and a restore instruction; a
+  second consecutive weakening halts. The floor ratchets upward each
+  iteration. Deterministic pattern counts (JS + python), aggregate-based
+  so cross-file refactors never false-positive. On by default in the
+  build-app template.
+
 ## 0.8.1
 
 - **CRITICAL FIX: installed `looprail` and `npx looprail` were silent

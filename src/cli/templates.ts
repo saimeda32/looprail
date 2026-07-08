@@ -326,6 +326,11 @@ goal: |
   the code builds, its own tests pass, and a critic confirms the result
   actually satisfies the spec, not just that something runs.
 
+# the agent writes its own tests here, so protect: doesn't apply - this
+# rail lets tests grow freely but fails any iteration where the suite gets
+# WEAKER (net assertions removed, or skip markers added)
+no_weaker_tests: true
+
 agents:
   worker:  ${agentSpec(adapters, models, 'worker')}
   checker: ${agentSpec(adapters, models, 'checker')}  ${REVIEWER_COMMENT}

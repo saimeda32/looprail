@@ -17,6 +17,7 @@ import type { AdapterRegistry } from '../adapters/registry.js'
 import { runIteration } from './scheduler.js'
 import { compareProtected, hasChanges, matchesAny, scopeVerdict, snapshotFiltered, tamperVerdict, type ProtectedChanges } from './protect.js'
 import { checkNewDeps, depsVerdict, liveRegistryProbe, parseManifests, type RegistryProbe } from './deps-rail.js'
+import { compareStrength, measureStrength, weakerTestsVerdict, type StrengthSnapshot } from './test-strength.js'
 import type { EngineDeps } from './nodes.js'
 import {
   applyGraphEdits, parseGraphEditsFragment, parseGraphFragment, serializeGraphFragment,
@@ -555,6 +556,13 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
   // them - only packages ADDED during the run are ever probed.
   const depsBaseline = def.verifyDeps ? parseManifests(guardDir) : undefined
   const registryProbe = opts.registryProbe ?? liveRegistryProbe
+  // No-weaker-tests floor: RATCHETS upward - each non-weakening iteration's
+  // strength becomes the next iteration's minimum, so within one run the
+  // suite is monotonically non-weakening.
+  let strengthFloor: StrengthSnapshot | undefined = def.noWeakerTests
+    ? await measureStrength(guardDir)
+    : undefined
+  let consecutiveWeakenings = 0
   let consecutiveTampers = 0
   let consecutiveScopeCreep = 0
 
@@ -634,10 +642,26 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
       }
       depsFail = depsVerdict(depsResult)
     }
+    // no_weaker_tests: aggregate assertion count must not drop, aggregate
+    // skip count must not rise, vs the ratcheting floor.
+    let weakening: ReturnType<typeof weakerTestsVerdict> | undefined
+    if (strengthFloor) {
+      const currentStrength = await measureStrength(guardDir)
+      const weaker = compareStrength(strengthFloor, currentStrength)
+      if (weaker) {
+        weakening = weakerTestsVerdict(weaker)
+        consecutiveWeakenings += 1
+        emit('test_strength_violation', { iteration: state.iteration, ...weaker })
+      } else {
+        consecutiveWeakenings = 0
+        strengthFloor = currentStrength // ratchet: growth becomes the new floor
+      }
+    }
     const guardVerdicts = [
       ...(tamper ? [tamper] : []),
       ...(scopeCreep ? [scopeCreep] : []),
       ...(depsFail ? [depsFail] : []),
+      ...(weakening ? [weakening] : []),
     ]
     const verdicts = [
       ...outcomes.flatMap((o) => (o.verdict ? [o.verdict] : [])),
@@ -758,6 +782,9 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     }
     if (consecutiveScopeCreep >= 2) {
       return await finish('halted', 'files outside the declared scope were changed again after an explicit revert instruction (scope rail) - see the scope_violation events in the journal')
+    }
+    if (consecutiveWeakenings >= 2) {
+      return await finish('halted', 'the test suite was weakened again after an explicit restore instruction (no_weaker_tests rail) - see the test_strength_violation events in the journal')
     }
     // Guard verdicts ride in as synthetic outcomes so the router's
     // aggregate (and its composed feedback) sees the deterministic fails.

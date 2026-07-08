@@ -5,6 +5,10 @@ goal: |
   the code builds, its own tests pass, and a critic confirms the result
   actually satisfies the spec, not just that something runs.
 
+# tests are agent-written here, so protect: doesn't apply - instead the
+# suite may only get stronger: net assertion loss or added skips fail
+no_weaker_tests: true
+
 agents:
   worker:  { adapter: copilot-cli, model: claude-sonnet-5 }
   checker: { adapter: copilot-cli, model: claude-sonnet-5 }  # independent reviewer - a different context catches what the worker's own review misses

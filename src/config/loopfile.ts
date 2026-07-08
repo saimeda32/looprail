@@ -74,6 +74,9 @@ export function parseLoopfile(text: string): LoopDef {
   if (raw.verify_deps !== undefined && typeof raw.verify_deps !== 'boolean') {
     problems.push('verify_deps must be true or false')
   }
+  if (raw.no_weaker_tests !== undefined && typeof raw.no_weaker_tests !== 'boolean') {
+    problems.push('no_weaker_tests must be true or false')
+  }
 
   if (problems.length > 0) throw new Error(`invalid loopfile:\n${problems.join('\n')}`)
 
@@ -95,6 +98,7 @@ export function parseLoopfile(text: string): LoopDef {
     ...scope,
     ...ledger,
     ...(raw.verify_deps === true ? { verifyDeps: true } : {}),
+    ...(raw.no_weaker_tests === true ? { noWeakerTests: true } : {}),
   }
 }
 

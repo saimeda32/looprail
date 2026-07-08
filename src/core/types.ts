@@ -201,6 +201,13 @@ export interface LoopDef {
   // consecutive violation halts. Enforced alongside protect with the same
   // snapshot machinery (engine/protect.ts).
   scope?: string[]
+  // No-weaker-tests rail (engine/test-strength.ts): for loops where the
+  // agent writes its own tests. Tests may grow and move freely, but the
+  // aggregate assertion count must never drop and the aggregate skip count
+  // must never rise within a run (the floor ratchets each iteration).
+  // Closes the delete-the-assertion / add-.skip class of reward hacks that
+  // protect: can't cover when tests are supposed to change.
+  noWeakerTests?: boolean
   // Hallucinated-dependency rail (engine/deps-rail.ts): when an iteration
   // ADDS packages to a manifest (package.json, requirements.txt), each new
   // name is verified against its public registry. Nonexistent -> the
@@ -332,6 +339,10 @@ export interface JournalEvent {
         // registry couldn't be asked about. data: { iteration, missing,
         // young, unchecked }.
         | 'deps_check'
+        // The no-weaker-tests rail caught the suite losing assertions or
+        // gaining skips. data: { iteration, lostAssertions, addedSkips,
+        // suspects }.
+        | 'test_strength_violation'
         // Emitted when an agent CLI subprocess running inside a node blocks
         // mid-execution waiting for its OWN tool-permission answer (see
         // dashboard/permission-registry.ts) - distinct from a `role: gate`

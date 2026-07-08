@@ -508,3 +508,18 @@ graph:
 rails: { max_iterations: 2, max_cost_usd: 1 }
 `)).toThrow(/verify_deps/)
 })
+
+test('no_weaker_tests parses as boolean and rejects anything else', () => {
+  const def = parseLoopfile(`
+name: t
+goal: g
+no_weaker_tests: true
+agents:
+  a: { adapter: mock }
+graph:
+  do: { role: executor, agent: a }
+  t:  { role: tester, after: do, run: "true", expect: exit 0 }
+rails: { max_iterations: 2, max_cost_usd: 1 }
+`)
+  expect(def.noWeakerTests).toBe(true)
+})

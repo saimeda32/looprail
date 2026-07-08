@@ -1254,3 +1254,80 @@ test('verify_deps fails an iteration that adds a nonexistent package, then verif
   expect(probes).toContain('totally-hallucinated-lib')
   expect(probes).toContain('left-pad')
 })
+
+// no_weaker_tests e2e: the agent silences a failing case with .skip ->
+// deterministic fail with a restore instruction; unskipping (and growing
+// the suite) verifies. The floor ratchets - iteration 1's growth becomes
+// the minimum for iteration 2.
+test('no_weaker_tests fails the skip-silencing iteration, then verifies after restoration', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lr-strength-e2e-'))
+  mkdirSync(join(dir, 'test'), { recursive: true })
+  writeFileSync(join(dir, 'test', 'a.test.js'), 'expect(a).toBe(1)\nexpect(b).toBe(2)\n')
+  let call = 0
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    async invoke(req) {
+      if (req.prompt.includes('VERDICT:')) {
+        return { output: 'VERDICT: pass\nEVIDENCE: ok', costUsd: 0, tokens: 0, durationMs: 1 }
+      }
+      call += 1
+      if (call === 1) {
+        // gaming move: skip the hard case AND drop an assertion
+        writeFileSync(join(dir, 'test', 'a.test.js'), 'it.skip("hard", () => {})\nexpect(a).toBe(1)\n')
+      } else {
+        // restore + grow
+        writeFileSync(join(dir, 'test', 'a.test.js'), 'expect(a).toBe(1)\nexpect(b).toBe(2)\nexpect(c).toBe(3)\n')
+      }
+      return { output: `attempt ${call}`, costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  })
+  const def: LoopDef = {
+    name: 'strength-e2e', goal: 'write good tests',
+    agents: { a: { adapter: 'mock' } },
+    nodes: [
+      { id: 'do', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'do', after: ['do'] },
+    ],
+    rails: { maxIterations: 3, maxCostUsd: 5 },
+    verdictPolicy: { kind: 'all-pass' },
+    noWeakerTests: true,
+  }
+  const report = await runLoop(def, { registry: reg2(registry), cwd: dir })
+  expect(report.status).toBe('verified')
+  expect(report.iterations).toBe(2)
+})
+
+test('no_weaker_tests halts after two consecutive weakenings', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lr-strength-halt-'))
+  mkdirSync(join(dir, 'test'), { recursive: true })
+  writeFileSync(join(dir, 'test', 'a.test.js'), 'expect(a).toBe(1)\nexpect(b).toBe(2)\n')
+  let call = 0
+  const registry = createRegistry()
+  registry.register({
+    name: 'mock',
+    async invoke(req) {
+      if (req.prompt.includes('VERDICT:')) {
+        return { output: 'VERDICT: pass\nEVIDENCE: ok', costUsd: 0, tokens: 0, durationMs: 1 }
+      }
+      call += 1
+      writeFileSync(join(dir, 'test', 'a.test.js'), `expect(a).toBe(${call})\n`) // keeps only 1 assertion
+      return { output: `attempt ${call}`, costUsd: 0, tokens: 0, durationMs: 1 }
+    },
+  })
+  const def: LoopDef = {
+    name: 'strength-halt', goal: 'g',
+    agents: { a: { adapter: 'mock' } },
+    nodes: [
+      { id: 'do', role: 'executor', agent: 'a' },
+      { id: 'crit', role: 'critic', agent: 'a', of: 'do', after: ['do'] },
+    ],
+    rails: { maxIterations: 6, maxCostUsd: 5 },
+    verdictPolicy: { kind: 'all-pass' },
+    noWeakerTests: true,
+  }
+  const report = await runLoop(def, { registry: reg2(registry), cwd: dir })
+  expect(report.status).toBe('halted')
+  expect(report.reason).toContain('no_weaker_tests')
+  expect(report.iterations).toBe(2)
+})

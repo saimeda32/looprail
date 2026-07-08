@@ -532,6 +532,18 @@ violation halts the run. `protect:` and `scope:` compose: protect pins
 files that must not change at all, scope bounds where everything else may
 happen.
 
+### No-weaker-tests rail
+
+`protect: tests` is for suites that already exist. When the agent *writes
+its own tests* (build-app loops), the gaming move is different: delete the
+assertion that fails, or add `.skip` to the hard case. `no_weaker_tests:
+true` lets the suite grow and move freely but fails any iteration where it
+gets weaker - net assertion count dropped, or skip markers added -
+naming the suspect files with a restore instruction. The floor ratchets:
+every improvement becomes the new minimum. Deterministic (pattern counts,
+no model), aggregate-based so refactors that move tests between files
+never trip it.
+
 ### Hallucinated-dependency rail
 
 Roughly a fifth of agent-suggested package names don't exist - and

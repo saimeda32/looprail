@@ -114,6 +114,9 @@ verify:
 - Add `scope: ["src/feature/**"]` when the task should stay inside a known
   area: changes outside the allowlist fail the iteration the same way -
   the structural answer to silent scope creep.
+- Add `no_weaker_tests: true` when the agent writes its own tests
+  (build-app shapes): net assertion loss or added skip markers fail the
+  iteration - the delete-the-assertion cheat, closed.
 - Add `verify_deps: true` when the agent may add dependencies: newly added
   packages that don't exist in their registry fail the iteration
   (hallucinated names are how slopsquatting attacks land).
