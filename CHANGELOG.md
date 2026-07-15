@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.2
 
 - **Auto-open the dashboard when a gate needs you** - when a run pauses on
   a human gate, looprail now opens your browser to that run's dashboard

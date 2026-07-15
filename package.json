@@ -1,6 +1,6 @@
 {
   "name": "looprail",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Multi-provider coding-agent orchestration: run Claude Code, Codex, Gemini and more in one verified loop where a critic on a different model signs off before work ships",
   "license": "MIT",
   "type": "module",
