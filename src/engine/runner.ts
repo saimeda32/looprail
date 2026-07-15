@@ -15,9 +15,8 @@ import { appendLedgerEntry } from '../journal/ledger.js'
 import { drainHumanFeedback } from '../journal/human-feedback.js'
 import type { AdapterRegistry } from '../adapters/registry.js'
 import { runIteration } from './scheduler.js'
-import { compareProtected, hasChanges, matchesAny, scopeVerdict, snapshotFiltered, tamperVerdict, type ProtectedChanges } from './protect.js'
-import { checkNewDeps, depsVerdict, liveRegistryProbe, parseManifests, type RegistryProbe } from './deps-rail.js'
-import { compareStrength, measureStrength, weakerTestsVerdict, type StrengthSnapshot } from './test-strength.js'
+import { GuardSet } from './guards.js'
+import type { RegistryProbe } from './deps-rail.js'
 import type { EngineDeps } from './nodes.js'
 import {
   applyGraphEdits, parseGraphEditsFragment, parseGraphFragment, serializeGraphFragment,
@@ -546,25 +545,11 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
       // swallowed - see comment above
     }
   }
-  const inProtect = (p: string): boolean => def.protect !== undefined && matchesAny(p, def.protect)
-  const outOfScope = (p: string): boolean => def.scope !== undefined && !matchesAny(p, def.scope)
-  const guardInclude = (p: string): boolean => inProtect(p) || outOfScope(p)
-  const guardBaseline = (def.protect || def.scope)
-    ? await snapshotFiltered(guardDir, guardInclude)
-    : undefined
-  // Hallucinated-dependency rail baseline: the manifests as the run found
-  // them - only packages ADDED during the run are ever probed.
-  const depsBaseline = def.verifyDeps ? parseManifests(guardDir) : undefined
-  const registryProbe = opts.registryProbe ?? liveRegistryProbe
-  // No-weaker-tests floor: RATCHETS upward - each non-weakening iteration's
-  // strength becomes the next iteration's minimum, so within one run the
-  // suite is monotonically non-weakening.
-  let strengthFloor: StrengthSnapshot | undefined = def.noWeakerTests
-    ? await measureStrength(guardDir)
-    : undefined
-  let consecutiveWeakenings = 0
-  let consecutiveTampers = 0
-  let consecutiveScopeCreep = 0
+  // The deterministic file-guard rails (protect / scope / verify_deps /
+  // no_weaker_tests) live in one GuardSet that owns their baselines, the
+  // ratcheting test-strength floor, and per-rail repeat counters. Baselines
+  // are captured here, AFTER planning - see engine/guards.ts.
+  const guards = await GuardSet.create(def, guardDir, opts.registryProbe)
 
   while (true) {
     state.iteration += 1
@@ -596,73 +581,14 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
       if (o.output) priorOutputs[o.nodeId] = o.output
     }
     state.priorOutputs = priorOutputs
-    // File guards: any change to a watched file this iteration is a
-    // deterministic fail - appended to the verdict set (it can only make
-    // the aggregate stricter) rather than pushed into `outcomes`, so the
-    // cache/priorOutputs/skipped bookkeeping above never sees a synthetic
-    // node. Baselines are never advanced: watched files must return to
-    // their run-start state for the loop to verify.
-    let tamper: ReturnType<typeof tamperVerdict> | undefined
-    let scopeCreep: ReturnType<typeof scopeVerdict> | undefined
-    if (guardBaseline) {
-      const changes = compareProtected(guardBaseline, await snapshotFiltered(guardDir, guardInclude))
-      const pick = (test: (p: string) => boolean): ProtectedChanges => ({
-        modified: changes.modified.filter(test),
-        deleted: changes.deleted.filter(test),
-        added: changes.added.filter(test),
-      })
-      const tamperChanges = pick(inProtect)
-      // A file can trip both rails (a protected test file that is also
-      // outside scope) - it is reported under protect, the sharper rule,
-      // rather than double-counted.
-      const scopeChanges = pick((p) => outOfScope(p) && !inProtect(p))
-      if (hasChanges(tamperChanges)) {
-        tamper = tamperVerdict(tamperChanges)
-        consecutiveTampers += 1
-        emit('protect_violation', { iteration: state.iteration, ...tamperChanges })
-      } else {
-        consecutiveTampers = 0
-      }
-      if (hasChanges(scopeChanges)) {
-        scopeCreep = scopeVerdict(scopeChanges)
-        consecutiveScopeCreep += 1
-        emit('scope_violation', { iteration: state.iteration, ...scopeChanges })
-      } else {
-        consecutiveScopeCreep = 0
-      }
-    }
-    // verify_deps: probe each newly added manifest package against its
-    // registry. Only nonexistent names fail; young packages and unreachable
-    // registries are journaled signals, said out loud but never false fails.
-    let depsFail: ReturnType<typeof depsVerdict> = null
-    if (depsBaseline) {
-      const depsResult = await checkNewDeps(depsBaseline, parseManifests(guardDir), registryProbe)
-      if (depsResult.missing.length + depsResult.young.length + depsResult.unchecked.length > 0) {
-        emit('deps_check', { iteration: state.iteration, ...depsResult })
-      }
-      depsFail = depsVerdict(depsResult)
-    }
-    // no_weaker_tests: aggregate assertion count must not drop, aggregate
-    // skip count must not rise, vs the ratcheting floor.
-    let weakening: ReturnType<typeof weakerTestsVerdict> | undefined
-    if (strengthFloor) {
-      const currentStrength = await measureStrength(guardDir)
-      const weaker = compareStrength(strengthFloor, currentStrength)
-      if (weaker) {
-        weakening = weakerTestsVerdict(weaker)
-        consecutiveWeakenings += 1
-        emit('test_strength_violation', { iteration: state.iteration, ...weaker })
-      } else {
-        consecutiveWeakenings = 0
-        strengthFloor = currentStrength // ratchet: growth becomes the new floor
-      }
-    }
-    const guardVerdicts = [
-      ...(tamper ? [tamper] : []),
-      ...(scopeCreep ? [scopeCreep] : []),
-      ...(depsFail ? [depsFail] : []),
-      ...(weakening ? [weakening] : []),
-    ]
+    // File guards (engine/guards.ts): each watched-file rail turns a
+    // violation into a deterministic fail appended to the verdict set (never
+    // pushed into `outcomes`, so cache/skipped bookkeeping never sees a
+    // synthetic node). The escalation halt is deferred to the same place the
+    // inline code checked it - after plan-approval below.
+    const guardEval = await guards.evaluate(state.iteration)
+    for (const ev of guardEval.events) emit(ev.type, ev.data)
+    const guardVerdicts = guardEval.verdicts
     const verdicts = [
       ...outcomes.flatMap((o) => (o.verdict ? [o.verdict] : [])),
       ...guardVerdicts,
@@ -774,18 +700,11 @@ export async function runLoop(def: LoopDef, opts: RunOptions): Promise<RunReport
     if (planApprovalHalt) return await finish('halted', planApprovalHalt)
     if (planApprovalHandled) continue
 
-    // Second consecutive violation of either rail: the executor was
-    // explicitly told to revert and changed watched files again anyway -
-    // it isn't listening, so stop burning budget on it.
-    if (consecutiveTampers >= 2) {
-      return await finish('halted', 'protected files were modified again after an explicit revert instruction (protect rail) - see the protect_violation events in the journal')
-    }
-    if (consecutiveScopeCreep >= 2) {
-      return await finish('halted', 'files outside the declared scope were changed again after an explicit revert instruction (scope rail) - see the scope_violation events in the journal')
-    }
-    if (consecutiveWeakenings >= 2) {
-      return await finish('halted', 'the test suite was weakened again after an explicit restore instruction (no_weaker_tests rail) - see the test_strength_violation events in the journal')
-    }
+    // Second consecutive violation of any one rail: the executor was
+    // explicitly told to fix it and didn't, so stop burning budget. Checked
+    // here (not right after evaluate) to preserve the original ordering -
+    // after this iteration's events, breach, and plan-approval handling.
+    if (guardEval.escalationHalt) return await finish('halted', guardEval.escalationHalt)
     // Guard verdicts ride in as synthetic outcomes so the router's
     // aggregate (and its composed feedback) sees the deterministic fails.
     const routedOutcomes = guardVerdicts.length > 0
