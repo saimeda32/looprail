@@ -26,6 +26,7 @@ import { previewRun, renderPreview } from './dry-run.js'
 import { diagnoseRun } from './diagnose.js'
 import { renderDiagnosis } from './why-cmd.js'
 import { createVerifiedPr, preflightPr, type PrExec } from './pr.js'
+import { openDashboardIfReachable } from './open-url.js'
 
 export function loadLoop(file: string | undefined, cwd: string): { def: LoopDef; path: string } {
   const path = resolve(cwd, file ?? 'looprail.yaml')
@@ -67,6 +68,7 @@ export function makeGate(
   rails: Rails, io: CliIo, autoApprove: boolean, cwd: string, timerDeps: GateTimerDeps = {},
   stdin: NodeJS.ReadableStream = process.stdin,
 ): GateHandler {
+  let autoOpened = false
   return async (node) => {
     if (autoApprove) {
       io.out(warn(`gate "${node.id}" auto-approved (--yes)`))
@@ -78,6 +80,11 @@ export function makeGate(
     }
     const notify = timerDeps.notify ?? (() => {})
     notify('looprail - approval needed', `gate "${node.id}" is waiting for your answer`, timerDeps.dashboardUrl)
+    // A gate waiting is the moment the human must act - open the dashboard
+    // to the answer page (once per run, only if a dashboard is serving; see
+    // cli/open-url.ts). This is the reliable alternative to a click-to-open
+    // notification, which macOS can't deliver.
+    if (!autoOpened) { autoOpened = true; void openDashboardIfReachable(timerDeps.dashboardUrl) }
     const rl = createInterface({ input: stdin, output: process.stdout })
     // Abort seam for the readline question: readline never rejects a pending
     // question on rl.close(), so the timeout path aborts it explicitly to
@@ -220,6 +227,7 @@ export function makeUiGate(
   timerDeps: GateTimerDeps = {},
   stdin: NodeJS.ReadableStream = process.stdin,
 ): GateHandler {
+  let autoOpened = false
   return async (node, context) => {
     if (autoApprove) {
       io.out(warn(`gate "${node.id}" auto-approved (--yes)`))
@@ -237,6 +245,11 @@ export function makeUiGate(
     writeGateWaitingMarker(runDir, { nodeId: node.id, isPlanApproval, question: context })
     const notify = timerDeps.notify ?? (() => {})
     notify('looprail - approval needed', `gate "${node.id}" is waiting for your answer (run ${runId})`, timerDeps.dashboardUrl)
+    // A gate waiting is the moment the human must act - open the dashboard
+    // to the answer page (once per run, only if a dashboard is serving; see
+    // cli/open-url.ts). This is the reliable alternative to a click-to-open
+    // notification, which macOS can't deliver.
+    if (!autoOpened) { autoOpened = true; void openDashboardIfReachable(timerDeps.dashboardUrl) }
 
     const rl = createInterface({ input: stdin, output: process.stdout })
     // Same abort seam makeGate uses for the readline question - whichever
@@ -333,6 +346,7 @@ export function makeDetachedGate(
   runId: string, runDir: string, expandedNodes: NodeDef[],
   timerDeps: GateTimerDeps = {},
 ): GateHandler {
+  let autoOpened = false
   return async (node, context) => {
     if (autoApprove) {
       io.out(warn(`gate "${node.id}" auto-approved (--yes)`))
@@ -348,6 +362,11 @@ export function makeDetachedGate(
     writeGateWaitingMarker(runDir, { nodeId: node.id, isPlanApproval, question: context })
     const notify = timerDeps.notify ?? (() => {})
     notify('looprail - approval needed', `gate "${node.id}" is waiting for your answer (run ${runId})`, timerDeps.dashboardUrl)
+    // A gate waiting is the moment the human must act - open the dashboard
+    // to the answer page (once per run, only if a dashboard is serving; see
+    // cli/open-url.ts). This is the reliable alternative to a click-to-open
+    // notification, which macOS can't deliver.
+    if (!autoOpened) { autoOpened = true; void openDashboardIfReachable(timerDeps.dashboardUrl) }
 
     const ac = new AbortController()
     let timeoutId: ReturnType<typeof setTimeout> | undefined

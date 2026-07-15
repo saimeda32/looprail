@@ -2,13 +2,16 @@
 
 ## Unreleased
 
-- **Clickable gate notifications** - a desktop notification for a gate
-  waiting on you now opens the run's dashboard page when clicked, instead
-  of focusing Script Editor. On macOS this uses `terminal-notifier` when
-  it is installed (`brew install terminal-notifier`); without it, the
-  notification still shows with the dashboard URL in its body. The click
-  deep-links straight to the run in mission control (or the run's own
-  `--ui` dashboard), where you answer the gate.
+- **Auto-open the dashboard when a gate needs you** - when a run pauses on
+  a human gate, looprail now opens your browser to that run's dashboard
+  page (once per run, and only if a dashboard is actually serving it, so it
+  never opens a dead tab), so you can act immediately. The desktop
+  notification still fires and carries the URL in its body. Reliable path,
+  no click and no extra tools required (macOS `display notification` can't
+  open a URL on click, and terminal-notifier silently drops notifications
+  without a permission most machines never grant). Opt out with
+  `LOOPRAIL_NO_AUTO_OPEN=1`; `LOOPRAIL_NO_NOTIFY=1` still silences
+  notifications.
 
 ## Unreleased
 
