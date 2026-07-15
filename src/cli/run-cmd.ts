@@ -585,9 +585,12 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
   // A halted run leaves the user with a terse reason and no next move -
   // the single biggest friction. Turn the whole run into a plain-language
   // diagnosis + concrete next steps, read from the journal (all iterations,
-  // not just the final outcome set). Verified runs already render their own
-  // success line, so only diagnose halts here.
-  if (report.status === 'halted') {
+  // not just the final outcome set). Verified runs render their own success
+  // line, and a parked run already got the bespoke "nothing failed, resume"
+  // rendering above - diagnosing it again would just repeat that - so only
+  // genuine failures are diagnosed here. (`looprail why` still explains a
+  // parked run after the fact.)
+  if (report.status === 'halted' && !isParked) {
     ctx.io.out('')
     const events = readJournal(join(ctx.runDir, 'journal.jsonl'))
     renderDiagnosis(ctx.io, diagnoseRun({
