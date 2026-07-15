@@ -20,7 +20,9 @@ graph:
   draft:     { role: executor, agent: worker, after: plan-crit }
   crit:      { role: critic, agent: checker, of: draft, after: draft, panel: 2,
                prompt: Refute any unsupported or uncited claim. }
-  merge:     { role: synthesizer, agent: checker, after: crit }
+  # adjudicate: the merge must ACCEPT/DISMISS/DEFER each critic finding with
+  # a reason - no raised issue is silently dropped
+  merge:     { role: synthesizer, agent: checker, after: crit, adjudicate: true }
 
 rails:
   max_iterations: 8

@@ -212,3 +212,12 @@ test('L014 warns when context: fresh is set on a non-executor', () => {
   const findings = lintLoop(def).filter((f) => f.rule === 'L014')
   expect(findings.map((f) => f.node)).toEqual(['crit'])
 })
+
+test('L015 warns when adjudicate is set on a non-synthesizer', () => {
+  const def = make([
+    { id: 'do', role: 'executor', agent: 'big', adjudicate: true },
+    { id: 'm', role: 'synthesizer', agent: 'small', after: ['do'], adjudicate: true },
+  ])
+  const findings = lintLoop(def).filter((f) => f.rule === 'L015')
+  expect(findings.map((f) => f.node)).toEqual(['do'])
+})

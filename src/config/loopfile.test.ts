@@ -523,3 +523,18 @@ rails: { max_iterations: 2, max_cost_usd: 1 }
 `)
   expect(def.noWeakerTests).toBe(true)
 })
+
+test('parses adjudicate: true on a synthesizer', () => {
+  const def = parseLoopfile(`
+name: t
+goal: g
+agents:
+  a: { adapter: mock }
+graph:
+  do:    { role: executor, agent: a }
+  crit:  { role: critic, agent: a, of: do, after: do, panel: 2 }
+  merge: { role: synthesizer, agent: a, after: crit, adjudicate: true }
+rails: { max_iterations: 2, max_cost_usd: 1 }
+`)
+  expect(def.nodes.find((n) => n.id === 'merge')?.adjudicate).toBe(true)
+})

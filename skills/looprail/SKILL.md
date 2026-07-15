@@ -140,6 +140,14 @@ implementing+verifying nodes with a coverage list, an independent critic
 re-reads the spec and fails on gaps, and the human approves the plan at a
 gate before anything executes.
 
+## Panels and arbitration
+
+`panel: N` (or `panel: [a, b, c]`) fans a critic or judge out for diverse
+review; close a panel with a `synthesizer` that aggregates it. Add
+`adjudicate: true` on that synthesizer to force it to ACCEPT/DISMISS/DEFER
+every finding with a reason instead of a free-form merge - the aggregation
+becomes auditable, and no raised issue is silently dropped.
+
 ## Self-planning (when no loopfile fits)
 
 A planner node with `generates: graph` designs the node graph itself from

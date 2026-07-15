@@ -218,3 +218,25 @@ test('default (non-fresh) executor still gets its previous attempt', () => {
   const ctx = composeContext(def, node, s2, new Map())
   expect(ctx).toContain('PRIOR WORK')
 })
+
+// adjudicate: a synthesizer becomes a structured arbiter that can't silently
+// drop findings.
+test('adjudicate swaps the synthesizer merge instruction for structured arbitration', () => {
+  const node: NodeDef = { id: 'merge', role: 'synthesizer', agent: 'a', adjudicate: true, after: ['critA', 'critB'] }
+  const ctx = composeContext(def, node, state, new Map([
+    ['critA', outcome('critA', 'issue 1: no retry')],
+    ['critB', outcome('critB', 'issue 2: weak error')],
+  ]))
+  expect(ctx).toContain('ARBITER')
+  expect(ctx).toContain('ACCEPT')
+  expect(ctx).toContain('DISMISS')
+  expect(ctx).toContain('Adjudication')
+  expect(ctx).not.toContain('Merge the branch outputs')
+})
+
+test('a plain synthesizer keeps the merge instruction', () => {
+  const node: NodeDef = { id: 'merge', role: 'synthesizer', agent: 'a', after: ['critA'] }
+  const ctx = composeContext(def, node, state, new Map([['critA', outcome('critA', 'x')]]))
+  expect(ctx).toContain('Merge the branch outputs')
+  expect(ctx).not.toContain('ARBITER')
+})

@@ -182,5 +182,16 @@ export function lintLoop(def: LoopDef): LintFinding[] {
     }
   }
 
+  // L015: adjudicate only changes a synthesizer's instruction - set
+  // anywhere else it silently does nothing.
+  for (const n of def.nodes.filter((x) => x.adjudicate)) {
+    if (n.role !== 'synthesizer') {
+      findings.push({
+        rule: 'L015', level: 'warn', node: n.id,
+        message: `node "${n.id}" sets adjudicate but is a ${n.role} - adjudicate only applies to synthesizers, so it has no effect here`,
+      })
+    }
+  }
+
   return findings
 }

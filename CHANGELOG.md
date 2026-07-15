@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Structured adjudication (`adjudicate: true`)** - a synthesizer becomes
+  an arbiter that must ACCEPT / DISMISS (with a reason) / DEFER every issue
+  its input branches raised, instead of a free-form merge that can silently
+  drop findings. Makes panel aggregation auditable. Lint L015 warns where
+  it has no effect. (Pattern borrowed from the deliberation project's
+  arbiter-with-documented-rationale.)
+
 ## 0.9.0
 
 - **`looprail run --pr`** - a VERIFIED run ships itself as a pull request

@@ -63,6 +63,22 @@ const ROLE_INSTRUCTIONS: Record<Role, string> = {
     'coherent result, resolving conflicts and removing duplicates.',
 }
 
+// Structured-arbiter instruction (NodeDef.adjudicate) - replaces the plain
+// synthesizer merge. The arbiter cannot silently drop a finding: every
+// issue its input branches raised is explicitly kept or rejected, and a
+// rejection needs a stated reason. Produces an auditable reconciliation,
+// not an opaque blend.
+const ADJUDICATE_INSTRUCTION =
+  'You are the ARBITER. The branch outputs below each raised issues about ' +
+  'the same work. Reconcile them: go through EVERY distinct issue and, for ' +
+  'each, decide ACCEPT (it stands - fold it into the result), DISMISS (it ' +
+  'is wrong or not a real problem - and you MUST give a one-line reason ' +
+  'why), or DEFER (real but out of scope now - say where it belongs). Do ' +
+  'not silently drop any issue. End with an "## Adjudication" section ' +
+  'listing each issue and your ACCEPT/DISMISS/DEFER decision, then the ' +
+  'reconciled result.'
+
+
 // A generates:'graph' planner's output is parsed as YAML, and a replan
 // gives it its own previous attempt in context ("# Current plan" below) -
 // but neither of those things is obvious from a plain "propose a graph"
@@ -242,7 +258,7 @@ export function composeContext(
       + 'Before finishing, update .looprail/progress.md with (1) what is done, (2) what remains, (3) anything the next iteration must know.',
     )
   }
-  parts.push(`# Your role\n${ROLE_INSTRUCTIONS[node.role]}`)
+  parts.push(`# Your role\n${node.role === 'synthesizer' && node.adjudicate ? ADJUDICATE_INSTRUCTION : ROLE_INSTRUCTIONS[node.role]}`)
   if (node.generates === 'graph') {
     parts.push(GENERATES_GRAPH_FORMAT_INSTRUCTIONS)
     if (state.plan && state.feedback) parts.push(GENERATES_GRAPH_EDIT_INSTRUCTIONS)

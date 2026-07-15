@@ -71,6 +71,19 @@ no single vendor's orchestration can offer about itself.
   tighter with its own agent than any wrapper can - if you're
   single-vendor and trust self-review, it's fewer moving parts.
 
+## Adjacent: second-opinion tools
+
+[deliberation](https://github.com/antonbabenko/deliberation) is an MCP
+server that asks Codex, Gemini, Grok, and OpenRouter models for second
+opinions or arbiter-mediated consensus on code and plans. It shares
+looprail's core belief - cross-model review beats self-review - but it
+*advises*: it runs a panel and reconciles their verdicts for a human or a
+host agent to act on. It doesn't gate shipping on a real test passing, run
+a build-fix-verify loop, or enforce rails. The two compose cleanly: run
+deliberation as a critic *inside* a looprail loop and its consensus becomes
+one gate on the path to verified. looprail's own `adjudicate: true`
+synthesizer borrows deliberation's arbiter-with-documented-rationale idea.
+
 ## The one thing a vendor can't ship
 
 A model reviewing its own vendor's output shares its blind spots - the

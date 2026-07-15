@@ -124,3 +124,21 @@ deleting history breaks every hash after it - `looprail ledger --verify`
 recomputes the chain and names the exact break. Commit the file and the
 repo carries its own provenance trail: "this change was verified by
 <model> on <date>", checkable by anyone with the repo.
+
+
+## Structured adjudication (`adjudicate: true`)
+
+A `synthesizer` node merges branch outputs. By default that merge is
+free-form, which means a polite synthesizer can quietly drop a real finding
+a critic raised. `adjudicate: true` turns the synthesizer into an
+**arbiter** that must go through every issue its inputs raised and mark each
+one ACCEPT, DISMISS (with a stated reason), or DEFER - ending with an
+`## Adjudication` section before the reconciled result. Aggregation becomes
+an auditable step, not an opaque blend.
+
+```yaml
+merge: { role: synthesizer, agent: reviewer, after: crit, adjudicate: true }
+```
+
+Lint rule L015 warns when `adjudicate` is set on a node that isn't a
+synthesizer.

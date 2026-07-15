@@ -155,6 +155,12 @@ export interface NodeDef {
   // is the working memory; long runs stop dragging a growing, staling
   // transcript through every prompt.
   context?: 'fresh'
+  // On a synthesizer: instead of a free-form merge, force structured
+  // adjudication - the synthesizer must ACCEPT / DISMISS / DEFER each issue
+  // its input branches raised, with a written reason for every dismissal
+  // (the arbiter-with-documented-rationale pattern). Turns aggregation into
+  // an auditable step: no finding is silently dropped.
+  adjudicate?: boolean
   rounds?: number           // planner-critic revision rounds (critics of planner)
   // When set on a planner node, its output is parsed as a loopfile-fragment
   // (a graph: list, optionally its own agents:/rails:) instead of prose, and
