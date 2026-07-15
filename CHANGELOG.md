@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.1
 
 - **Structured adjudication (`adjudicate: true`)** - a synthesizer becomes
   an arbiter that must ACCEPT / DISMISS (with a reason) / DEFER every issue
@@ -8,6 +8,11 @@
   drop findings. Makes panel aggregation auditable. Lint L015 warns where
   it has no effect. (Pattern borrowed from the deliberation project's
   arbiter-with-documented-rationale.)
+- Internal: the deterministic file-guard rails
+  (protect/scope/verify_deps/no_weaker_tests) are extracted from `runLoop`
+  into a single `GuardSet` (engine/guards.ts) - no behavior change, but the
+  rails are now unit-tested on their own and the engine loop is far easier
+  to follow.
 
 ## 0.9.0
 
