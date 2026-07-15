@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>looprail — coding agents, verified done</title>
+<title>looprail — multi-provider agent orchestration, verified</title>
 <meta name="description" content="Run Claude Code, Codex, Copilot and other agent CLIs in a loop until real tests and an independent cross-model critic pass. Test-tamper guards, cost rails, tamper-evident verdict ledgers. MIT.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230b0e13'/><path d='M8 20V12a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v8a4 4 0 0 1-4 4h-5' fill='none' stroke='%234ade80' stroke-width='3' stroke-linecap='round'/></svg>">
 <style>
@@ -173,7 +173,7 @@
   <div class="wrap">
     <div class="hero">
       <h1>Your coding agent says it's done. <em>Make it prove it.</em></h1>
-      <p class="lead">looprail runs the agent CLIs you already have (Claude Code, Codex, Copilot, Gemini, aider, opencode, local models) in a loop that only exits when real tests pass <b>and</b> a critic on a different model agrees. With hard dollar rails, so it can't run away either.</p>
+      <p class="lead">looprail runs the agent CLIs you already have (Claude Code, Codex, Copilot, Gemini, aider, opencode, local models) in one loop that only exits when real tests pass <b>and</b> a critic on a <b>different provider</b> signs off. Cross-model review is the point: a vendor can't be its own honest reviewer.</p>
       <div class="cta">
         <a class="btn primary" href="https://github.com/saimeda32/looprail">View on GitHub</a>
         <span class="trynow">try it offline, no keys: <code>npx looprail demo</code></span>

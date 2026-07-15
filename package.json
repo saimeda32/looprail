@@ -1,7 +1,7 @@
 {
   "name": "looprail",
   "version": "0.9.0",
-  "description": "Run your coding agent in a loop until the work is verified done, not until the model stops talking",
+  "description": "Multi-provider coding-agent orchestration: run Claude Code, Codex, Gemini and more in one verified loop where a critic on a different model signs off before work ships",
   "license": "MIT",
   "type": "module",
   "author": "Sai Kiran Meda",

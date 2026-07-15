@@ -126,7 +126,7 @@ verify:
   `.looprail/progress.md` notes instead of an ever-growing transcript
   (the Ralph-loop pattern, per node).
 - `panel: 3` (or `panel: [a, b, c]`) fans a critic/judge out for diverse
-  review. Add `probe: true` to cut panel cost on failing iterations: the
+  review. Add `probe: true` to skip redundant reviews on already-failed iterations: the
   first clone runs first, and if it FAILS the rest are skipped - the
   iteration is already decided (all-pass policy only; a verified pass
   still requires every clone to run and pass). Put the cheapest reviewer

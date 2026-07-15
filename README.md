@@ -7,7 +7,7 @@
 ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚══════╝
 ```
 
-**Run your coding agent in a loop until the work is verified done - not until the model stops talking.**
+**Orchestrate coding agents across providers in one verified loop - where done means a critic on a different model signed off, not that yours stopped talking.**
 
 [![npm version](https://img.shields.io/npm/v/looprail.svg)](https://www.npmjs.com/package/looprail)
 [![node](https://img.shields.io/node/v/looprail.svg)](https://nodejs.org)
@@ -129,7 +129,7 @@ checks pass or a rail is hit. Every field, role, rail, and verdict policy:
 | `looprail run [file]` | Run the loop with live progress and a cost report |
 | `looprail run --dry-run` | Print the execution plan (node order, per-node model, budget ceiling) and exit - invokes no agent, spends nothing |
 | `looprail ledger` | Inspect the repo's hash-chained evidence ledger of verdicts; `--verify` recomputes the chain and names any break |
-| `looprail spend` | Per-provider/model spend across every run, from the journals - real cost and estimates kept separate |
+| `looprail spend` | See what each provider and model cost across every run - cross-provider visibility, from the journals |
 | `looprail bench [file]` | A/B two or more named loop configs against the same task and report measured deltas (`benchmarks/`) |
 | `looprail route [file]` | Benchmark auto-generated adapter/model variants of your own loopfile and record the best mix in `.looprail/routing.json` |
 | `looprail run --ui` | Same, and open a live dashboard for this run |
