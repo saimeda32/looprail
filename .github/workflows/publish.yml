@@ -26,12 +26,15 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
       # Trusted Publisher support landed in npm 11.5.1 - setup-node's
-      # bundled npm on the node:20 image predates it.
-      - run: npm install -g npm@latest
+      # bundled npm predates it. Pin a version known to support Trusted
+      # Publishing AND still run on the CI node (npm@latest dropped node 20,
+      # and would drop whatever CI runs next - a floating latest is the rot
+      # that broke the 0.9.1 publish).
+      - run: npm install -g npm@11
 
       - run: npm ci
       - run: npm run build
