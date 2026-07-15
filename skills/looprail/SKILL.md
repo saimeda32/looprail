@@ -47,6 +47,7 @@ no agent CLI, nothing touched.
 | Run until verified, watch live | `looprail run --ui` |
 | Run in background, survives the terminal | `looprail run -d` (watch/answer gates via `looprail ui --all`) |
 | Batch many goals unattended | `looprail queue` (queue.yaml of goals; gated items park, never block) |
+| Understand why a run stopped | `looprail why [runId]` (plain-language cause + next steps; also auto-printed on halt) |
 | Continue a parked/halted run | `looprail resume <runId>` (prior work cached, never re-billed) |
 | See every run across projects | `looprail ui --all` (mission control, port 4748) |
 | Machine-readable result | `looprail run --json` (status/cost/journal path; exit 0 verified, 2 halted, 1 error) |

@@ -23,6 +23,8 @@ import { addWorkspace, defaultRegistryPath } from '../workspace/registry.js'
 import { loadExpandedLoopDef } from './ui-cmd.js'
 import { resumeAction } from './resume-cmd.js'
 import { previewRun, renderPreview } from './dry-run.js'
+import { diagnoseRun } from './diagnose.js'
+import { renderDiagnosis } from './why-cmd.js'
 import { createVerifiedPr, preflightPr, type PrExec } from './pr.js'
 
 export function loadLoop(file: string | undefined, cwd: string): { def: LoopDef; path: string } {
@@ -580,6 +582,20 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
   }
   ctx.io.out('')
   ctx.io.out(dim(`  journal: ${join(ctx.runDir, 'journal.jsonl')} · run id: ${report.runId}`))
+  // A halted run leaves the user with a terse reason and no next move -
+  // the single biggest friction. Turn the whole run into a plain-language
+  // diagnosis + concrete next steps, read from the journal (all iterations,
+  // not just the final outcome set). Verified runs already render their own
+  // success line, so only diagnose halts here.
+  if (report.status === 'halted') {
+    ctx.io.out('')
+    const events = readJournal(join(ctx.runDir, 'journal.jsonl'))
+    renderDiagnosis(ctx.io, diagnoseRun({
+      status: 'halted', reason: report.reason, iterations: report.iterations,
+      costUsd: report.costUsd, estimatedCostUsd: report.estimatedCostUsd,
+    }, events), false)
+    ctx.io.out(dim(`  (\`looprail why ${report.runId}\` shows this again anytime)`))
+  }
   if (ctx.pr && report.status === 'verified') {
     try {
       const pr = await createVerifiedPr(ctx.cwd, report, ctx.prExec)

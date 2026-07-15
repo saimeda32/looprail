@@ -1572,3 +1572,14 @@ test('--pr on a verified run branches, pushes, and prints the PR url', async () 
   expect(lines.join('\n')).toContain('pull/9')
   expect(calls.some((c) => c[0] === 'git' && c[1] === 'push')).toBe(true)
 })
+
+// A halted run must not leave the user with just "halted - ..." - it prints
+// a plain-language diagnosis and concrete next steps (the biggest friction).
+test('a halted run prints a diagnosis with next steps and points at `looprail why`', async () => {
+  const { cwd, io, lines } = setup(HALTING) // executor + tester run:"false" -> halts
+  const code = await runAction(undefined, { cwd }, { io })
+  expect(code).toBe(2)
+  const text = lines.join('\n')
+  expect(text.toLowerCase()).toContain('what to do:')
+  expect(text).toContain('looprail why')
+})

@@ -18,6 +18,7 @@ import { registerRun } from './run-cmd.js'
 import { registerSpend } from './spend-cmd.js'
 import { registerTemplates } from './templates-cmd.js'
 import { registerLogs, registerStatus } from './status-cmd.js'
+import { registerWhy } from './why-cmd.js'
 import { registerMcp } from './mcp-cmd.js'
 import { registerUi } from './ui-cmd.js'
 import { registerWorkspace } from './workspace-cmd.js'
@@ -47,6 +48,7 @@ export function buildProgram(): Command {
   registerResume(program)
   registerStatus(program)
   registerLogs(program)
+  registerWhy(program)
   registerExplain(program)
   registerUi(program)
   registerWorkspace(program)

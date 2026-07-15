@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- **`looprail why [runId]` + automatic halt diagnosis** - when a run halts,
+  instead of a terse "halted - rail breached (iterations)" you now get a
+  plain-language explanation of what happened and concrete next steps,
+  printed automatically and available for any past run via `looprail why`.
+  It reads the journal (deterministic, no model): a cost halt names the
+  most expensive agent as the lever; an iteration halt tells you whether it
+  was stuck on the same failure (raising the limit won't help) or making
+  progress (raise it); a not-converging halt points at the recurring
+  failure and node; a parked gate points at resume; a guard-rail halt
+  explains what the agent kept doing. `--json` for scripting.
+
 ## 0.9.1
 
 - **Structured adjudication (`adjudicate: true`)** - a synthesizer becomes
