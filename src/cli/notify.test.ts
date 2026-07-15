@@ -7,7 +7,14 @@ vi.mock('node:child_process', () => ({
     return { on: () => {}, unref: () => {} }
   },
 }))
-afterEach(() => { spawns.length = 0; vi.unstubAllEnvs() })
+const realPlatform = process.platform
+afterEach(() => {
+  spawns.length = 0
+  vi.unstubAllEnvs()
+  // notify tests override process.platform; restore it so no other test
+  // (run concurrently or after) sees a wrong platform.
+  Object.defineProperty(process, 'platform', { value: realPlatform, configurable: true })
+})
 
 describe('desktopNotifier', () => {
   test('on darwin, uses osascript and puts the openUrl in the notification body', async () => {
