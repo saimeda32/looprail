@@ -11,7 +11,7 @@ import {
 } from '../index.js'
 import type { ResumeOverrides } from '../dashboard/server.js'
 import {
-  DEFAULT_SINGLE_RUN_PORT, startMissionControlServer, type MissionControlServer,
+  DEFAULT_MISSION_CONTROL_PORT, DEFAULT_SINGLE_RUN_PORT, startMissionControlServer, type MissionControlServer,
 } from '../dashboard/mission-control-server.js'
 import { registerPendingGate, resolvePendingGate, sweepPendingGates } from '../dashboard/gate-registry.js'
 import { runsRoot, workspaceHash } from '../journal/runs.js'
@@ -35,6 +35,13 @@ export function loadLoop(file: string | undefined, cwd: string): { def: LoopDef;
   return { def: parseLoopfile(readFileSync(path, 'utf8')), path }
 }
 
+// A run's deep-link within a dashboard server: `<base>/run/<hash>/<runId>/`,
+// the same shape run --ui prints. Used as the click target for gate
+// notifications so opening one lands on the page where the human answers.
+export function runDashboardUrl(base: string, cwd: string, runId: string): string {
+  return `${base}/run/${workspaceHash(resolve(cwd))}/${runId}/`
+}
+
 export interface GateTimerDeps {
   // returns a promise that rejects with `message` after `ms` milliseconds.
   // Defaults to a real (unref'd) setTimeout owned by makeGate (so it can be
@@ -50,6 +57,10 @@ export interface GateTimerDeps {
   // How often the gate polls for a cross-process gate-answer.json (see
   // journal/gate-files.ts). Default 500ms; tests inject something tiny.
   gateAnswerPollMs?: number
+  // Deep link to this run's dashboard, passed to the notifier as the click
+  // target so a gate notification opens the page where the human can answer
+  // (see notify.ts). Absent when no dashboard serves this run.
+  dashboardUrl?: string
 }
 
 export function makeGate(
@@ -66,7 +77,7 @@ export function makeGate(
       return { approved: true }
     }
     const notify = timerDeps.notify ?? (() => {})
-    notify('looprail - approval needed', `gate "${node.id}" is waiting for your answer`)
+    notify('looprail - approval needed', `gate "${node.id}" is waiting for your answer`, timerDeps.dashboardUrl)
     const rl = createInterface({ input: stdin, output: process.stdout })
     // Abort seam for the readline question: readline never rejects a pending
     // question on rl.close(), so the timeout path aborts it explicitly to
@@ -110,7 +121,7 @@ export function makeGate(
       // swallow both losers' rejections so neither surfaces as an unhandled one
       timer.catch(() => {
         ac.abort()
-        notify('looprail - run parked', `gate "${node.id}" got no answer in time - resume the run to answer it`)
+        notify('looprail - run parked', `gate "${node.id}" got no answer in time - resume the run to answer it`, timerDeps.dashboardUrl)
       })
       question.catch(() => {})
       try {
@@ -225,7 +236,7 @@ export function makeUiGate(
     discardStaleGateAnswer(runDir)
     writeGateWaitingMarker(runDir, { nodeId: node.id, isPlanApproval, question: context })
     const notify = timerDeps.notify ?? (() => {})
-    notify('looprail - approval needed', `gate "${node.id}" is waiting for your answer (run ${runId})`)
+    notify('looprail - approval needed', `gate "${node.id}" is waiting for your answer (run ${runId})`, timerDeps.dashboardUrl)
 
     const rl = createInterface({ input: stdin, output: process.stdout })
     // Same abort seam makeGate uses for the readline question - whichever
@@ -287,7 +298,7 @@ export function makeUiGate(
         // settles; swallow the loser's rejection so it never surfaces as unhandled
         timer.catch(() => {
           ac.abort()
-          notify('looprail - run parked', `gate "${node.id}" got no answer in time - resume run ${runId} to answer it`)
+          notify('looprail - run parked', `gate "${node.id}" got no answer in time - resume run ${runId} to answer it`, timerDeps.dashboardUrl)
         })
         try {
           const answer = await Promise.race([...racers, timer])
@@ -336,7 +347,7 @@ export function makeDetachedGate(
     discardStaleGateAnswer(runDir)
     writeGateWaitingMarker(runDir, { nodeId: node.id, isPlanApproval, question: context })
     const notify = timerDeps.notify ?? (() => {})
-    notify('looprail - approval needed', `gate "${node.id}" is waiting for your answer (run ${runId})`)
+    notify('looprail - approval needed', `gate "${node.id}" is waiting for your answer (run ${runId})`, timerDeps.dashboardUrl)
 
     const ac = new AbortController()
     let timeoutId: ReturnType<typeof setTimeout> | undefined
@@ -361,7 +372,7 @@ export function makeDetachedGate(
             })
         timer.catch(() => {
           ac.abort()
-          notify('looprail - run parked', `gate "${node.id}" got no answer in time - resume run ${runId} to answer it`)
+          notify('looprail - run parked', `gate "${node.id}" got no answer in time - resume run ${runId} to answer it`, timerDeps.dashboardUrl)
         })
         try {
           return normalizeGateAnswer(await Promise.race([fileAnswered, timer]))
@@ -948,11 +959,19 @@ export async function runAction(
       // A detached child's gate is answerable ONLY via the cross-process
       // answer file; a `--ui` run's gate from stdin or its own dashboard; a
       // plain `run` gets the exact same stdin-only makeGate it always has.
+      // A gate notification's click target is this run's dashboard page. A
+      // --ui run has its own server (deep-link to it); a detached or plain
+      // run is answered from mission control (`looprail ui --all`), so the
+      // click opens that server's per-run view if it is up. runDashboardUrl
+      // builds `<base>/run/<workspaceHash>/<runId>/`.
       gate: deps.gate ?? (opts.detachedChild
-        ? makeDetachedGate(loaded.def.rails, io, !!opts.yes, opts.cwd, runId, runDir, expanded.nodes, { notify: deps.notifier ?? desktopNotifier })
+        ? makeDetachedGate(loaded.def.rails, io, !!opts.yes, opts.cwd, runId, runDir, expanded.nodes,
+            { notify: deps.notifier ?? desktopNotifier, dashboardUrl: runDashboardUrl(`http://127.0.0.1:${DEFAULT_MISSION_CONTROL_PORT}`, opts.cwd, runId) })
         : opts.ui
-          ? makeUiGate(loaded.def.rails, io, !!opts.yes, opts.cwd, runId, runDir, expanded.nodes, { notify: desktopNotifier })
-          : makeGate(loaded.def.rails, io, !!opts.yes, opts.cwd, { notify: desktopNotifier })),
+          ? makeUiGate(loaded.def.rails, io, !!opts.yes, opts.cwd, runId, runDir, expanded.nodes,
+              { notify: desktopNotifier, dashboardUrl: dashboard ? runDashboardUrl(dashboard.url, opts.cwd, runId) : undefined })
+          : makeGate(loaded.def.rails, io, !!opts.yes, opts.cwd,
+              { notify: desktopNotifier, dashboardUrl: runDashboardUrl(`http://127.0.0.1:${DEFAULT_MISSION_CONTROL_PORT}`, opts.cwd, runId) })),
     })
     // A detached run has no terminal - the notification IS its completion
     // signal. Parked/halted vs verified is all the human needs at a glance;

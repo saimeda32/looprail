@@ -105,7 +105,9 @@ verify:
   was deleted, skipped, or weakened"). Add `blind: true` on code-review
   critics so they review the actual workspace diff instead of the
   worker's own claims (git workspaces).
-- Put a `role: gate` node wherever the user should approve - a plan gate
+- Put a `role: gate` node wherever the user should approve (a gate that
+  waits fires a desktop notification; on macOS with `terminal-notifier`
+  installed, clicking it opens the run's dashboard to answer) - a plan gate
   BEFORE code changes is the cheapest place to say no. Gates time out into
   a PARKED, resumable state, never a failure.
 - Always set rails: `max_iterations`, `max_cost_usd`, `max_wall_minutes`.

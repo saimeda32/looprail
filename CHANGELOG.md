@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Clickable gate notifications** - a desktop notification for a gate
+  waiting on you now opens the run's dashboard page when clicked, instead
+  of focusing Script Editor. On macOS this uses `terminal-notifier` when
+  it is installed (`brew install terminal-notifier`); without it, the
+  notification still shows with the dashboard URL in its body. The click
+  deep-links straight to the run in mission control (or the run's own
+  `--ui` dashboard), where you answer the gate.
+
+## Unreleased
+
 - **`looprail why [runId]` + automatic halt diagnosis** - when a run halts,
   instead of a terse "halted - rail breached (iterations)" you now get a
   plain-language explanation of what happened and concrete next steps,
