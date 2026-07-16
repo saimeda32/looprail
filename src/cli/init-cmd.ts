@@ -7,6 +7,7 @@ import { detectTestCommand, type DetectedTestCommand } from './detect-test-comma
 import { defaultIo, dim, err, ok, warn, type CliIo } from './ui.js'
 import { TEMPLATES, tierToModel, type AgentRole, type Tier } from './templates.js'
 import { readUserConfig } from '../config/user-config.js'
+import { canInteract, interactiveSelect } from './select.js'
 
 // order tiers are offered in when a role's recommended tier isn't first - 
 // the recommended tier is always moved to the front so it's the default
@@ -66,6 +67,22 @@ export interface InitDeps {
   detectTests?: (cwd: string) => DetectedTestCommand | undefined
   ask?: (question: string, choices: string[]) => Promise<string>
   io?: CliIo
+}
+
+// On a real terminal, questions use the arrow-key selector (cli/select.ts);
+// everywhere else (CI, pipes) the numbered prompt below keeps working
+// exactly as before. Ctrl-c during selection exits like any interrupted
+// prompt would.
+async function askInteractive(question: string, choices: string[], io: CliIo = defaultIo): Promise<string> {
+  if (canInteract()) {
+    try {
+      return await interactiveSelect(question, choices)
+    } catch {
+      process.exitCode = 130
+      process.exit(130) // selection canceled (ctrl-c) - behave like a real ^C
+    }
+  }
+  return askViaStdin(question, choices, io)
 }
 
 async function askViaStdin(question: string, choices: string[], io: CliIo = defaultIo): Promise<string> {
@@ -214,6 +231,6 @@ export function registerInit(program: Command): void {
     .option('--force', 'overwrite an existing looprail.yaml')
     .action(async (opts: Omit<InitOpts, 'cwd'>, cmd: Command) => {
       const { cwd } = cmd.optsWithGlobals<{ cwd: string }>()
-      process.exitCode = await initAction({ ...opts, cwd }, { ask: askViaStdin })
+      process.exitCode = await initAction({ ...opts, cwd }, { ask: askInteractive })
     })
 }
