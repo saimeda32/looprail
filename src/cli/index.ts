@@ -4,6 +4,7 @@ import { realpathSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { Command } from 'commander'
 import { registerBench } from './bench-cmd.js'
+import { registerConfig } from './config-cmd.js'
 import { registerDemo } from './demo-cmd.js'
 import { registerDoctor } from './doctor-cmd.js'
 import { registerExplain } from './explain-cmd.js'
@@ -34,6 +35,7 @@ export function buildProgram(): Command {
     .option('--cwd <dir>', 'working directory', process.cwd())
   // command modules register themselves here (Tasks 7-11)
   registerDemo(program)
+  registerConfig(program)
   registerDoctor(program)
   registerInit(program)
   registerTemplates(program)

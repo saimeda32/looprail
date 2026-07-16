@@ -22,6 +22,7 @@ import { desktopNotifier, type Notifier } from './notify.js'
 import { addWorkspace, defaultRegistryPath } from '../workspace/registry.js'
 import { loadExpandedLoopDef } from './ui-cmd.js'
 import { resumeAction } from './resume-cmd.js'
+import { readUserConfig } from '../config/user-config.js'
 import { previewRun, renderPreview } from './dry-run.js'
 import { diagnoseRun } from './diagnose.js'
 import { renderDiagnosis } from './why-cmd.js'
@@ -942,7 +943,7 @@ export async function runAction(
       }
     }
     try {
-      dashboard = await startWithStableDefault(opts.port, DEFAULT_SINGLE_RUN_PORT, (port) =>
+      dashboard = await startWithStableDefault(opts.port ?? readUserConfig().port, DEFAULT_SINGLE_RUN_PORT, (port) =>
         startMissionControlServer({ registryPath, resumeFor, port }))
     } catch (e) {
       io.out(err(e instanceof Error ? e.message : String(e)))

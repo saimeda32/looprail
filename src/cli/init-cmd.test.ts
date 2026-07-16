@@ -318,3 +318,31 @@ test('--from-spec with a conflicting --template is rejected', async () => {
   expect(code).toBe(1)
   expect(lines.join('\n')).toContain('implement-spec')
 })
+
+// user config preferences: saved worker/reviewer become init's defaults,
+// but only when actually installed.
+test('config-preferred worker/reviewer are used as defaults when installed', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-init-cfg-'))
+  const { io } = capture()
+  const code = await initAction(
+    { cwd, template: 'fix-tests', yes: true },
+    {
+      detect: detected(['claude-code', 'codex', 'copilot-cli']),
+      userConfig: { worker: 'codex', reviewer: 'copilot-cli' },
+      io,
+    })
+  expect(code).toBe(0)
+  const yaml = readFileSync(join(cwd, 'looprail.yaml'), 'utf8')
+  expect(yaml).toContain('worker:  { adapter: codex')
+  expect(yaml).toContain('adapter: copilot-cli')
+})
+
+test('a preferred adapter that is NOT installed is ignored (never scaffold the unrunnable)', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-init-cfg2-'))
+  const { io } = capture()
+  const code = await initAction(
+    { cwd, template: 'fix-tests', yes: true },
+    { detect: detected(['claude-code']), userConfig: { worker: 'gemini' }, io })
+  expect(code).toBe(0)
+  expect(readFileSync(join(cwd, 'looprail.yaml'), 'utf8')).toContain('adapter: claude-code')
+})

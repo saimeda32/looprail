@@ -6,6 +6,7 @@ import { detectAgents, type DetectedAgent } from '../index.js'
 import { detectTestCommand, type DetectedTestCommand } from './detect-test-command.js'
 import { defaultIo, dim, err, ok, warn, type CliIo } from './ui.js'
 import { TEMPLATES, tierToModel, type AgentRole, type Tier } from './templates.js'
+import { readUserConfig } from '../config/user-config.js'
 
 // order tiers are offered in when a role's recommended tier isn't first - 
 // the recommended tier is always moved to the front so it's the default
@@ -60,6 +61,8 @@ export interface InitOpts {
 
 export interface InitDeps {
   detect?: () => Promise<DetectedAgent[]>
+  // Injected user preferences (tests); defaults to the real config file.
+  userConfig?: import('../config/user-config.js').UserConfig
   detectTests?: (cwd: string) => DetectedTestCommand | undefined
   ask?: (question: string, choices: string[]) => Promise<string>
   io?: CliIo
@@ -136,11 +139,20 @@ export async function initAction(opts: InitOpts, deps: InitDeps = {}): Promise<n
 
   const detected = await (deps.detect ?? detectAgents)()
   const availableAdapters = detected.filter((a) => a.available).map((a) => a.adapter)
+  // The user's saved preferences (`looprail config set worker/reviewer ...`)
+  // become the pre-selected defaults - but only when actually installed:
+  // preferring an absent adapter must not scaffold a loop that can't run.
+  const prefs = deps.userConfig ?? readUserConfig()
+  const preferredWorker = prefs.worker && availableAdapters.includes(prefs.worker) ? prefs.worker : undefined
   let worker = opts.agent
   if (!worker && availableAdapters.length > 0) {
-    worker = opts.yes || availableAdapters.length === 1 || !deps.ask
-      ? availableAdapters[0]
-      : await deps.ask('Which agent should run your loop?', availableAdapters)
+    // put the preferred adapter first so it's the default-on-enter choice
+    const ordered = preferredWorker
+      ? [preferredWorker, ...availableAdapters.filter((a) => a !== preferredWorker)]
+      : availableAdapters
+    worker = opts.yes || ordered.length === 1 || !deps.ask
+      ? ordered[0]
+      : await deps.ask('Which agent should run your loop?', ordered)
   }
   if (!worker) {
     worker = 'mock'
@@ -153,8 +165,10 @@ export async function initAction(opts: InitOpts, deps: InitDeps = {}): Promise<n
   // it - reviewer falls back to worker unless --reviewer says otherwise.
   let reviewer = opts.reviewer
   if (!reviewer) {
+    const preferredReviewer = prefs.reviewer && availableAdapters.includes(prefs.reviewer) && prefs.reviewer !== worker
+      ? prefs.reviewer : undefined
     const distinct = !opts.agent ? availableAdapters.find((a) => a !== worker) : undefined
-    reviewer = distinct ?? worker
+    reviewer = preferredReviewer ?? distinct ?? worker
   }
   if (worker !== reviewer) {
     io.out(`worker: ${worker}, reviewer: ${reviewer} - independent verification`)

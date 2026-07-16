@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { readUserConfig } from '../config/user-config.js'
 
 // Best-effort desktop notification - fire-and-forget, never throws, never
 // blocks, never awaited. A run must never fail, hang, or even slow down
@@ -29,6 +30,9 @@ export const desktopNotifier: Notifier = (title, message, openUrl) => {
   // at whoever's machine it runs on (caught live). LOOPRAIL_NO_NOTIFY: a
   // user-facing opt-out for people who don't want desktop notifications.
   if (process.env.VITEST || process.env.LOOPRAIL_NO_NOTIFY) return
+  // user preference (~/.looprail/config.json): notify=false turns them off
+  // without an env var in every shell
+  if (readUserConfig().notify === false) return
   try {
     const body = openUrl ? `${message} - ${openUrl}` : message
     let cmd: string

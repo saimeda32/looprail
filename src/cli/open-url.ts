@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { readUserConfig } from '../config/user-config.js'
 
 // Opens the human's browser to a URL - the reliable "go act on this" path
 // that click-to-open notifications can't deliver on macOS (see notify.ts).
@@ -32,6 +33,7 @@ export async function openDashboardIfReachable(
   deps: { fetcher?: Fetcher; opener?: Opener } = {},
 ): Promise<boolean> {
   if (!url || process.env.VITEST || process.env.LOOPRAIL_NO_AUTO_OPEN) return false
+  if (readUserConfig().autoOpen === false) return false
   try {
     const origin = new URL(url).origin
     const res = await (deps.fetcher ?? defaultFetcher)(origin)

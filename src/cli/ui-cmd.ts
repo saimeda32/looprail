@@ -10,6 +10,7 @@ import { loadRunLoopDef } from '../journal/loopfile-persist.js'
 import { loadLoop } from './run-cmd.js'
 import { resumeAction } from './resume-cmd.js'
 import { latestRunId, runsRoot } from './status-cmd.js'
+import { readUserConfig } from '../config/user-config.js'
 import { defaultIo, dim, err, heading, startWithStableDefault, type CliIo } from './ui.js'
 
 // Best-effort: the dashboard's usefulness (edges, rail maxes) is strictly
@@ -80,7 +81,7 @@ export async function uiAction(
   }
   let dashboard: MissionControlServer
   try {
-    dashboard = await startWithStableDefault(opts.port, DEFAULT_SINGLE_RUN_PORT,
+    dashboard = await startWithStableDefault(opts.port ?? readUserConfig().port, DEFAULT_SINGLE_RUN_PORT,
       (port) => startMissionControlServer({ registryPath, resumeFor, port }))
   } catch (e) {
     io.out(err(e instanceof Error ? e.message : String(e)))
