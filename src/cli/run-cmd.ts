@@ -28,6 +28,7 @@ import { diagnoseRun } from '../core/diagnose.js'
 import { renderDiagnosis } from './why-cmd.js'
 import { createVerifiedPr, preflightPr, type PrExec } from './pr.js'
 import { openDashboardIfReachable } from './open-url.js'
+import { LiveRunRenderer } from './live-render.js'
 
 export function loadLoop(file: string | undefined, cwd: string): { def: LoopDef; path: string } {
   const path = resolve(cwd, file ?? 'looprail.yaml')
@@ -498,9 +499,29 @@ export interface ExecCtx {
 }
 
 export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
+  // Live in-place rendering on a real terminal (see cli/live-render.ts):
+  // spinner on the running node, cost ticker updating in place. --json and
+  // non-TTY keep the classic line-per-event output byte-identical - CI logs
+  // and pipes must never grow ANSI cursor movement.
+  const live = !ctx.json && process.stdout.isTTY && !process.env.LOOPRAIL_NO_LIVE
+    ? new LiveRunRenderer(def, process.stdout)
+    : undefined
   const onEvent = (e: JournalEvent): void => {
     if (ctx.json) return
     const d = e.data as Record<string, unknown>
+    if (live) {
+      if (e.type === 'run_start') {
+        ctx.io.out(heading(`run ${String(d.runId)} - ${String(d.name)}`))
+        live.start()
+        return
+      }
+      // a gate node needs the terminal for its card + prompt: freeze the
+      // block, let the gate scroll below, fresh block on resume
+      if (e.type === 'node_start' && String(d.role) === 'gate') live.pause()
+      if (e.type === 'node_end' && String(d.role) === 'gate') live.resume()
+      live.onEvent(e)
+      return
+    }
     switch (e.type) {
       case 'run_start':
         ctx.io.out(heading(`run ${String(d.runId)} - ${String(d.name)}`))
@@ -542,9 +563,11 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
       initialPriorOutputs: ctx.initialPriorOutputs, skipPlanning: ctx.skipPlanning,
     })
   } catch (e) {
+    live?.finish()
     ctx.io.out(err(e instanceof Error ? e.message : String(e)))
     return 1
   }
+  live?.finish()
 
   if (ctx.json) {
     ctx.io.out(JSON.stringify({

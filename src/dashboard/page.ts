@@ -364,7 +364,7 @@ export function buildPage(): string {
     /* 40px minimum tap targets on every actionable control */
     .control-btn, .tab, .range-btn { min-height: 40px; }
     .tab { padding: 10px 13px; }
-    #dag-toolbar button { width: 34px; height: 38px; font-size: 14px; }
+    #dag-toolbar button { width: 38px; height: 40px; font-size: 14px; }
     #dag-zoom-fit { padding: 0 10px; }
     .feedback-row input[type="text"], .gate-row input[type="text"],
     .gate-bar .gate-actions input[type="text"],
