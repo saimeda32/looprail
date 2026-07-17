@@ -31,7 +31,7 @@ describe('applyEvent', () => {
   })
 
   test('skipped nodes render as skipped whether or not they ever started', () => {
-    let s = applyEvent(empty, ev('node_skipped', { nodeId: 'ghost' }), 0)
+    const s = applyEvent(empty, ev('node_skipped', { nodeId: 'ghost' }), 0)
     expect(s.rows[0].status).toBe('skipped')
   })
 })

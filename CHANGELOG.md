@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.11.0
+
+- **Live run rendering** - on a real terminal, `looprail run` shows one
+  status block updating in place: spinner on running nodes, per-node cost
+  and elapsed time, live iteration/cost ticker. CI, pipes, and `--json`
+  keep the classic line output byte-identical; `LOOPRAIL_NO_LIVE=1` opts a
+  TTY out. Gate prompts freeze the block, scroll below it, and a fresh
+  block resumes after the answer.
+- **Boxed gate cards** - the terminal gate prompt now leads with a card:
+  the gate id, a preview of the upstream work actually being approved, and
+  the y/n/always/feedback action line.
+- **Shell completions** - `looprail completion zsh|bash|fish`, generated
+  from the live command list so they can never drift.
+- **Phone-ready dashboards** - mission control and the run page are
+  responsive to 375px: single-column cards, stacked DAG/inspector, 40px+
+  tap targets, and a gate that can be read and answered from a phone.
+
 ## 0.10.0
 
 - **`looprail config`** - the tool now remembers how you work:
