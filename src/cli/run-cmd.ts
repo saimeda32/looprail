@@ -17,7 +17,7 @@ import { registerPendingGate, resolvePendingGate, sweepPendingGates } from '../d
 import { runsRoot, workspaceHash } from '../journal/runs.js'
 import { persistRunLoopDef } from '../journal/loopfile-persist.js'
 import { hasStoredApproval, storeApproval } from '../journal/gate-approvals.js'
-import { defaultIo, dim, err, heading, ok, renderTable, startWithStableDefault, warn, wrapText, type CliIo } from './ui.js'
+import { box, defaultIo, dim, err, heading, ok, renderTable, startWithStableDefault, warn, wrapText, type CliIo } from './ui.js'
 import { desktopNotifier, type Notifier } from './notify.js'
 import { addWorkspace, defaultRegistryPath } from '../workspace/registry.js'
 import { loadExpandedLoopDef } from './ui-cmd.js'
@@ -65,12 +65,35 @@ export interface GateTimerDeps {
   dashboardUrl?: string
 }
 
+
+// The terminal gate card: what you are being asked to approve, boxed so the
+// moment stands out from run noise. The context is the gate node's composed
+// prompt; the section after "Output of"/"Work under review" carries the
+// upstream work - a trimmed extract of it is the substance of the decision.
+function renderGateCard(io: CliIo, node: NodeDef, context: string): void {
+  const lines: string[] = []
+  // Take the section body after the Output-of/Work-under-review header and
+  // stop at the NEXT section header - role instructions and format blocks
+  // are prompt plumbing, not the thing being approved.
+  const afterHeader = context.split(/# (?:Output of|Work under review)[^\n]*\n/).slice(1).join('\n')
+  const extract = afterHeader.split(/\n# /)[0]
+  const preview = (extract.trim().length > 0 ? extract : '(no upstream output to preview)')
+    .split('\n').filter((l) => l.trim().length > 0).slice(0, 6)
+  for (const raw of preview) {
+    for (const wrapped of wrapText(raw, 72)) lines.push(dim(wrapped))
+  }
+  if (lines.length === 0) lines.push(dim('(no upstream output to preview)'))
+  lines.push('')
+  lines.push(`approve  ${ok('y')} / reject ${err('n')} / always ${warn('a')} / anything else = feedback for a revision`)
+  for (const line of box(lines, `gate: ${node.id}`)) io.out(line)
+}
+
 export function makeGate(
   rails: Rails, io: CliIo, autoApprove: boolean, cwd: string, timerDeps: GateTimerDeps = {},
   stdin: NodeJS.ReadableStream = process.stdin,
 ): GateHandler {
   let autoOpened = false
-  return async (node) => {
+  return async (node, context) => {
     if (autoApprove) {
       io.out(warn(`gate "${node.id}" auto-approved (--yes)`))
       return { approved: true }
@@ -86,6 +109,7 @@ export function makeGate(
     // cli/open-url.ts). This is the reliable alternative to a click-to-open
     // notification, which macOS can't deliver.
     if (!autoOpened) { autoOpened = true; void openDashboardIfReachable(timerDeps.dashboardUrl) }
+    renderGateCard(io, node, context)
     const rl = createInterface({ input: stdin, output: process.stdout })
     // Abort seam for the readline question: readline never rejects a pending
     // question on rl.close(), so the timeout path aborts it explicitly to

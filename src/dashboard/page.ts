@@ -208,7 +208,7 @@ export function buildPage(): string {
   .agent-row .role { color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .agent-row .node-ids { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.5; }
   .agent-row .node-ids > div { overflow-wrap: anywhere; }
-  @media (max-width: 640px) { .agent-row { grid-template-columns: 1fr 60px 70px; } .agent-row span:nth-child(2), .agent-row span:nth-child(3), .agent-row span:nth-child(4) { display: none; } }
+  @media (max-width: 640px) { .agent-row { grid-template-columns: minmax(0, 1fr) 48px 62px 78px; padding: 9px 12px; } .agent-row span:nth-child(2), .agent-row span:nth-child(3), .agent-row span:nth-child(4) { display: none; } }
 
   .run-controls { display: flex; gap: 8px; align-items: center; }
   .control-btn {
@@ -350,6 +350,59 @@ export function buildPage(): string {
   #files-touched ul { margin: 8px 0 0; padding-left: 18px; font-family: var(--mono); }
   #files-touched li { padding: 1px 0; }
   #empty-state { padding: 60px 20px; text-align: center; color: var(--ink-dim); }
+
+  /* Phone/tablet layout pass - additive only, everything above is the
+     desktop layout untouched. The DAG canvas keeps scrolling inside its own
+     #canvas-wrap container, so the page body itself never scrolls sideways. */
+  @media (max-width: 720px) {
+    html, body { overflow-x: hidden; }
+    .wrap { padding: 16px 12px 32px; }
+    /* the 800px rule above already stacks .run-body; the inspector now sits
+       BELOW the DAG, so its left border reads as a stray line - drop it */
+    #inspector-section { border-left: none; }
+    #canvas-wrap { max-height: 360px; }
+    /* 40px minimum tap targets on every actionable control */
+    .control-btn, .tab, .range-btn { min-height: 40px; }
+    .tab { padding: 10px 13px; }
+    #dag-toolbar button { width: 34px; height: 38px; font-size: 14px; }
+    #dag-zoom-fit { padding: 0 10px; }
+    .feedback-row input[type="text"], .gate-row input[type="text"],
+    .gate-bar .gate-actions input[type="text"],
+    .resume-row input[type="number"], .resume-row textarea { min-height: 40px; }
+    #detail-panel, .run-goal, .live-meta .row { overflow-wrap: anywhere; }
+    .site-footer { padding: 14px 12px; }
+  }
+  @media (max-width: 420px) {
+    .wrap { padding: 12px 10px 28px; }
+    .masthead { padding-bottom: 14px; margin-bottom: 18px; }
+    .run-header { padding: 12px; }
+    .run-goal, .reason-banner { padding-left: 12px; padding-right: 12px; }
+    #live-output-body, .live-meta, #inspector-section { padding-left: 12px; padding-right: 12px; }
+    /* meters: one gauge per line, label left / reading+bar right - six
+       gauges crammed into 355px otherwise wrap unpredictably mid-gauge */
+    .gauges { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px; }
+    .gauge { justify-content: space-between; }
+    .gauge .meter { margin-left: auto; flex: 0 0 84px; }
+    #canvas-wrap { max-height: 300px; padding: 10px; }
+    /* feedback + mid-node permission rows: stack input over full-width
+       buttons instead of squeezing them onto one line */
+    .feedback-row, .gate-row { flex-direction: column; align-items: stretch; padding: 10px 12px; }
+    .feedback-row input[type="text"], .gate-row input[type="text"] { min-width: 0; }
+    .resume-row { padding: 10px 12px; }
+    .resume-primary-line { flex-wrap: wrap; }
+    .resume-advanced .resume-fields label { width: 100%; justify-content: space-between; }
+    /* the gate approval bar is THE phone scenario: full-width stacked
+       approve / reject / reason controls, question box kept scrollable and
+       capped so the actions always stay on screen */
+    .gate-bar { padding: 10px 12px 12px; }
+    .gate-bar .gate-question { max-height: 30vh; }
+    .gate-bar .gate-actions { flex-direction: column; align-items: stretch; }
+    .gate-bar .gate-actions input[type="text"] { min-width: 0; }
+    .gate-bar .gate-actions .control-btn { min-height: 44px; }
+    body.gate-open .wrap { padding-bottom: 62vh; }
+    .agent-row { font-size: 11.5px; }
+    .claim-row { gap: 8px; }
+  }
 
   @media (prefers-reduced-motion: reduce) {
     .trace.edge-live, .status-running::before, .tab.active .tab-dot, .cursor, .node-dot.node-running, .wordmark .dot, .gate-bar { animation: none !important; }

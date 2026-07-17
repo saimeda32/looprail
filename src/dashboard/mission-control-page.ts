@@ -231,6 +231,33 @@ export function buildMissionControlPage(): string {
   .session-badge.tool-codex { color: #6b9fa6; border-color: rgba(107,159,166,0.4); }
   .session-badge.tool-aider { color: #a66b9f; border-color: rgba(166,107,159,0.4); }
   .session-card .meta { font: 11px var(--mono); color: var(--ink-faint); }
+  /* Phone/tablet layout pass - additive only, everything above is the
+     desktop layout untouched. Cards go full-width, the usage strip becomes
+     a labeled grid, and every tappable control clears 40px. */
+  @media (max-width: 720px) {
+    html, body { overflow-x: hidden; }
+    .wrap { padding: 16px 12px 32px; }
+    #grid, #needs-grid, #running-grid, #sessions-grid { grid-template-columns: 1fr; }
+    .usage-figures { display: grid; grid-template-columns: repeat(3, 1fr); }
+    .usage-item { padding: 10px 12px; min-width: 0; border-bottom: 1px solid var(--line); }
+    .usage-item .value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .range-picker { width: 100%; justify-content: flex-end; padding: 8px 10px; }
+    .range-btn { min-height: 40px; padding: 8px 14px; }
+    .show-all-btn { min-height: 44px; }
+    /* the copy-resume button inside an expanded session card - it has no
+       styling of its own on this page, only a floor and a wrap rule so a
+       long resume command never widens the page */
+    .session-card button { min-height: 40px; max-width: 100%; overflow-wrap: anywhere; }
+    .site-footer { padding: 14px 12px; }
+  }
+  @media (max-width: 420px) {
+    .wrap { padding: 12px 10px 28px; }
+    .masthead { padding-bottom: 14px; margin-bottom: 16px; }
+    .usage-figures { grid-template-columns: repeat(2, 1fr); }
+    .usage-item .value { font-size: 15px; }
+    .run-card { padding: 12px 14px 10px 16px; }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .status-running::before { animation: none !important; }
     .run-card { transition: none !important; }

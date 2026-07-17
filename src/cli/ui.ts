@@ -66,3 +66,19 @@ export async function startWithStableDefault<T>(
     throw e
   }
 }
+
+// A rounded box for moments that demand attention (gate approvals). Width
+// adapts to content, capped for readability; lines longer than the cap are
+// wrapped by the caller (wrapText) before boxing.
+export function box(lines: string[], title?: string): string[] {
+  // measure on the color-stripped text so ANSI codes don't inflate widths
+  // eslint-disable-next-line no-control-regex
+  const bare = (s: string): string => s.replace(/\u001b\[[0-9;]*m/g, '')
+  const inner = Math.min(76, Math.max(24, ...lines.map((l) => bare(l).length), title ? bare(title).length + 2 : 0))
+  const top = title
+    ? `\u256d\u2500 ${title} ${'\u2500'.repeat(Math.max(0, inner - bare(title).length - 2))}\u256e`
+    : `\u256d${'\u2500'.repeat(inner + 2)}\u256e`
+  const bottom = `\u2570${'\u2500'.repeat(inner + 2)}\u256f`
+  const body = lines.map((l) => `\u2502 ${l}${' '.repeat(Math.max(0, inner - bare(l).length))} \u2502`)
+  return [top, ...body, bottom]
+}

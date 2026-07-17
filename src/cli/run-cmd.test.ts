@@ -1583,3 +1583,18 @@ test('a halted run prints a diagnosis with next steps and points at `looprail wh
   expect(text.toLowerCase()).toContain('what to do:')
   expect(text).toContain('looprail why')
 })
+
+// The stdin gate renders a boxed card naming the gate and the upstream work
+// before asking - the terminal version of the dashboard's gate view.
+test('the stdin gate prompt is preceded by a boxed gate card with the upstream output', async () => {
+  const { cwd, io, lines } = setup(GATED)
+  const { Readable } = await import('node:stream')
+  const stdinMock = new Readable({ read() { this.push('y\n'); this.push(null) } })
+  const gate = makeGate({ maxIterations: 2, maxCostUsd: 1 }, io, false, cwd, {}, stdinMock)
+  const answer = await gate({ id: 'approve', role: 'gate' }, '# Goal\ng\n\n# Output of "do"\nTHE WORK PRODUCT\n\n# Your role\nplumbing-instructions')
+  expect(answer).toEqual({ approved: true })
+  const text = lines.join('\n')
+  expect(text).toContain('gate: approve')
+  expect(text).toContain('THE WORK PRODUCT')
+  expect(text).not.toContain('plumbing-instructions') // prompt plumbing never in the card
+})
