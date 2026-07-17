@@ -92,6 +92,7 @@ test('box wraps content with a title and pads to a stable inner width', async ()
   expect(lines[0]).toContain('gate: approve')
   expect(lines.at(-1)!.length).toBeGreaterThan(10)
   // every body line renders the same visual width once colors are stripped
+  // eslint-disable-next-line no-control-regex
   const widths = lines.slice(1, -1).map((l) => l.replace(/\u001b\[[0-9;]*m/g, '').length)
   expect(new Set(widths).size).toBe(1)
 })
