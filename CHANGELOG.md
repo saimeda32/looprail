@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0
 
 - **`looprail config`** - the tool now remembers how you work:
   `config set worker codex`, `config set autoOpen false`, etc., stored in
