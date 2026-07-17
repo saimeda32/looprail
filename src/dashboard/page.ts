@@ -85,6 +85,14 @@ export function buildPage(): string {
   .reason-banner.reason-parked { color: var(--signal); background: rgba(232,196,104,0.08); border-color: rgba(232,196,104,0.3); }
   .reason-banner.reason-halted { color: var(--warn); background: rgba(184,134,61,0.10); }
   .reason-banner.reason-canceled { color: var(--ink-dim); background: rgba(140,131,117,0.10); }
+  /* The run's plain-language diagnosis (served by /why - same engine as
+     the CLI's why command): what happened + concrete next steps, rendered
+     under the halt reason so acting on a stop never needs the terminal. */
+  .why-panel { margin: 8px 0 4px; padding: 10px 14px; border: 1px solid rgba(184,134,61,0.25); border-radius: 8px; background: rgba(184,134,61,0.05); }
+  .why-headline { font: 600 13px var(--sans); color: var(--warn); }
+  .why-cause { font: 12px var(--sans); color: var(--ink-dim); margin-top: 4px; }
+  .why-steps { margin: 6px 0 0; padding-left: 18px; }
+  .why-steps li { font: 12px var(--sans); color: var(--ink); margin-top: 3px; }
   .run-goal { padding: 12px 18px; border-bottom: 1px solid var(--line); font-size: 12.5px; line-height: 1.5; color: var(--ink-dim); white-space: pre-wrap; max-height: 200px; overflow: auto; }
   .run-goal:empty { display: none; }
 
@@ -374,6 +382,11 @@ export function buildPage(): string {
       <span class="reason-label" id="reason-label"></span>
       <span id="reason"></span>
     </div>
+    <div id="why-panel" class="why-panel" style="display:none">
+      <div class="why-headline" id="why-headline"></div>
+      <div class="why-cause" id="why-cause"></div>
+      <ul class="why-steps" id="why-steps"></ul>
+    </div>
     <div class="run-goal" id="run-goal"></div>
     <div class="feedback-row" id="feedback-row" style="display:none">
       <input type="text" id="feedback-input" placeholder="Add a note for the next attempt…" maxlength="2000" />
@@ -612,6 +625,35 @@ export function buildPage(): string {
   // call site, which folds estimatedCostUsd in before calling this) - no
   // separate "incl ~$X est" suffix, matching the same one-number treatment
   // the agent-table Total row and mission control's aggregate use.
+  // Fetches and renders the run's diagnosis (the /why route - the same
+  // engine behind the CLI's why command) for HALTED runs only: verified needs no
+  // help, parked has its own resume affordance, running has no outcome yet.
+  // Fetched once per terminal state, not on every model poll.
+  var whyFetchedFor = null;
+  function renderWhy(status) {
+    var panel = document.getElementById('why-panel');
+    if (status !== 'halted') {
+      panel.style.display = 'none';
+      whyFetchedFor = null;
+      return;
+    }
+    if (whyFetchedFor === status) return;
+    whyFetchedFor = status;
+    fetch('why').then(function (r) { return r.json(); }).then(function (d) {
+      if (!d || d.pending || !d.headline) return;
+      document.getElementById('why-headline').textContent = d.headline;
+      document.getElementById('why-cause').textContent = d.cause || '';
+      var steps = document.getElementById('why-steps');
+      steps.innerHTML = '';
+      (d.nextSteps || []).forEach(function (step) {
+        var li = document.createElement('li');
+        li.textContent = step;
+        steps.appendChild(li);
+      });
+      panel.style.display = 'block';
+    }).catch(function () { /* the reason banner still shows - fine */ });
+  }
+
   function renderMeter(fillId, labelId, value, max, unit) {
     var fill = document.getElementById(fillId);
     var label = document.getElementById(labelId);
@@ -1060,6 +1102,7 @@ export function buildPage(): string {
       reasonLabel.textContent = '';
       document.getElementById('reason').textContent = '';
     }
+    renderWhy(model.status);
 
     var back = document.getElementById('back-link');
     back.style.display = location.pathname.indexOf('/run/') === 0 ? 'inline' : 'none';

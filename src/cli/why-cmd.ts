@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import type { Command } from 'commander'
 import { readJournal } from '../index.js'
 import { latestRunId, runsRoot } from '../journal/runs.js'
-import { diagnoseRun, factsFromJournal, type Diagnosis } from './diagnose.js'
+import { diagnoseRun, factsFromJournal, type Diagnosis } from '../core/diagnose.js'
 import { defaultIo, dim, err, heading, ok, warn, type CliIo } from './ui.js'
 
 // Renders a diagnosis to the terminal. Shared by `looprail why` and by the

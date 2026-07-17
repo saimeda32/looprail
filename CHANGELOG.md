@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- **`looprail config`** - the tool now remembers how you work:
+  `config set worker codex`, `config set autoOpen false`, etc., stored in
+  `~/.looprail/config.json` (flags and env vars always win). Saved
+  worker/reviewer become init's pre-selected defaults when installed;
+  autoOpen/notify/port preferences apply everywhere they matter.
+- **Arrow-key init** - every init question (template, agent, model tier) is
+  now an arrow-key selector on a real terminal: pointer highlight,
+  descriptions inline, vim j/k, wrap-around. Zero new dependencies; CI and
+  pipes keep the numbered prompt unchanged.
+- **Halt diagnosis on the dashboard** - a halted run's page now shows the
+  same plain-language "what happened + what to do next" panel the CLI
+  prints, served by the new `/why` route. Acting on a stop no longer needs
+  a terminal.
+- Suite hardening: the long-standing intermittent full-suite failure was
+  pinned (server-booting integration tests exceeding the 5s default only
+  under full-parallel CPU load) and fixed with a global timeout ceiling.
+
 ## 0.9.2
 
 - **Auto-open the dashboard when a gate needs you** - when a run pauses on

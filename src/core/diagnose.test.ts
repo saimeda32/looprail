@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { diagnoseRun, factsFromJournal, type RunFacts } from './diagnose.js'
-import type { JournalEvent } from '../core/types.js'
+import type { JournalEvent } from './types.js'
 
 const facts = (over: Partial<RunFacts> = {}): RunFacts => ({
   status: 'halted', reason: '', iterations: 3, costUsd: 2.5, estimatedCostUsd: 0, ...over,

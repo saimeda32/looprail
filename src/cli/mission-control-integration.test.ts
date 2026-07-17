@@ -6,6 +6,10 @@ import { afterEach, expect, test  } from 'vitest'
 
 import { runAction } from './run-cmd.js'
 import { uiAllAction } from './ui-cmd.js'
+import { addWorkspace } from '../workspace/registry.js'
+import { latestRunId, workspaceHash } from '../journal/runs.js'
+import { startMissionControlServer } from '../dashboard/mission-control-server.js'
+import { MockAdapter, createRegistry } from '../index.js'
 
 const FIXTURE = (name: string) => `
 name: ${name}
@@ -90,4 +94,36 @@ test('after two runs, `workspace list` shows both projects without any explicit 
   workspaceListAction({ cwd: '/irrelevant', registryPath }, io)
   expect(lines.join('\n')).toContain(a)
   expect(lines.join('\n')).toContain(b)
+})
+
+// The run page's diagnosis panel is fed by GET /run/<hash>/<runId>/why -
+// the same engine behind the CLI's why command, served over HTTP.
+test('/why on a halted run returns the plain-language diagnosis', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-mc-why-'))
+  const registryPath = join(cwd, 'registry.json')
+  addWorkspace(registryPath, cwd)
+  writeFileSync(join(cwd, 'looprail.yaml'), `
+name: why-int
+goal: never passes
+agents: { m: { adapter: mock } }
+graph:
+  do:  { role: executor, agent: m }
+  bad: { role: tester, after: do, run: "false", expect: exit 0 }
+rails: { max_iterations: 2, max_cost_usd: 1 }
+`)
+  const registry = createRegistry()
+  registry.register(new MockAdapter(Array.from({ length: 12 }, () => ({ output: 'work' }))))
+  await runAction(undefined, { cwd, json: true }, { io: { out: () => {} }, registry })
+  const runId = latestRunId(cwd)!
+  const dash = await startMissionControlServer({ registryPath })
+  try {
+    const res = await get(`${dash.url}/run/${workspaceHash(cwd)}/${runId}/why`)
+    expect(res.status).toBe(200)
+    const d = JSON.parse(res.body) as { status: string; headline: string; nextSteps: string[] }
+    expect(d.status).toBe('halted')
+    expect(d.headline.length).toBeGreaterThan(10)
+    expect(d.nextSteps.length).toBeGreaterThan(0)
+  } finally {
+    await dash.close()
+  }
 })

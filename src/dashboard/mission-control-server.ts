@@ -10,6 +10,8 @@ import {
 import { defaultRegistryPath, listWorkspaces } from '../workspace/registry.js'
 import { buildMissionControlPage } from './mission-control-page.js'
 import { serveControl, serveEvents, serveIndexPage, serveModel, serveResume, type ResumeOverrides } from './server.js'
+import { diagnoseRun, factsFromJournal } from '../core/diagnose.js'
+import { readJournal } from '../journal/journal.js'
 import { fsWatcher, type Watcher } from './tail.js'
 
 // See discover.ts (Task 8) for why this is a small, deliberate duplicate of
@@ -98,9 +100,9 @@ export interface MissionControlServer {
   close(): Promise<void>
 }
 
-interface RunRoute { hash: string; runId: string; sub: 'index' | 'model' | 'events' | 'control' | 'resume' }
+interface RunRoute { hash: string; runId: string; sub: 'index' | 'model' | 'events' | 'control' | 'resume' | 'why' }
 
-// Pure: parses /run/<hash>/<runId>[/model|/events|/control|/resume]. Plain
+// Pure: parses /run/<hash>/<runId>[/model|/events|/control|/resume|/why]. Plain
 // segment splitting instead of a regex - easier to read and to unit test
 // in isolation.
 export function matchRunRoute(pathname: string): RunRoute | null {
@@ -108,7 +110,7 @@ export function matchRunRoute(pathname: string): RunRoute | null {
   if (parts[0] !== 'run' || !parts[1] || !parts[2]) return null
   if (parts.length === 3) return { hash: parts[1], runId: parts[2], sub: 'index' }
   if (parts.length === 4
-    && (parts[3] === 'model' || parts[3] === 'events' || parts[3] === 'control' || parts[3] === 'resume')) {
+    && (parts[3] === 'model' || parts[3] === 'events' || parts[3] === 'control' || parts[3] === 'resume' || parts[3] === 'why')) {
     return { hash: parts[1], runId: parts[2], sub: parts[3] }
   }
   return null
@@ -212,6 +214,22 @@ export function startMissionControlServer(opts: MissionControlServerOptions = {}
         serveModel(res, {
           journalPath, def: bestEffortLoopDef(workspace, runDir), onResume: opts.resumeFor?.(workspace, route.runId),
         })
+        return
+      }
+      if (req.method === 'GET' && route.sub === 'why') {
+        // The run's plain-language diagnosis (core/diagnose.ts) - same
+        // engine `looprail why` uses, served for the page's halted panel.
+        try {
+          const events = readJournal(journalPath)
+          const facts = factsFromJournal(events)
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end(JSON.stringify(facts
+            ? { status: facts.status, ...diagnoseRun(facts, events) }
+            : { pending: true }))
+        } catch {
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end(JSON.stringify({ pending: true }))
+        }
         return
       }
       if (req.method === 'GET' && route.sub === 'events') {

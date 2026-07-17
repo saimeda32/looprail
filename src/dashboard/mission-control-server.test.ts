@@ -56,6 +56,7 @@ test('matchRunRoute parses index/model/events/resume sub-routes and rejects non-
   expect(matchRunRoute('/run/abc123/run-1/model')).toEqual({ hash: 'abc123', runId: 'run-1', sub: 'model' })
   expect(matchRunRoute('/run/abc123/run-1/events')).toEqual({ hash: 'abc123', runId: 'run-1', sub: 'events' })
   expect(matchRunRoute('/run/abc123/run-1/resume')).toEqual({ hash: 'abc123', runId: 'run-1', sub: 'resume' })
+  expect(matchRunRoute('/run/abc123/run-1/why')).toEqual({ hash: 'abc123', runId: 'run-1', sub: 'why' })
   expect(matchRunRoute('/run/abc123/run-1/junk')).toBeNull()
   expect(matchRunRoute('/api/runs')).toBeNull()
 })

@@ -1,4 +1,4 @@
-import type { JournalEvent } from '../core/types.js'
+import type { JournalEvent } from './types.js'
 
 // Turns "halted - rail breached (iterations)" into "here is what happened and
 // here is your next move". The #1 friction using any agent loop is a run that
