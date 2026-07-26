@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
@@ -29,6 +29,8 @@ import { renderDiagnosis } from './why-cmd.js'
 import { createVerifiedPr, preflightPr, type PrExec } from './pr.js'
 import { openDashboardIfReachable } from './open-url.js'
 import { LiveRunRenderer } from './live-render.js'
+import { scanForInjection } from '../core/injection.js'
+import { fetchIssue, issueGoal, parseIssueRef, type IssueExec } from './from-issue.js'
 
 export function loadLoop(file: string | undefined, cwd: string): { def: LoopDef; path: string } {
   const path = resolve(cwd, file ?? 'looprail.yaml')
@@ -84,6 +86,15 @@ function renderGateCard(io: CliIo, node: NodeDef, context: string): void {
     for (const wrapped of wrapText(raw, 72)) lines.push(dim(wrapped))
   }
   if (lines.length === 0) lines.push(dim('(no upstream output to preview)'))
+  // untrusted-content check: reviewed material carrying instruction-shaped
+  // text (the hijack-the-reviewer attack) is called out where the human
+  // decides - the whole point of a gate
+  const scan = scanForInjection(context)
+  if (scan.suspicious) {
+    lines.push('')
+    lines.push(err(`!! instruction-like text in reviewed content: ${scan.findings.map((f) => f.pattern).join(', ')}`))
+    lines.push(err('   possible prompt-injection attempt - read the full output before approving'))
+  }
   lines.push('')
   lines.push(`approve  ${ok('y')} / reject ${err('n')} / always ${warn('a')} / anything else = feedback for a revision`)
   for (const line of box(lines, `gate: ${node.id}`)) io.out(line)
@@ -496,6 +507,9 @@ export interface ExecCtx {
   // run's evidence (see cli/pr.ts). prExec is the git/gh seam for tests.
   pr?: boolean
   prExec?: PrExec
+  // "owner/repo#N" (or "#N") when the run came from --from-issue; the PR
+  // body leads with "Closes <ref>" so merging closes the issue.
+  prCloses?: string
 }
 
 export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
@@ -583,7 +597,7 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
     }))
     if (ctx.pr && report.status === 'verified') {
       try {
-        const pr = await createVerifiedPr(ctx.cwd, report, ctx.prExec)
+        const pr = await createVerifiedPr(ctx.cwd, report, ctx.prExec, { closes: ctx.prCloses })
         ctx.io.out(JSON.stringify({ pr: pr.url, branch: pr.branch }))
       } catch (e) {
         ctx.io.out(JSON.stringify({ prError: e instanceof Error ? e.message : String(e) }))
@@ -679,7 +693,7 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
   }
   if (ctx.pr && report.status === 'verified') {
     try {
-      const pr = await createVerifiedPr(ctx.cwd, report, ctx.prExec)
+      const pr = await createVerifiedPr(ctx.cwd, report, ctx.prExec, { closes: ctx.prCloses })
       ctx.io.out(ok(`  pr opened: ${pr.url} (branch ${pr.branch}) - the description is the run's evidence`))
     } catch (e) {
       ctx.io.out(err(`  the run verified, but opening the PR failed: ${e instanceof Error ? e.message : String(e)}`))
@@ -688,6 +702,16 @@ export async function executeRun(def: LoopDef, ctx: ExecCtx): Promise<number> {
   }
   return report.status === 'verified' ? 0 : 2
 }
+
+
+// Default `gh` executor for --from-issue: execFile with an argv array (no
+// shell - issue refs are user input and must never reach one).
+const defaultIssueExec: IssueExec = (args) =>
+  new Promise((resolveExec) => {
+    execFile('gh', args, { timeout: 30_000 }, (error, stdout) => {
+      resolveExec({ stdout: stdout ?? '', code: error ? 1 : 0 })
+    })
+  })
 
 export interface RunDeps {
   registry?: AdapterRegistry
@@ -702,6 +726,8 @@ export interface RunDeps {
   // Seam for the pre-run adapter availability check; defaults to the real
   // detectAgents. Tests inject a fixed roster.
   detect?: () => Promise<DetectedAgent[]>
+  // Seam for --from-issue's `gh issue view` (tests inject a canned issue).
+  issueExec?: IssueExec
   // Seam for --pr's git/gh invocations (cli/pr.ts). Tests inject a recorder.
   prExec?: PrExec
 }
@@ -876,6 +902,9 @@ export async function runAction(
     // child - use the runId its parent already announced, take gate answers
     // via the cross-process answer file, notify on completion.
     detachedChild?: string
+    // Resolve a GitHub issue: fetch it via gh, use it as the goal, and
+    // (with --pr) close it from the verified PR. cli/from-issue.ts.
+    fromIssue?: string
     // Run the loaded loopfile against a DIFFERENT goal without touching the
     // file on disk - the same override posture as resume's goal override
     // (see resume-cmd.ts). This is what lets `looprail queue` run one graph
@@ -895,6 +924,30 @@ export async function runAction(
   } catch (e) {
     io.out(err(e instanceof Error ? e.message : String(e)))
     return 1
+  }
+  // --from-issue: the issue becomes the goal (before any spend; a bad ref
+  // or unauthenticated gh must fail here, not mid-run). An issue is
+  // untrusted input - instruction-shaped content in its body is surfaced
+  // before work starts, and composeContext cautions carry into the run.
+  let prCloses: string | undefined
+  if (opts.fromIssue !== undefined) {
+    const ref = parseIssueRef(opts.fromIssue)
+    if (!ref) {
+      io.out(err(`--from-issue: could not parse "${opts.fromIssue}" - use an issue URL, owner/repo#123, or #123`))
+      return 1
+    }
+    try {
+      const issue = await fetchIssue(ref, deps.issueExec ?? defaultIssueExec)
+      loaded = { ...loaded, def: { ...loaded.def, goal: issueGoal(issue) } }
+      prCloses = ref.repo ? `${ref.repo}#${ref.number}` : `#${ref.number}`
+      if (!opts.json) {
+        io.out(dim(`  goal from issue #${ref.number}: ${issue.title}`))
+        if (issue.injectionWarning) io.out(warn(`  !! ${issue.injectionWarning} - review the goal before approving gates`))
+      }
+    } catch (e) {
+      io.out(err(e instanceof Error ? e.message : String(e)))
+      return 1
+    }
   }
   if (opts.goal !== undefined) {
     loaded = { ...loaded, def: { ...loaded.def, goal: opts.goal } }
@@ -1022,6 +1075,7 @@ export async function runAction(
       json: !!opts.json,
       pr: !!opts.pr,
       prExec: deps.prExec,
+      prCloses,
       registry: deps.registry ?? createDefaultRegistry({ cwd: opts.cwd }),
       // A detached child's gate is answerable ONLY via the cross-process
       // answer file; a `--ui` run's gate from stdin or its own dashboard; a
@@ -1084,6 +1138,7 @@ export function registerRun(program: Command): void {
     .option('-d, --detach', 'run in the background: returns immediately; watch it and answer its gates from mission control (looprail ui --all)')
     .option('--dry-run', 'print the execution plan (node order, per-node model, budget) and exit - invokes no agent, spends nothing')
     .option('--pr', 'when the run verifies, open a pull request whose description is the run evidence (needs git + gh)')
+    .option('--from-issue <ref>', 'use a GitHub issue as the goal (URL, owner/repo#123, or #123); with --pr the PR closes it')
     .option('--port <n>', 'bind --ui to a fixed port (default: 4747; falls back to a free port automatically if that one is taken)', parsePort)
   // Internal plumbing for --detach's child process, never for humans: the
   // parent mints the runId and hands it down so it can print where to watch

@@ -1,3 +1,4 @@
+import { injectionCaution, scanForInjection } from './injection.js'
 import type { LoopDef, NodeDef, NodeOutcome, Role } from './types.js'
 import { DEFAULT_VERDICT_THRESHOLD } from './types.js'
 import { descendantsByNode } from './graph.js'
@@ -172,6 +173,16 @@ function scopeFeedback(
   return entries.map((f) => `[${f.nodeId}] ${f.evidence}`).join('\n')
 }
 
+
+// Reviewed/upstream content is untrusted: it may carry instruction-shaped
+// text aimed at the model reading it (see core/injection.ts). A flagged
+// section gets a caution prepended INSIDE the section, adjacent to the
+// content it warns about - the spotlighting defense. Never blocks anything.
+function guarded(section: string, body: string): string {
+  const scan = scanForInjection(body)
+  return scan.suspicious ? `${section}\n${injectionCaution(scan.findings)}\n${body}` : `${section}\n${body}`
+}
+
 export function composeContext(
   def: LoopDef,
   node: NodeDef,
@@ -224,17 +235,17 @@ export function composeContext(
       // out loud rather than silently falling back to the narrative, which
       // would quietly turn blind mode off.
       parts.push(extras.blindDiff
-        ? `# Work under review (actual workspace diff since run start - blind mode, the worker's own description is deliberately not shown)\n${extras.blindDiff}`
+        ? guarded(`# Work under review (actual workspace diff since run start - blind mode, the worker's own description is deliberately not shown)`, extras.blindDiff)
         : `# Work under review (blind mode)\nNo workspace diff is available (no changes since run start, or not a git repository). If work was claimed, treat that claim as unverified.`)
     } else {
       const target = outcomes.get(node.of)
-      if (target) parts.push(`# Work under review (from "${node.of}")\n${target.output}`)
+      if (target) parts.push(guarded(`# Work under review (from "${node.of}")`, target.output))
     }
   }
   if (node.role === 'judge' || node.role === 'synthesizer' || node.role === 'gate') {
     for (const dep of node.after ?? []) {
       const o = outcomes.get(dep)
-      if (o) parts.push(`# Output of "${dep}"\n${o.output}`)
+      if (o) parts.push(guarded(`# Output of "${dep}"`, o.output))
     }
   }
   if (node.rubric) parts.push(`# Rubric\n${node.rubric}`)

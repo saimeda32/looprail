@@ -40,8 +40,9 @@ export async function preflightPr(cwd: string, exec: PrExec = defaultExec): Prom
   return null
 }
 
-export function buildPrBody(report: RunReport): string {
+export function buildPrBody(report: RunReport, opts: { closes?: string } = {}): string {
   const lines: string[] = []
+  if (opts.closes) lines.push(`Closes ${opts.closes}.`)
   lines.push(`Opened by looprail from verified run \`${report.runId}\` - every check below actually ran.`)
   lines.push('')
   lines.push(`| | |`)
@@ -82,6 +83,7 @@ export interface PrResult {
 
 export async function createVerifiedPr(
   cwd: string, report: RunReport, exec: PrExec = defaultExec,
+  prOpts: { closes?: string } = {},
 ): Promise<PrResult> {
   if (report.status !== 'verified') {
     throw new Error(`refusing to open a PR for a ${report.status} run - only verified work ships`)
@@ -108,7 +110,7 @@ export async function createVerifiedPr(
     'pr', 'create',
     '--head', branch,
     '--title', title,
-    '--body', buildPrBody(report),
+    '--body', buildPrBody(report, { closes: prOpts.closes }),
   ], { cwd })
   const url = created.stdout.trim().split('\n').pop() ?? ''
   return { branch, url }

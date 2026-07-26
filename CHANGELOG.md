@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.12.0
+
+- **`run --from-issue <ref>`** - point the loop at a GitHub issue (URL,
+  `owner/repo#123`, or `#123`) and the issue becomes the goal, fetched via
+  your existing `gh` auth before any spend. With `--pr`, the verified PR
+  leads with `Closes <ref>` so merging closes the issue. Issue-in,
+  verified-PR-out.
+- **Prompt-injection guard** - every upstream output composed into a
+  reviewing context (critic, judge, synthesizer, gate) is scanned
+  deterministically for instruction-shaped text: override phrases, verdict
+  coercion ("you must approve"), system-prompt spoofing, hidden HTML
+  directives, exfiltration instructions, zero-width smuggling. A flag never
+  blocks - it wraps the section with an in-context caution (data, not
+  instructions), shows a red warning on the terminal gate card, and
+  `--from-issue` warns about instruction-shaped issue bodies before the
+  run starts. See docs/security.md.
+
 ## 0.11.0
 
 - **Live run rendering** - on a real terminal, `looprail run` shows one
