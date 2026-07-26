@@ -44,7 +44,7 @@ export function scanForInjection(text: string): InjectionScan {
     if (m) {
       findings.push({
         pattern,
-        excerpt: m[0].slice(0, 120).replace(/[\u200b\u200c\u200d\u2060\ufeff]/g, '<ZWSP>').trim(),
+        excerpt: m[0].slice(0, 120).replace(/(?:\u200b|\u200c|\u200d|\u2060|\ufeff)/g, '<ZWSP>').trim(),
       })
     }
   }
