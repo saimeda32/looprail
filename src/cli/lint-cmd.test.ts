@@ -49,3 +49,14 @@ test('unreadable or unparseable file exits 1 with the parser message', async () 
   expect(lines.join('\n')).toContain('missing required field')
   expect(await lintAction('nope.yaml', { cwd }, io)).toBe(1)
 })
+
+// no argument = the cwd's looprail.yaml, the same default `run` has - an
+// HN-reader papercut caught on the 0.12.0 cold-start pass
+test('lint with no file argument lints ./looprail.yaml', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'lr-lint-default-'))
+  writeFileSync(join(cwd, 'looprail.yaml'), CLEAN)
+  const lines: string[] = []
+  const code = await lintAction(undefined, { cwd }, { out: (l) => lines.push(l) })
+  expect(code).toBe(0)
+  expect(lines.join('\n')).toContain('lint clean')
+})

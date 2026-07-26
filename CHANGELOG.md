@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.1
+
+- `looprail lint` with no argument now lints the cwd's `looprail.yaml`,
+  matching `run`'s default (caught on a cold-start pass of the published
+  package).
+- README: added a terminal screenshot of the live run rendering.
+
 ## 0.12.0
 
 - **`run --from-issue <ref>`** - point the loop at a GitHub issue (URL,

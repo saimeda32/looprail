@@ -5,11 +5,12 @@ import { lintLoop, parseLoopfile } from '../index.js'
 import { defaultIo, err, ok, warn, type CliIo } from './ui.js'
 
 export async function lintAction(
-  file: string,
+  file: string | undefined,
   opts: { cwd: string },
   io: CliIo = defaultIo,
 ): Promise<number> {
-  const path = resolve(opts.cwd, file)
+  // same default as `run`: no argument means the cwd's looprail.yaml
+  const path = resolve(opts.cwd, file ?? 'looprail.yaml')
   let text: string
   try {
     text = readFileSync(path, 'utf8')
@@ -38,9 +39,9 @@ export async function lintAction(
 
 export function registerLint(program: Command): void {
   program
-    .command('lint <file>')
+    .command('lint [file]')
     .description('statically validate a loopfile (termination path, rails, self-judging, ...)')
-    .action(async (file: string, _opts: unknown, cmd: Command) => {
+    .action(async (file: string | undefined, _opts: unknown, cmd: Command) => {
       const { cwd } = cmd.optsWithGlobals<{ cwd: string }>()
       process.exitCode = await lintAction(file, { cwd })
     })

@@ -81,6 +81,12 @@ one: a genuinely buggy function with a failing test, handed to real Claude
 Code through a fix → `node test.js` → independent-critic loop, verified in
 one iteration with per-node cost and tokens on screen:
 
+What a run looks like in the terminal - a live status block that updates in place, then the verdict and the evidence:
+
+![looprail run: live status block, verified verdict, per-agent cost, and verifier summary](docs/assets/terminal-live-run.png)
+
+And in the dashboard, with a real Claude Code fix and real cost/token counts:
+
 ![looprail dashboard showing a real Claude Code fix, verified, with real cost and token counts](docs/assets/real-demo-verified.png)
 
 ## Loopfile anatomy
